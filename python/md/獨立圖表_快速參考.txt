@@ -1,0 +1,93 @@
+# 🎯 圖表分別輸出 - 快速參考
+
+## ✅ 已完成
+
+兩張圖現在**分別輸出**成獨立的 PDF 檔案！
+
+---
+
+## 📊 輸出檔案
+
+### 修改前（一張圖）
+```
+uav123_plots.png  (兩個圖並排在一起)
+```
+
+### 修改後（兩張獨立圖）✓
+```
+uav123_success_plot.pdf      ✓ 獨立的 Success Plot
+uav123_precision_plot.pdf    ✓ 獨立的 Precision Plot
+```
+
+---
+
+## 🚀 使用方式
+
+```bash
+cd /home/junjie/01_Research/SGLATrack-main
+conda activate sgla
+
+python tracking/calculate_metrics.py --dataset uav123 --plot
+```
+
+---
+
+## 📂 檔案位置
+
+```
+output/test/result_plots/uav123/
+├── uav123_success_plot.pdf      (20 KB) ✓
+└── uav123_precision_plot.pdf    (22 KB) ✓
+```
+
+---
+
+## 📋 檔案規格
+
+| 項目 | 數值 |
+|------|------|
+| **格式** | PDF (向量圖) ✓ |
+| **解析度** | 300 dpi (論文品質) ✓ |
+| **尺寸** | 10x8 英寸 ✓ |
+| **數量** | 2 張獨立圖 ✓ |
+
+---
+
+## 💡 優點
+
+1. ✅ **完全獨立** - 可以單獨使用
+2. ✅ **更大更清晰** - 每張圖 10x8 英寸
+3. ✅ **高品質** - PDF 300 dpi
+4. ✅ **靈活** - 可以分別放入論文/簡報
+
+---
+
+## 🎨 圖表內容
+
+### Success Plot
+- 標題: Success Plot - uav123
+- 橫軸: Overlap threshold (0-1)
+- 縱軸: Overlap Precision [%] (0-100)
+- 圖例: 左下角
+
+### Precision Plot
+- 標題: Precision Plot - uav123
+- 橫軸: Location error threshold [pixels] (0-50)
+- 縱軸: Distance Precision [%] (0-100)
+- 圖例: 右下角
+
+---
+
+## 📊 輸出結果
+
+```bash
+✓ Success Plot 已保存至: .../uav123_success_plot.pdf
+✓ Precision Plot 已保存至: .../uav123_precision_plot.pdf
+✓ 所有圖表已保存至目錄: output/test/result_plots/uav123
+```
+
+---
+
+## 🎉 完成
+
+現在兩張圖已經**完全獨立**了！

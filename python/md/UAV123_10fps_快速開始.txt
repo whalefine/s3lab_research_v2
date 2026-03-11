@@ -1,0 +1,72 @@
+# 🎯 UAV123_10fps 快速參考
+
+## ✅ 結論：不需要修改任何程式碼！
+
+您的系統已經完整支援 `uav123_10fps` 資料集。
+
+---
+
+## 🚀 立即使用
+
+### 1. 執行測試
+```bash
+cd /home/junjie/01_Research/SGLATrack-main
+conda activate sgla
+
+python tracking/test.py sglatrack deit_distilled \
+  --dataset_name uav123_10fps \
+  --threads 4 \
+  --num_gpus 1
+```
+
+### 2. 計算 FPS
+```bash
+python tracking/calculate_fps.py --dataset uav123_10fps
+```
+
+---
+
+## 📋 已存在的配置
+
+| 項目 | 狀態 | 位置 |
+|------|------|------|
+| 資料集路徑 | ✅ 已設定 | `lib/test/evaluation/local.py` (行 31) |
+| 資料集註冊 | ✅ 已註冊 | `lib/test/evaluation/datasets.py` (行 12) |
+| 資料集載入器 | ✅ 已實作 | `lib/test/evaluation/uav123_10fpsdataset.py` |
+| 資料實體 | ✅ 存在 | `data/uav123_10fps/UAV123_10fps/` |
+
+---
+
+## 🔍 快速驗證
+
+```bash
+# 檢查資料集是否存在
+ls /home/junjie/01_Research/SGLATrack-main/data/uav123_10fps/UAV123_10fps/
+
+# 測試載入資料集
+python -c "from lib.test.evaluation import get_dataset; ds = get_dataset('uav123_10fps'); print(f'✅ 成功載入 {len(ds)} 個序列')"
+```
+
+---
+
+## 📊 UAV123 vs UAV123_10fps
+
+| 資料集 | 幀率 | 命令 |
+|--------|------|------|
+| UAV123 | 30 FPS | `--dataset_name uav123` |
+| UAV123_10fps | 10 FPS | `--dataset_name uav123_10fps` |
+
+---
+
+## 💡 重點
+
+- ❌ **不需要修改任何程式碼**
+- ✅ **所有配置都已完成**
+- ✅ **直接執行測試即可**
+
+---
+
+立即執行：
+```bash
+python tracking/test.py sglatrack deit_distilled --dataset_name uav123_10fps --threads 4 --num_gpus 1
+```

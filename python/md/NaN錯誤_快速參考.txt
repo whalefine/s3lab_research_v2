@@ -1,0 +1,60 @@
+═══════════════════════════════════════════════════════════
+UAV123 訓練錯誤 - 快速修正
+═══════════════════════════════════════════════════════════
+
+❌ 錯誤訊息:
+ValueError: cannot safely convert passed user dtype of float32 
+for object dtyped data in column 0
+
+💡 原因:
+UAV123 標註檔案包含 NaN,NaN,NaN,NaN（表示目標不可見）
+原程式無法正確處理，導致轉型錯誤
+
+✅ 解決方案:
+修改 lib/train/dataset/uav123.py 第 65-78 行
+
+# ❌ 原始程式碼
+gt = pandas.read_csv(anno_file, delimiter=',', header=None, 
+                    dtype=np.float32, na_filter=False, 
+                    low_memory=False).values
+return torch.tensor(gt)
+
+# ✓ 修正後
+gt = pandas.read_csv(anno_file, delimiter=',', header=None, 
+                    dtype=np.float32, na_filter=True, 
+                    low_memory=False, keep_default_na=True).values
+gt = np.nan_to_num(gt, nan=0.0)  # 將 NaN 轉為 0
+return torch.tensor(gt)
+
+═══════════════════════════════════════════════════════════
+關鍵修改
+═══════════════════════════════════════════════════════════
+1. na_filter=False → na_filter=True (啟用 NaN 識別)
+2. 新增 keep_default_na=True (識別 "NaN" 字串)
+3. 新增 np.nan_to_num(gt, nan=0.0) (轉換為 0)
+
+═══════════════════════════════════════════════════════════
+為什麼轉換為 0 是安全的
+═══════════════════════════════════════════════════════════
+在 get_sequence_info 函數中：
+  valid = (bbox[:, 2] > 0) & (bbox[:, 3] > 0)
+  
+當 NaN → 0 後：
+  width=0, height=0 → valid=False → 自動跳過
+
+✓ 訓練時會正確忽略這些無效幀
+
+═══════════════════════════════════════════════════════════
+重新訓練
+═══════════════════════════════════════════════════════════
+./train_uav123_finetune.sh
+
+預期:
+✓ 不會再出現 ValueError
+✓ 正確讀取所有 UAV123 序列
+✓ 自動處理包含 NaN 的幀
+✓ 訓練正常進行
+
+═══════════════════════════════════════════════════════════
+問題狀態: ✅ 已解決 | 更新: 2026-03-02
+═══════════════════════════════════════════════════════════

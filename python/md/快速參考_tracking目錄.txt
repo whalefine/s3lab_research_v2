@@ -1,0 +1,69 @@
+# 🎯 calculate_fps.py 移至 tracking/ 目錄
+
+## ✅ 已完成
+
+- ✅ 腳本已從根目錄移至 `tracking/` 目錄
+- ✅ 路徑設定已修正 (`.` → `..`)
+- ✅ 測試通過，功能正常
+
+---
+
+## 🚀 新的使用方式
+
+```bash
+# 從專案根目錄執行
+cd /home/junjie/01_Research/SGLATrack-main
+conda activate sgla
+
+# 計算 FPS
+python tracking/calculate_fps.py --dataset uav123
+```
+
+---
+
+## 📁 文件位置
+
+```
+SGLATrack-main/
+└── tracking/
+    ├── test.py
+    ├── profile_model.py
+    ├── calculate_fps.py  ← 這裡 ✅
+    └── ...
+```
+
+---
+
+## 📊 測試結果
+
+```
+平均 FPS: 187.38
+總序列數: 123
+總幀數: 112,578
+```
+
+---
+
+## 💡 快速命令
+
+| 命令 | 說明 |
+|------|------|
+| `python tracking/calculate_fps.py --dataset uav123` | 計算 UAV123 FPS |
+| `python tracking/calculate_fps.py --dataset uav123_10fps` | 計算 UAV123_10fps FPS |
+| `python tracking/calculate_fps.py --help` | 查看幫助 |
+
+---
+
+## 🔧 修正的技術細節
+
+**關鍵修改**:
+```python
+# 因為腳本現在在 tracking/ 子目錄
+prj_path = os.path.join(os.path.dirname(__file__), '..')  # 往上一層
+```
+
+這樣才能正確找到 `lib` 模組！
+
+---
+
+✅ 現在可以使用了！

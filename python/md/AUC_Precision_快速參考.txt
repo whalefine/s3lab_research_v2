@@ -1,0 +1,117 @@
+# 🎯 計算 AUC 和 Precision - 快速參考
+
+## ✅ 是的！論文有提供工具
+
+論文已提供 Python 工具來計算 AUC 和 Precision！
+
+---
+
+## 🚀 立即使用
+
+```bash
+cd /home/junjie/01_Research/SGLATrack-main
+conda activate sgla
+
+# 計算 UAV123 的指標
+python tracking/calculate_metrics.py --dataset uav123
+```
+
+---
+
+## 📊 您的測試結果 (UAV123)
+
+```
+指標                值
+─────────────────────────
+AUC               66.90%
+OP50              82.23%
+OP75              60.15%
+Precision         84.91%
+Norm Precision    82.56%
+FPS               205.85
+```
+
+---
+
+## 📈 指標說明
+
+| 指標 | 說明 | 範圍 |
+|------|------|------|
+| **AUC** | Success Plot 下的面積 | 0-100 (越高越好) |
+| **OP50** | IoU ≥ 0.5 的成功率 | 0-100% |
+| **OP75** | IoU ≥ 0.75 的成功率 | 0-100% |
+| **Precision** | 中心距離 ≤ 20px 的精確度 | 0-100% |
+| **Norm Precision** | 歸一化精確度 | 0-100% |
+| **FPS** | 處理速度 | 幀/秒 |
+
+---
+
+## 🔧 其他資料集
+
+```bash
+# UAV123_10fps
+python tracking/calculate_metrics.py --dataset uav123_10fps
+
+# OTB100
+python tracking/calculate_metrics.py --dataset otb
+
+# LaSOT
+python tracking/calculate_metrics.py --dataset lasot
+```
+
+---
+
+## 📂 生成圖表
+
+```bash
+python tracking/calculate_metrics.py --dataset uav123 --plot
+```
+
+圖表保存在: `output/test/result_plots/uav123/`
+
+---
+
+## 💡 論文原始工具
+
+**位置**: `lib/test/analysis/plot_results.py`
+**函數**: `print_results()`, `plot_results()`
+
+**原始腳本**: `tracking/analysis_results.py`
+
+```bash
+# 修改 analysis_results.py 中的 dataset_name
+python tracking/analysis_results.py
+```
+
+---
+
+## ⚠️ 注意
+
+**必須先執行測試**才能計算指標：
+```bash
+python tracking/test.py sglatrack deit_distilled \
+  --dataset_name uav123 --threads 4 --num_gpus 1
+```
+
+---
+
+## 🎉 快速命令
+
+```bash
+# 完整流程
+cd /home/junjie/01_Research/SGLATrack-main
+conda activate sgla
+
+# 1. 測試（如果還沒測試）
+python tracking/test.py sglatrack deit_distilled --dataset_name uav123 --threads 4 --num_gpus 1
+
+# 2. 計算指標
+python tracking/calculate_metrics.py --dataset uav123
+
+# 3. 計算 FPS
+python tracking/calculate_fps.py --dataset uav123
+```
+
+---
+
+✅ 完成！

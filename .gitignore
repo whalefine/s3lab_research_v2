@@ -1,0 +1,27 @@
+# dataset
+python/data
+
+# python
+*/__pycache__/
+*.pyc
+
+# model weights
+*.pt
+*.pth
+*.ckpt
+
+# dataset
+dataset/
+data/
+
+# training output
+output/
+logs/
+runs/
+
+# jupyter
+.ipynb_checkpoints/
+
+# system
+.DS_Store
+

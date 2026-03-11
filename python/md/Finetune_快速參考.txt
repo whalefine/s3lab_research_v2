@@ -1,0 +1,130 @@
+# 🎯 UAV123 Finetune - 快速參考
+
+## ✅ 您的預訓練權重
+
+```
+檔案: sglatrack_ep0297.pth.tar
+位置: output/checkpoints/train/sglatrack/deit_distilled/
+大小: 97 MB
+```
+
+這就是要用來 finetune 的權重！✓
+
+---
+
+## 🚀 立即執行
+
+```bash
+cd /home/junjie/01_Research/SGLATrack-main
+conda activate sgla
+
+# 方法 1: 使用腳本（推薦）
+./train_uav123_finetune.sh
+
+# 方法 2: 直接命令
+python tracking/train.py \
+    --script sglatrack \
+    --config experiments/sglatrack/uav123_coco_finetune.yaml \
+    --save_dir output \
+    --mode multiple \
+    --nproc_per_node 1 \
+    --resume output/checkpoints/train/sglatrack/deit_distilled/sglatrack_ep0297.pth.tar
+```
+
+**關鍵**: `--resume` 就是載入預訓練權重！
+
+---
+
+## 📊 訓練設定
+
+| 項目 | 設定 |
+|------|------|
+| **Detection Dataset** | COCO17 ✓ |
+| **Tracking Dataset** | UAV123 ✓ |
+| **學習率** | 0.0001（finetune 用較小的） |
+| **Epoch** | 100（不需要 300） |
+| **驗證頻率** | 每 5 epoch |
+| **預訓練權重** | sglatrack_ep0297.pth.tar |
+
+---
+
+## 📁 已建立的檔案
+
+```
+experiments/sglatrack/
+└── uav123_coco_finetune.yaml     ✓ 配置檔案
+
+train_uav123_finetune.sh          ✓ 訓練腳本
+```
+
+---
+
+## 🎯 Finetune 優點（圖片說明）
+
+- ✅ **收斂快** - 預訓練權重已經很好
+- ✅ **精度更好** - 保留大資料集知識
+- ✅ **訓練穩定** - 不會初期不穩定
+
+---
+
+## 📊 預期結果
+
+| 指標 | Finetune 前 | Finetune 後（預期） |
+|------|------------|-------------------|
+| **AUC** | 66.90% | 68-72% ↑ |
+| **Precision** | 84.91% | 86-90% ↑ |
+
+---
+
+## 🧪 訓練後測試
+
+```bash
+# 1. 測試
+python tracking/test.py sglatrack uav123_coco_finetune \
+    --dataset_name uav123 --threads 4 --num_gpus 1
+
+# 2. 計算指標
+python tracking/calculate_metrics.py \
+    --param uav123_coco_finetune \
+    --dataset uav123 \
+    --plot
+```
+
+---
+
+## ⏱️ 訓練時間
+
+- **從頭訓練**: ~20-30 小時
+- **Finetune**: ~7-10 小時 ✓
+
+---
+
+## 📂 結果位置
+
+```
+output/checkpoints/train/sglatrack/uav123_coco_finetune/
+└── sglatrack_ep0100.pth.tar  (最終模型)
+```
+
+---
+
+## 💡 關鍵概念
+
+### `--resume` vs `PRETRAIN_FILE`
+
+- **PRETRAIN_FILE**: 只載入 backbone（從頭訓練用）
+- **--resume**: 載入完整模型（Finetune 用）✓
+
+---
+
+## 🎉 準備好了！
+
+您現在可以：
+1. ✓ 使用預訓練權重 `sglatrack_ep0297.pth.tar`
+2. ✓ 在 UAV123 + COCO 上 Finetune
+3. ✓ 預期獲得更好的結果
+
+執行命令：
+```bash
+./train_uav123_finetune.sh
+```

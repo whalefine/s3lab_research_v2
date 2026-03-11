@@ -1,0 +1,126 @@
+═══════════════════════════════════════════════════════════
+Terminal 錯誤修正 - 快速參考
+═══════════════════════════════════════════════════════════
+
+發現的錯誤:
+───────────────────────────────────────────────────────────
+1. VAL dataset 錯誤
+   FileNotFoundError: .../data/got10k/train/list.txt
+   原因: 配置檔案使用 GOT10K_votval，但您沒有這個資料集
+
+2. SAMPLE_PER_EPOCH 錯誤
+   顯示: 20000
+   應該: 30000（根據您的資料集大小）
+
+3. 訓練腳本位置
+   錯誤: bash: ./train_uav123_finetune.sh: No such file or directory
+   已解決: 腳本已在根目錄
+
+═══════════════════════════════════════════════════════════
+已修正內容（experiments/sglatrack/uav123_coco_finetune.yaml）
+═══════════════════════════════════════════════════════════
+
+修正 1: VAL dataset
+───────────────────────────────────────────────────────────
+❌ 舊設定:
+VAL:
+  DATASETS_NAME:
+  - GOT10K_votval
+
+✓ 新設定:
+VAL:
+  DATASETS_NAME:
+  - UAV123
+  DATASETS_RATIO:
+  - 1
+  SAMPLE_PER_EPOCH: 5000
+
+
+修正 2: SAMPLE_PER_EPOCH
+───────────────────────────────────────────────────────────
+❌ 舊設定:
+TRAIN:
+  SAMPLE_PER_EPOCH: 20000
+
+✓ 新設定:
+TRAIN:
+  SAMPLE_PER_EPOCH: 30000  # 根據 COCO+UAV123 資料量
+
+
+修正 3: VAL_EPOCH_INTERVAL
+───────────────────────────────────────────────────────────
+❌ 舊設定:
+VAL_EPOCH_INTERVAL: 999  # 幾乎不驗證
+
+✓ 新設定:
+VAL_EPOCH_INTERVAL: 5    # 每 5 個 epoch 驗證一次
+
+
+修正 4: 添加訓練參數
+───────────────────────────────────────────────────────────
+✓ 新增:
+TRAIN:
+  CE_START_EPOCH: 20
+  CE_WARM_EPOCH: 80
+  FREEZE_LAYERS: [0]
+
+
+修正 5: 完善 MODEL 配置
+───────────────────────────────────────────────────────────
+✓ 新增 BACKBONE 詳細參數:
+  MID_PE: False
+  SEP_SEG: False
+  CAT_MODE: 'direct'
+  MERGE_LAYER: 0
+  ADD_CLS_TOKEN: False
+  CLS_TOKEN_USE_MODE: 'ignore'
+  CE_LOC: []
+  CE_KEEP_RATIO: []
+  CE_TEMPLATE_RANGE: 'ALL'
+
+✓ 新增:
+  RETURN_STAGES: []
+
+✓ 新增 TEMPLATE 參數:
+  NUMBER: 1
+
+═══════════════════════════════════════════════════════════
+現在可以訓練
+═══════════════════════════════════════════════════════════
+
+方法 1: Shell 腳本
+───────────────────────────────────────────────────────────
+./train_uav123_finetune.sh
+
+方法 2: Python 命令
+───────────────────────────────────────────────────────────
+python tracking/train.py --script sglatrack --config uav123_coco_finetune --save_dir output --mode multiple --nproc_per_node 1 --script_prv sglatrack --config_prv deit_distilled
+
+═══════════════════════════════════════════════════════════
+預期結果
+═══════════════════════════════════════════════════════════
+
+✓ 正常訊息:
+  UAV123: Found 72/91 sequences with annotations
+  Loading validation dataset: UAV123
+  [train: 1, 50/937] ...  ← 937 batches (30000÷32)
+  [train: 5, 937/937] ...
+  Validating...            ← 每 5 epoch 驗證
+
+✓ 不會再出現:
+  ❌ FileNotFoundError: .../got10k/train/list.txt
+  ❌ SAMPLE_PER_EPOCH: 20000 (現在是 30000)
+  ❌ bash: ./train_uav123_finetune.sh: No such file or directory
+
+═══════════════════════════════════════════════════════════
+關鍵數字
+═══════════════════════════════════════════════════════════
+訓練資料: COCO (118K) + UAV123 (82K) = 200K
+驗證資料: UAV123
+SAMPLE_PER_EPOCH: 30000 (15% 採樣率)
+每 epoch: 937 batches
+驗證頻率: 每 5 epochs
+
+═══════════════════════════════════════════════════════════
+問題狀態: ✅ 全部修正 | 更新: 2026-03-02
+═══════════════════════════════════════════════════════════

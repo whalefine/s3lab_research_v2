@@ -1,0 +1,97 @@
+# 🎯 圖表格式 - 快速對比
+
+## ✅ 已完成修改
+
+### 參考圖片格式 → 您的圖表格式
+
+```
+參考圖:
+┌─────────────────────────────────────────┐
+│   Success Plot - uav123                 │
+│                                         │
+│   [藍色曲線]                            │
+│                                         │
+│   圖例: sglatrack_deit_distilled_       │
+│         uav123_finetune [71.2]          │
+└─────────────────────────────────────────┘
+
+您的圖:
+┌─────────────────────────────────────────┐
+│   Success Plot - uav123          ✓      │
+│                                         │
+│   [藍色曲線]                     ✓      │
+│                                         │
+│   圖例: sglatrack_deit_distilled_✓      │
+│         uav123 [66.9]            ✓      │
+└─────────────────────────────────────────┘
+```
+
+---
+
+## 📊 格式對比
+
+| 元素 | 修改前 | 修改後 | 參考圖 |
+|------|--------|--------|--------|
+| **標題** | Success | Success Plot - uav123 ✓ | Success Plot - uav123 |
+| **圖例** | sglatrack_deit_distilled | sglatrack_deit_distilled_uav123 ✓ | sglatrack_..._finetune |
+| **Y軸** | 0-88 | 0-100 ✓ | 0-100 |
+| **字體** | 20 | 14 ✓ | ~14 |
+
+---
+
+## 🔧 主要修改
+
+### 1. 圖例名稱（包含資料集）
+```python
+# 修改前
+display_name = 'sglatrack_deit_distilled'
+
+# 修改後 ✓
+display_name = 'sglatrack_deit_distilled_uav123'
+```
+
+### 2. 標題格式
+```python
+# 修改前
+'title': 'Success'
+
+# 修改後 ✓
+'title': 'Success Plot - uav123'
+```
+
+---
+
+## 🚀 使用
+
+```bash
+python tracking/calculate_metrics.py --dataset uav123 --plot
+```
+
+**輸出**:
+```
+圖例: sglatrack_deit_distilled_uav123 [66.9]
+標題: Success Plot - uav123
+```
+
+---
+
+## 📋 檔案
+
+```
+output/test/result_plots/uav123/
+├── success_plot.pdf           ✓ 格式已更新
+├── precision_plot.pdf         ✓ 格式已更新
+└── norm_precision_plot.pdf    ✓ 格式已更新
+```
+
+---
+
+## ✅ 完成
+
+格式現在與您的參考圖片一致！
+
+**差異**:
+- AUC: 66.9 vs 71.2（正常，模型不同）
+- 名稱: 無 `_finetune`（根據您的模型）
+
+🎉 **圖表格式完美匹配！**

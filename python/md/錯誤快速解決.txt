@@ -1,0 +1,90 @@
+# ❌ 訓練中斷錯誤 - 快速解決
+
+## 🔍 錯誤訊息
+
+```
+train.py: error: unrecognized arguments: --resume output/checkpoints/train/sglatrack/deit_distilled/sglatrack_ep0297.pth.tar
+```
+
+## 💡 錯誤原因
+
+**`train.py` 不支援 `--resume` 參數！**
+
+---
+
+## ✅ 解決方案
+
+### 錯誤的命令（❌）
+```bash
+python tracking/train.py --resume sglatrack_ep0297.pth.tar
+```
+
+### 正確的命令（✓）
+```bash
+python tracking/train.py \
+    --script sglatrack \
+    --config experiments/sglatrack/uav123_coco_finetune.yaml \
+    --script_prv sglatrack \
+    --config_prv deit_distilled
+```
+
+**關鍵**: 使用 `--script_prv` 和 `--config_prv` 而不是 `--resume`
+
+---
+
+## 🚀 立即執行（已修正）
+
+```bash
+cd /home/junjie/01_Research/SGLATrack-main
+conda activate sgla
+
+# 使用修正後的腳本
+./train_uav123_finetune.sh
+```
+
+---
+
+## 📋 已修正的內容
+
+### 1. 配置檔案
+**檔案**: `experiments/sglatrack/uav123_coco_finetune.yaml`
+
+**新增**:
+```yaml
+TRAIN:
+  PRETRAINED_PATH: "output/checkpoints/train/sglatrack/deit_distilled"
+```
+
+### 2. 訓練腳本
+**檔案**: `train_uav123_finetune.sh`
+
+**修改**: 移除 `--resume`，改用 `--script_prv` 和 `--config_prv`
+
+---
+
+## 🎯 正確的參數
+
+| 錯誤參數 | 正確參數 |
+|----------|----------|
+| `--resume` ❌ | `--script_prv` ✓ |
+| | `--config_prv` ✓ |
+
+---
+
+## ✅ 驗證成功
+
+執行後應該看到：
+```
+Loading pretrained model from output/checkpoints/train/sglatrack/deit_distilled/sglatrack_ep0297.pth.tar
+previous checkpoint is loaded.
+missing keys: []
+unexpected keys: []
+```
+
+---
+
+## 🎉 現在可以訓練了！
+
+```bash
+./train_uav123_finetune.sh
+```

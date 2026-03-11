@@ -1,0 +1,155 @@
+╔════════════════════════════════════════════════════════════════════╗
+║            SGLATrack 工作站快速命令參考                           ║
+╚════════════════════════════════════════════════════════════════════╝
+
+📍 專案位置: /home/junjie/01_Research/SGLATrack-main
+📦 資料集: COCO (118,287 訓練圖片) + UAV123
+
+┌────────────────────────────────────────────────────────────────────┐
+│ 🔍 驗證配置                                                        │
+└────────────────────────────────────────────────────────────────────┘
+conda activate sgla
+python check_workstation_config.py
+
+┌────────────────────────────────────────────────────────────────────┐
+│ 🧪 測試訓練 (5 epochs，建議先執行)                               │
+└────────────────────────────────────────────────────────────────────┘
+# 1. 建立測試配置
+cp experiments/sglatrack/coco_only.yaml experiments/sglatrack/coco_test.yaml
+
+# 2. 編輯 coco_test.yaml，將 EPOCH 改為 5
+
+# 3. 執行測試訓練 (單 GPU)
+python tracking/train.py --script sglatrack --config coco_test \
+  --save_dir ./output --mode single --use_wandb 0
+
+┌────────────────────────────────────────────────────────────────────┐
+│ 🚀 正式訓練 (COCO only)                                           │
+└────────────────────────────────────────────────────────────────────┘
+# 單 GPU
+python tracking/train.py --script sglatrack --config coco_only \
+  --save_dir ./output --mode single --use_wandb 0
+
+# 多 GPU (4 張)
+python tracking/train.py --script sglatrack --config coco_only \
+  --save_dir ./output --mode multiple --nproc_per_node 4 --use_wandb 0
+
+# 多 GPU (2 張)
+python tracking/train.py --script sglatrack --config coco_only \
+  --save_dir ./output --mode multiple --nproc_per_node 2 --use_wandb 0
+
+┌────────────────────────────────────────────────────────────────────┐
+│ 📊 監控訓練                                                        │
+└────────────────────────────────────────────────────────────────────┘
+# 即時查看日誌
+tail -f output/logs/train/sglatrack/coco_only/train.log
+
+# 查看特定 epoch 資訊
+grep "Epoch" output/logs/train/sglatrack/coco_only/train.log
+
+# 查看 GPU 使用
+nvidia-smi -l 1
+
+# 查看 checkpoint
+ls -lh output/checkpoints/train/sglatrack/coco_only/
+
+┌────────────────────────────────────────────────────────────────────┐
+│ 🧪 測試模型 (UAV123)                                              │
+└────────────────────────────────────────────────────────────────────┘
+# UAV123 標準版
+python tracking/test.py --tracker_param sglatrack --dataset uav123 \
+  --threads 8 --num_gpus 1
+
+# UAV123 10fps 版
+python tracking/test.py --tracker_param sglatrack --dataset uav123_10fps \
+  --threads 8 --num_gpus 1
+
+# 分析結果
+python tracking/analysis_results.py
+
+┌────────────────────────────────────────────────────────────────────┐
+│ 📈 查看測試結果                                                    │
+└────────────────────────────────────────────────────────────────────┘
+# 結果目錄
+ls output/test/tracking_results/sglatrack/coco_only/uav123/
+
+# 視覺化結果 (如有)
+ls output/test/result_plots/
+
+┌────────────────────────────────────────────────────────────────────┐
+│ 🔧 GPU 記憶體不足時                                               │
+└────────────────────────────────────────────────────────────────────┘
+# 編輯配置檔案
+vim experiments/sglatrack/coco_only.yaml
+
+# 修改以下參數:
+TRAIN:
+  BATCH_SIZE: 16    # 原本 32，改為 16 或 8
+  NUM_WORKER: 2     # 原本 4，改為 2
+
+┌────────────────────────────────────────────────────────────────────┐
+│ 💾 管理 Checkpoints                                                │
+└────────────────────────────────────────────────────────────────────┘
+# 查看所有 checkpoint
+ls -lht output/checkpoints/train/sglatrack/coco_only/
+
+# 只保留最新 10 個 (小心使用!)
+cd output/checkpoints/train/sglatrack/coco_only/
+ls -t *.pth.tar | tail -n +11 | xargs rm
+
+# 查看磁碟使用
+du -sh output/
+
+┌────────────────────────────────────────────────────────────────────┐
+│ 🔄 恢復訓練 (中斷後)                                              │
+└────────────────────────────────────────────────────────────────────┘
+# 訓練會自動從最後的 checkpoint 恢復，只需重新執行訓練命令
+python tracking/train.py --script sglatrack --config coco_only \
+  --save_dir ./output --mode single --use_wandb 0
+
+┌────────────────────────────────────────────────────────────────────┐
+│ 📝 常用檔案位置                                                    │
+└────────────────────────────────────────────────────────────────────┘
+配置檔案:
+  experiments/sglatrack/coco_only.yaml
+
+路徑設定:
+  lib/train/admin/local.py        (訓練路徑)
+  lib/test/evaluation/local.py    (測試路徑)
+
+Checkpoints:
+  output/checkpoints/train/sglatrack/coco_only/
+
+日誌:
+  output/logs/train/sglatrack/coco_only/
+
+測試結果:
+  output/test/tracking_results/sglatrack/coco_only/
+
+┌────────────────────────────────────────────────────────────────────┐
+│ 📚 文件                                                            │
+└────────────────────────────────────────────────────────────────────┘
+• 工作站配置完成.md      - 完整使用說明
+• 工作站配置指南.md      - 詳細配置步驟
+• check_workstation_config.py - 配置驗證腳本
+• QUICKREF.txt           - 原始快速參考
+
+┌────────────────────────────────────────────────────────────────────┐
+│ ⏱️ 預期時間 (RTX 3090, 4 GPU, Batch 32)                          │
+└────────────────────────────────────────────────────────────────────┘
+• 測試訓練 (5 epochs):   ~2-3 小時
+• 短期訓練 (100 epochs): ~2-3 天
+• 完整訓練 (300 epochs): ~6-9 天
+
+┌────────────────────────────────────────────────────────────────────┐
+│ 💡 建議工作流程                                                    │
+└────────────────────────────────────────────────────────────────────┘
+1. python check_workstation_config.py     # 驗證配置
+2. 執行 5 epoch 測試訓練                   # 確認流程
+3. 開始完整訓練 (300 epochs)               # 正式訓練
+4. 定期在 UAV123 上測試                    # 評估效果
+5. 調整超參數（如需要）                    # 優化結果
+
+╔════════════════════════════════════════════════════════════════════╗
+║ 🎯 已就緒: COCO 資料集 ✓ | UAV123 測試集 ✓ | 配置完成 ✓        ║
+╚════════════════════════════════════════════════════════════════════╝

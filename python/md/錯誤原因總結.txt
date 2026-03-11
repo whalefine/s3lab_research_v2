@@ -1,0 +1,67 @@
+# 🎯 錯誤原因與解決方案
+
+## ❌ 您遇到的錯誤
+
+```bash
+python tracking/calculate_fps.py --tracker sglatrack --param deit_distilled --dataset uav123
+
+# 錯誤輸出:
+ImportError: cannot import name 'env_settings' from 'lib.test.evaluation'
+```
+
+---
+
+## 🔍 錯誤原因
+
+### 原因 1: 腳本位置錯誤
+- ❌ 腳本在: `tracking/calculate_fps.py`
+- ✅ 應該在: `calculate_fps.py` (根目錄)
+
+### 原因 2: 導入路徑錯誤
+- ❌ 原始: `from lib.test.evaluation import env_settings`
+- ✅ 正確: `from lib.test.evaluation.environment import env_settings`
+
+---
+
+## ✅ 已修復
+
+1. ✅ 腳本已移回根目錄
+2. ✅ 導入路徑已修正
+3. ✅ 測試成功運行
+
+---
+
+## 🚀 正確的使用方式
+
+```bash
+# 在專案根目錄執行
+cd /home/junjie/01_Research/SGLATrack-main
+conda activate sgla
+
+# 計算 FPS
+python calculate_fps.py --dataset uav123
+```
+
+---
+
+## 📊 執行結果
+
+```
+平均 FPS: 187.38 (推薦值)
+總序列數: 123
+總幀數: 112,578
+```
+
+---
+
+## 💡 快速記憶
+
+| 項目 | 錯誤 ❌ | 正確 ✅ |
+|------|--------|---------|
+| 位置 | `tracking/calculate_fps.py` | `calculate_fps.py` |
+| 執行 | `python tracking/...` | `python calculate_fps.py` |
+| 參數 | `--param` | `--config` |
+
+---
+
+## 🎉 現在可以正常使用了！

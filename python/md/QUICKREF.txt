@@ -1,0 +1,122 @@
+╔══════════════════════════════════════════════════════════════════════╗
+║                   SGLATrack 快速參考卡片                            ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+📁 專案位置: /home/junjie/01_Research/SGLATrack-main
+
+┌──────────────────────────────────────────────────────────────────────┐
+│ ✅ 環境狀態                                                          │
+└──────────────────────────────────────────────────────────────────────┘
+  ✓ Conda 環境: sgla (Python 3.7.16)
+  ✓ PyTorch: 1.13.1+cu117 (CUDA 可用)
+  ✓ 預訓練 Backbone: deit_tiny_distilled_patch16_224.pth (22.6 MB)
+
+┌──────────────────────────────────────────────────────────────────────┐
+│ 🚀 快速啟動                                                          │
+└──────────────────────────────────────────────────────────────────────┘
+  1. 啟用環境:
+     conda activate sgla
+
+  2. 檢查系統:
+     python check_model.py
+
+  3. 互動式選單:
+     ./quick_start.sh
+
+┌──────────────────────────────────────────────────────────────────────┐
+│ 📥 需要下載的檔案                                                    │
+└──────────────────────────────────────────────────────────────────────┘
+  🔹 訓練好的模型權重 (用於測試):
+     https://drive.google.com/drive/folders/1sHL7aFVZFwkPy6js48x-EKfoZC7oJc9X
+     → 放置到: output/checkpoints/train/sglatrack/deit_distilled/
+                sglatrack_ep0297.pth.tar
+
+  🔹 測試資料集:
+     https://pan.baidu.com/s/1MaeGLRcAUbJxksbF_CrOeQ?pwd=5vbv (提取碼: 5vbv)
+     → 解壓到: data/
+
+┌──────────────────────────────────────────────────────────────────────┐
+│ 🧪 測試模型 (選擇一個資料集)                                        │
+└──────────────────────────────────────────────────────────────────────┘
+  # UAV123
+  python tracking/test.py --tracker_param sglatrack \
+    --dataset uav123 --threads 8 --num_gpus 4
+
+  # UAV123_10fps
+  python tracking/test.py --tracker_param sglatrack \
+    --dataset uav123_10fps --threads 8 --num_gpus 4
+
+  # UAVTrack112
+  python tracking/test.py --tracker_param sglatrack \
+    --dataset uavtrack112 --threads 8 --num_gpus 4
+
+  # UAVDT
+  python tracking/test.py --tracker_param sglatrack \
+    --dataset uavdt --threads 8 --num_gpus 4
+
+  # DTB70
+  python tracking/test.py --tracker_param sglatrack \
+    --dataset dtb70 --threads 8 --num_gpus 4
+
+  # 分析結果
+  python tracking/analysis_results.py
+
+┌──────────────────────────────────────────────────────────────────────┐
+│ 🔧 訓練模型 (需要訓練資料集: LaSOT, GOT-10k, COCO, TrackingNet)    │
+└──────────────────────────────────────────────────────────────────────┘
+  # 單 GPU
+  python tracking/train.py --script sglatrack \
+    --config deit_distilled --save_dir ./output \
+    --mode single --use_wandb 0
+
+  # 多 GPU (4 張)
+  python tracking/train.py --script sglatrack \
+    --config deit_distilled --save_dir ./output \
+    --mode multiple --nproc_per_node 4 --use_wandb 0
+
+┌──────────────────────────────────────────────────────────────────────┐
+│ 📊 預期效能 (SGLATrack-DeiT*)                                       │
+└──────────────────────────────────────────────────────────────────────┘
+  空中資料集:
+    • UAV123:        66.9% AUC
+    • UAV123_10fps:  65.5% AUC
+    • UAVDT:         59.9% AUC
+    • DTB70:         65.1% AUC
+    • UAVTrack112:   67.5% AUC
+
+  通用資料集:
+    • TrackingNet:   79.5% AUC
+    • LaSOT:         63.0% AUC
+    • GOT-10k:       66.3% AO
+
+┌──────────────────────────────────────────────────────────────────────┐
+│ 📚 文件參考                                                          │
+└──────────────────────────────────────────────────────────────────────┘
+  • 完成總結.md         - 完整的設定總結
+  • md/模型還原指引.md  - 詳細的還原指引
+  • check_model.py      - 系統檢查工具
+  • quick_start.sh      - 快速啟動腳本
+  • README.md           - 原始專案說明
+
+┌──────────────────────────────────────────────────────────────────────┐
+│ 🛠️ 疑難排解                                                         │
+└──────────────────────────────────────────────────────────────────────┘
+  問題: 找不到模型檔案
+  → 確認已下載並放到: output/checkpoints/train/sglatrack/deit_distilled/
+
+  問題: CUDA 記憶體不足
+  → 減少 GPU 數量，或修改 yaml 中的 batch size
+
+  問題: 資料集路徑錯誤
+  → 檢查 lib/test/evaluation/local.py 的路徑設定
+
+┌──────────────────────────────────────────────────────────────────────┐
+│ 📞 聯絡資訊                                                          │
+└──────────────────────────────────────────────────────────────────────┘
+  Email: xcc23cg@163.com
+  微信:  chaocan23
+  論文:  https://arxiv.org/abs/2503.06625
+
+╔══════════════════════════════════════════════════════════════════════╗
+║ 提示: 執行 python check_model.py 可以隨時檢查系統狀態             ║
+╚══════════════════════════════════════════════════════════════════════╝

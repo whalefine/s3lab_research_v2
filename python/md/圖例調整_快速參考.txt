@@ -1,0 +1,108 @@
+# 🎯 圖例調整 - 快速參考
+
+## ❓ `.tex` 檔案是什麼？
+
+`.tex` 檔案是 **LaTeX 格式的圖表**，用於學術論文撰寫。
+
+### 用途
+- 📄 直接嵌入 LaTeX 論文
+- ✍️ 保持論文格式一致
+- 🔍 高品質向量圖
+
+### 位置
+```
+output/test/result_plots/uav123/
+├── success_plot.tex    - LaTeX 格式
+├── success_plot.pdf    - PDF 格式（一般使用）
+```
+
+**大多數情況**: 使用 `.pdf` 檔案即可 ✓
+
+---
+
+## ✅ 圖例已縮小
+
+### 修改內容
+
+**檔案**: `lib/test/analysis/plot_results.py` (第 110 行)
+
+```python
+# 原本: 字體 20
+font_size_legend = plot_opts.get('font_size_legend', 20)
+
+# 修改後: 字體 14（已完成）
+font_size_legend = plot_opts.get('font_size_legend', 14)
+```
+
+### 效果
+- ✅ 圖例文字縮小 30%
+- ✅ 不影響圖表主體
+- ✅ 保持清晰可讀
+
+---
+
+## 🔄 重新生成圖表
+
+```bash
+cd /home/junjie/01_Research/SGLATrack-main
+conda activate sgla
+python tracking/calculate_metrics.py --dataset uav123 --plot
+```
+
+**結果**: 圖例更小，圖表更美觀！
+
+---
+
+## 📊 字體大小對照
+
+| 元素 | 大小 | 說明 |
+|------|------|------|
+| 標題 | 20 | 圖表標題 |
+| 軸標籤 | 20 | X/Y 軸文字 |
+| **圖例** | **14** | **已縮小** ✓ |
+| 線條 | 2 | 曲線寬度 |
+
+---
+
+## 💡 進一步調整
+
+### 更小的圖例（如果需要）
+修改第 110 行:
+```python
+font_size_legend = plot_opts.get('font_size_legend', 12)
+```
+
+### 簡化名稱
+修改 `tracking/calculate_metrics.py` (第 40 行):
+```python
+# 原本
+display_name=f'{tracker_name}_{param_name}'
+
+# 改為短名稱
+display_name='SGLATrack'
+```
+
+---
+
+## 🎉 總結
+
+### 問題
+- ❌ 圖例文字 `sglatrack_deit_distilled [66.9]` 太長
+
+### 解決
+- ✅ 字體從 20 縮小到 14
+- ✅ 圖表更美觀
+- ✅ 保持可讀性
+
+### 檔案用途
+- 📄 `.pdf` - 一般使用（簡報、Word）
+- 📝 `.tex` - LaTeX 論文使用
+
+---
+
+立即生成新圖表:
+```bash
+python tracking/calculate_metrics.py --dataset uav123 --plot
+```
+
+✨ **完成！圖例更小了！**

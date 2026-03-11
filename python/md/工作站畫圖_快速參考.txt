@@ -1,0 +1,120 @@
+# 🎯 工作站畫圖 - 快速參考
+
+## ✅ 是的，可以在工作站上生成圖表！
+
+雖然工作站沒有圖形界面，但**可以生成 PDF 圖表檔案**。
+
+---
+
+## 🚀 立即使用
+
+```bash
+cd /home/junjie/01_Research/SGLATrack-main
+conda activate sgla
+
+# 計算指標並生成 PDF 圖表
+python tracking/calculate_metrics.py --dataset uav123 --plot
+```
+
+---
+
+## 📂 圖表位置
+
+```
+output/test/result_plots/uav123/
+├── success_plot.pdf           - AUC 曲線 (17 KB)
+├── precision_plot.pdf         - 精確度曲線 (20 KB)
+└── norm_precision_plot.pdf    - 歸一化精確度 (20 KB)
+```
+
+---
+
+## 📊 生成的圖表
+
+| 檔案 | 內容 | 顯示數值 |
+|------|------|----------|
+| `success_plot.pdf` | Success Plot | AUC: 66.90 |
+| `precision_plot.pdf` | Precision Plot | Precision: 84.91 |
+| `norm_precision_plot.pdf` | Normalized Precision | Norm Precision: 82.56 |
+
+---
+
+## 💾 下載到本地
+
+### 方法 1: scp
+```bash
+# 從本地電腦執行
+scp -r user@workstation:/path/to/output/test/result_plots/uav123/*.pdf ./
+```
+
+### 方法 2: VS Code Remote
+右鍵檔案 → Download
+
+### 方法 3: SFTP 客戶端
+FileZilla、WinSCP、Cyberduck
+
+---
+
+## 🔧 已修正的問題
+
+### 問題
+- ❌ 原始代碼需要 LaTeX
+- ❌ 工作站沒有 LaTeX，會報錯
+
+### 解決
+- ✅ 修改了 `lib/test/analysis/plot_results.py`
+- ✅ 禁用 LaTeX 渲染
+- ✅ 圖表成功生成
+
+---
+
+## ⚠️ 字體警告（可忽略）
+
+```
+findfont: Font family ['Times New Roman'] not found. Falling back to DejaVu Sans.
+```
+
+**不影響功能**，圖表正常生成，只是字體不同。
+
+---
+
+## 📋 完整流程
+
+```bash
+# 1. 測試（如果還沒測試）
+python tracking/test.py sglatrack deit_distilled --dataset_name uav123 --threads 4 --num_gpus 1
+
+# 2. 計算指標 + 生成圖表
+python tracking/calculate_metrics.py --dataset uav123 --plot
+
+# 3. 檢查檔案
+ls -lh output/test/result_plots/uav123/*.pdf
+```
+
+---
+
+## 💡 其他資料集
+
+```bash
+# UAV123_10fps
+python tracking/calculate_metrics.py --dataset uav123_10fps --plot
+
+# OTB100
+python tracking/calculate_metrics.py --dataset otb --plot
+```
+
+---
+
+## ✅ 總結
+
+| 問題 | 答案 |
+|------|------|
+| 工作站能畫圖嗎？ | ✅ 能生成 PDF 圖表 |
+| 需要圖形界面嗎？ | ❌ 不需要 |
+| 能顯示視窗嗎？ | ❌ 不能（但不需要） |
+| 能生成 PDF 嗎？ | ✅ 能 |
+| 需要 LaTeX 嗎？ | ❌ 不需要（已修正） |
+
+---
+
+🎉 **完成！可以在工作站上生成圖表了！**

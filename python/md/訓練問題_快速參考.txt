@@ -1,0 +1,108 @@
+═══════════════════════════════════════════════════════════
+快速參考：兩個問題的答案
+═══════════════════════════════════════════════════════════
+
+問題 1: "No matching checkpoint file found" 會影響訓練嗎？
+───────────────────────────────────────────────────────────
+答案: ❌ 不會影響！
+
+原因:
+  • 這只是說在 uav123_coco_finetune/ 目錄中沒找到 checkpoint
+  • 這是正常的（第一次訓練這個配置）
+  • 預訓練權重會從 deit_distilled/ 載入（透過 --script_prv）
+  • 只要有顯示 [train: 1, 50/625] 就表示訓練正常
+
+確認方法:
+  ✓ 看到參數列表（module.backbone.blocks...）
+  ✓ Loss 從較低值開始（0.6-0.8，不是從 1.0+）
+  ✓ 訓練進度正常顯示
+
+結論: 完全不用擔心，繼續訓練即可！
+
+═══════════════════════════════════════════════════════════
+問題 2: 除了 ./train_uav123_finetune.sh 怎麼用 Python 打？
+═══════════════════════════════════════════════════════════
+
+方法 1: 單 GPU（推薦）
+───────────────────────────────────────────────────────────
+python tracking/train.py \
+    --script sglatrack \
+    --config uav123_coco_finetune \
+    --save_dir output \
+    --mode multiple \
+    --nproc_per_node 1 \
+    --script_prv sglatrack \
+    --config_prv deit_distilled
+
+單行版本（方便複製）:
+python tracking/train.py --script sglatrack --config uav123_coco_finetune --save_dir output --mode multiple --nproc_per_node 1 --script_prv sglatrack --config_prv deit_distilled
+
+
+方法 2: 多 GPU（2 個 GPU）
+───────────────────────────────────────────────────────────
+python tracking/train.py --script sglatrack --config uav123_coco_finetune --save_dir output --mode multiple --nproc_per_node 2 --script_prv sglatrack --config_prv deit_distilled
+
+
+方法 3: 背景執行（nohup）
+───────────────────────────────────────────────────────────
+nohup python tracking/train.py --script sglatrack --config uav123_coco_finetune --save_dir output --mode multiple --nproc_per_node 1 --script_prv sglatrack --config_prv deit_distilled > train.log 2>&1 &
+
+查看進度:
+tail -f train.log
+
+
+方法 4: 使用 tmux（推薦長時間訓練）
+───────────────────────────────────────────────────────────
+tmux new -s train
+python tracking/train.py --script sglatrack --config uav123_coco_finetune --save_dir output --mode multiple --nproc_per_node 1 --script_prv sglatrack --config_prv deit_distilled
+
+離開 tmux: Ctrl+B 然後 D
+重新連接: tmux attach -t train
+
+═══════════════════════════════════════════════════════════
+重要參數說明
+═══════════════════════════════════════════════════════════
+--script sglatrack              訓練腳本
+--config uav123_coco_finetune   配置檔案（不含 .yaml）
+--save_dir output               儲存目錄
+--mode multiple                 多 GPU 模式
+--nproc_per_node 1              使用 1 個 GPU
+
+⚠️ Finetune 必須加這兩個參數（否則不會載入預訓練權重）:
+--script_prv sglatrack          預訓練模型的腳本
+--config_prv deit_distilled     預訓練模型的配置
+
+═══════════════════════════════════════════════════════════
+常見場景
+═══════════════════════════════════════════════════════════
+1. 正常 finetune（單 GPU）:
+   python tracking/train.py --script sglatrack --config uav123_coco_finetune --save_dir output --mode multiple --nproc_per_node 1 --script_prv sglatrack --config_prv deit_distilled
+
+2. 多 GPU finetune（2 GPU）:
+   python tracking/train.py --script sglatrack --config uav123_coco_finetune --save_dir output --mode multiple --nproc_per_node 2 --script_prv sglatrack --config_prv deit_distilled
+
+3. 從頭訓練（不用預訓練）:
+   python tracking/train.py --script sglatrack --config uav123_coco_finetune --save_dir output --mode multiple --nproc_per_node 1
+
+4. 繼續中斷的訓練:
+   python tracking/train.py --script sglatrack --config uav123_coco_finetune --save_dir output --mode multiple --nproc_per_node 1
+   （不需要 --script_prv，會自動從最新 checkpoint 繼續）
+
+═══════════════════════════════════════════════════════════
+Shell 腳本 vs Python 命令
+═══════════════════════════════════════════════════════════
+Shell 腳本 (./train_uav123_finetune.sh):
+  ✓ 方便重複執行
+  ✓ 有友善的訊息
+  ✓ 可加入檢查邏輯
+
+Python 命令:
+  ✓ 靈活調整參數
+  ✓ 不需要額外檔案
+  ✓ 適合快速測試
+
+建議: 開發時用 Python 命令，正式訓練用 Shell 腳本
+
+═══════════════════════════════════════════════════════════
+更新: 2026-03-02
+═══════════════════════════════════════════════════════════
