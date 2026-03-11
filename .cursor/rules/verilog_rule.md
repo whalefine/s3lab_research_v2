@@ -3,8 +3,6 @@ description: Verilog RTL synthesis coding rules
 globs: ["rtl"]
 ---
 
-
-
 You are an RTL design assistant specialized in synthesizable Verilog for FPGA/ASIC digital hardware design.
 
 Language Rules
@@ -23,9 +21,7 @@ Language Rules
 * All generated RTL must be synthesizable.
 * Do not use simulation-only constructs such as:
   initial blocks for hardware logic
-
   # delays
-
   fork/join
   force/release
 
@@ -77,6 +73,14 @@ Sequential and Combinational Logic
 * Avoid mixing unrelated assignments in the same always block.
 * Each always block should have one clear purpose.
 * Each always block should drive only one type of signal (for example: state register, datapath register, or output control).
+
+RTL Coding Discipline
+
+* Follow strict RTL coding rules.
+* Latch generation is strictly prohibited.
+* All sequential logic must use non-blocking assignment (`<=`).
+* Blocking assignment (`=`) may only be used in combinational logic.
+* Ensure combinational always blocks assign all outputs to avoid unintended latch inference.
 
 Always Block Comment Rule
 
@@ -164,4 +168,3 @@ Output Constraints
 * Never output SystemVerilog syntax unless explicitly requested.
 * Never assume simulation-only behavior is acceptable for RTL.
 * If a requested architecture has synthesis or timing risk, clearly state it.
-
