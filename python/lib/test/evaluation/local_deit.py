@@ -18,7 +18,7 @@ def local_env_settings():
     settings.network_path = '/home/chanyuan/02_RESEARCH/s3lab_research_v2/python/output/test/networks'    # Where tracking networks are stored.
     settings.nfs_path = '/home/chanyuan/02_RESEARCH/s3lab_research_v2/python/data/nfs'
     settings.otb_path = '/home/chanyuan/02_RESEARCH/s3lab_research_v2/python/data/otb'
-    settings.prj_dir = '/home/chanyuan/01_RESEARCH/SGLATrack-main'
+    settings.prj_dir = '/home/chanyuan/02_RESEARCH/s3lab_research_v2/python'
     settings.result_plot_path = '/home/chanyuan/02_RESEARCH/s3lab_research_v2/python/output/test/result_plots'
     settings.results_path = '/home/chanyuan/02_RESEARCH/s3lab_research_v2/python/output/test/tracking_results'    # Where to store tracking results
     settings.save_dir = '/home/chanyuan/02_RESEARCH/s3lab_research_v2/python/output'

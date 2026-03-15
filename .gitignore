@@ -11,13 +11,11 @@ python/data
 *.ckpt
 
 # dataset
-dataset/
 data/
 
 # training output
-output/
-logs/
-runs/
+python/output/checkpoints
+python/output_vit/checkpoints
 
 # jupyter
 .ipynb_checkpoints/
