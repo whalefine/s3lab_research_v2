@@ -49,20 +49,25 @@ class Attention(nn.Module):
         self.proj_drop = nn.Dropout(proj_drop)
 
     def forward(self, x, return_attention=False):
+        # SimA: softmax-free attention with L1-normalized Q, K (dim=-2)
         B, N, C = x.shape
-        qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
+        head_dim = C // self.num_heads
+        qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, head_dim).permute(2, 0, 3, 1, 4)
         q, k, v = qkv[0], qkv[1], qkv[2]  # make torchscript happy (cannot use tensor as tuple)
 
-        attn = (q @ k.transpose(-2, -1)) * self.scale
-        attn = attn.softmax(dim=-1)
-        attn = self.attn_drop(attn)
+        k = F.normalize(k, p=1.0, dim=-2)
+        q = F.normalize(q, p=1.0, dim=-2)
 
-        x = (attn @ v).transpose(1, 2).reshape(B, N, C)
+        if N < head_dim:
+            x = ((q @ k.transpose(-2, -1)) @ v).transpose(1, 2).reshape(B, N, C)
+        else:
+            x = (q @ (k.transpose(-2, -1) @ v)).transpose(1, 2).reshape(B, N, C)
+
         x = self.proj(x)
         x = self.proj_drop(x)
 
         if return_attention:
-            return x, attn
+            return x, None  # SimA has no softmax attention matrix
         return x
 
 
