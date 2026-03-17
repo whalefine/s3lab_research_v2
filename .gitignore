@@ -16,6 +16,8 @@ data/
 # training output
 python/output/checkpoints
 python/output_vit/checkpoints
+python/output/test
+python/output_vit/test
 
 # jupyter
 .ipynb_checkpoints/
