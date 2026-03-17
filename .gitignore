@@ -11,7 +11,7 @@ python/data
 *.ckpt
 
 # dataset
-data/
+#data/
 
 # training output
 python/output/checkpoints
