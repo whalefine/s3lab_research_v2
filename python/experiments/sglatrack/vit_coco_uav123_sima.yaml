@@ -44,7 +44,7 @@ MODEL:
   RETURN_INTER: False
   RETURN_STAGES: []
   BACKBONE:
-    TYPE: vit_base_patch16_224
+    TYPE: vit_sima_base_patch16_224
     STRIDE: 16
     MID_PE: False
     SEP_SEG: False
