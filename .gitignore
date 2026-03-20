@@ -17,7 +17,11 @@ python/data
 python/output/checkpoints
 python/output_vit/checkpoints
 python/output/test
-python/output_vit/test
+python/output_vit
+
+
+# tensorboard
+python/tensorboard/train/sglatrack/
 
 # jupyter
 .ipynb_checkpoints/
@@ -27,3 +31,6 @@ python/output_vit/test
 
 # reference
 #reference/
+
+# pretrained_models
+python/pretrained_models
