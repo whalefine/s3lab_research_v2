@@ -117,8 +117,8 @@ def create_default_local_file_ITP_test(workspace_dir, data_dir, save_dir):
 
 def env_settings():
     # env_module_name = 'lib.test.evaluation.local'
-    # env_module_name = 'lib.test.evaluation.local_deit'
-    env_module_name = 'lib.test.evaluation.local_vit'
+    env_module_name = 'lib.test.evaluation.local_deit'
+    # env_module_name = 'lib.test.evaluation.local_vit'
     try:
         env_module = importlib.import_module(env_module_name)
         return env_module.local_env_settings()
