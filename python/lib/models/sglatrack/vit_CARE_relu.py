@@ -17,9 +17,8 @@ Hacked together by / Copyright 2021 Ross Wightman
 
 Modified by Botao Ye
 
-本檔與 vit.py 模組結構與 **state_dict 鍵名／張量形狀完全一致**（Attention 為 CARE 風格 softmax-free
-線性注意力，但將論文／vit_CARE 的 **φ(x)=ELU(x)+1** 改為 **φ(x)=ReLU(x)+1** 以利對照實驗）。
-ReLU 在負值會截斷為 0，故仍 **+1** 維持分母與核為正（與 ELU+1 在負區間的平滑性不同）。
+本檔與 vit.py 模組結構與 **state_dict 鍵名／張量形狀完全一致**（Attention 僅 forward 改為
+CARE-Transformer 風格 softmax-free 線性注意力，見 reference/CARE-Transformer/CARETrans.py）。
 """
 import math
 import logging
@@ -52,18 +51,22 @@ class Attention(nn.Module):
         self.proj = nn.Linear(dim, dim)
         self.proj_drop = nn.Dropout(proj_drop)
 
+        # 方案二：per-head per-channel 可學習 gate，初始值 ones → sigmoid ≈ 0.73（接近不改動）
+        self.gate_q = nn.Parameter(torch.ones(1, num_heads, 1, head_dim))
+        self.gate_k = nn.Parameter(torch.ones(1, num_heads, 1, head_dim))
+
     def forward(self, x, return_attention=False):
         B, N, C = x.shape
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
         q, k, v = qkv[0], qkv[1], qkv[2]  # make torchscript happy (cannot use tensor as tuple)
 
         # 與 vit.py 相同：scaled dot-product 為 (q @ k^T) * (1/sqrt(d))，等價於兩邊各乘 d^{-1/4}
-        # 再送入 ReLU+1 正值核（對照 vit_CARE 的 ELU+1）
+        # 再送入 ReLU+1 正值核，並以 per-head gating 銳化注意力分佈
         s = self.scale ** 0.5
         qs = q * s
         ks = k * s
-        q = F.relu(qs) + 1.0
-        k = F.relu(ks) + 1.0
+        q = F.relu(qs)
+        k = F.relu(ks)
         v = self.attn_drop(v)
         k_mean = k.mean(dim=-2, keepdim=True)
         z = 1.0 / (q @ k_mean.transpose(-2, -1) + 1e-5)
@@ -392,7 +395,7 @@ def _create_vision_transformer(variant, pretrained=False, default_cfg=None, **kw
 
 def vit_base_patch16_224(pretrained=False, **kwargs):
     """
-    ViT-Base (ViT-B/16)，與 vit.py 相同結構與權重鍵名；Attention 為 ReLU+1 核之 softmax-free 線性注意力。
+    ViT-Base (ViT-B/16)，與 vit.py 相同結構與權重鍵名；Attention 為 CARE softmax-free 前向。
     """
     model_kwargs = dict(
         patch_size=16, embed_dim=768, depth=12, num_heads=12, **kwargs)
