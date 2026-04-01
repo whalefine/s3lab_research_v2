@@ -19,6 +19,9 @@ python/output_vit/checkpoints
 python/output/test
 python/output_vit
 
+# log
+python/output/logs/*.log
+python/output_vit/logs/*.log
 
 # tensorboard
 python/tensorboard/train/sglatrack/
@@ -34,3 +37,5 @@ python/tensorboard/train/sglatrack/
 
 # pretrained_models
 python/pretrained_models
+
+
