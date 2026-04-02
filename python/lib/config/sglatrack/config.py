@@ -41,6 +41,8 @@ cfg.MODEL.BACKBONE.MERGE_LAYER = 0
 cfg.MODEL.BACKBONE.ADD_CLS_TOKEN = False
 cfg.MODEL.BACKBONE.CLS_TOKEN_USE_MODE = 'ignore'
 
+cfg.MODEL.BACKBONE.EPS_INIT = 1e-3  # for vit_MALA_relu_eps: phi(x)=relu(x)+eps (eps learnable init)
+
 cfg.MODEL.BACKBONE.CE_LOC = []
 cfg.MODEL.BACKBONE.CE_KEEP_RATIO = []
 cfg.MODEL.BACKBONE.CE_TEMPLATE_RANGE = 'ALL'  # choose between ALL, CTR_POINT, CTR_REC, GT_BOX

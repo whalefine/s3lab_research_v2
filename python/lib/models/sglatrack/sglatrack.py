@@ -15,6 +15,7 @@ from lib.models.sglatrack.vit_CARE_gelu import vit_base_patch16_224 as vit_care_
 from lib.models.sglatrack.vit_MALA import vit_base_patch16_224 as vit_mala_base_patch16_224
 from lib.models.sglatrack.vit_MALA_CR import vit_base_patch16_224 as vit_mala_cr_base_patch16_224
 from lib.models.sglatrack.vit_MALA_relu import vit_base_patch16_224 as vit_mala_relu_base_patch16_224
+from lib.models.sglatrack.vit_MALA_relu_eps import vit_base_patch16_224 as vit_mala_relu_eps_base_patch16_224
 from lib.models.sglatrack.deit import deit_tiny_distilled_patch16_224
 from lib.utils.box_ops import box_xyxy_to_cxcywh
 
@@ -152,6 +153,17 @@ def build_sglatrack(cfg, training=True):
         patch_start_index = 1
     elif cfg.MODEL.BACKBONE.TYPE == 'vit_mala_relu_base_patch16_224':
         backbone = vit_mala_relu_base_patch16_224(pretrained, drop_path_rate=cfg.TRAIN.DROP_PATH_RATE)
+        hidden_dim = backbone.embed_dim
+        patch_start_index = 1
+    elif cfg.MODEL.BACKBONE.TYPE == 'vit_mala_relu_eps_base_patch16_224':
+        eps_init = getattr(cfg.MODEL.BACKBONE, 'EPS_INIT', 1e-3)
+        # YAML/edict may parse scientific notation as string in some environments
+        eps_init = float(eps_init)
+        backbone = vit_mala_relu_eps_base_patch16_224(
+            pretrained,
+            drop_path_rate=cfg.TRAIN.DROP_PATH_RATE,
+            eps_init=eps_init,
+        )
         hidden_dim = backbone.embed_dim
         patch_start_index = 1
     elif cfg.MODEL.BACKBONE.TYPE in ('deit_tiny_distilled_patch16', 'deit_tiny_distilled_patch16_224'):
