@@ -8,6 +8,7 @@ from torch.nn.modules.transformer import _get_clones
 
 from lib.models.layers.head import build_box_head
 from lib.models.sglatrack.vit import vit_base_patch16_224
+from lib.models.sglatrack.vit_square import vit_base_patch16_224 as vit_square_base_patch16_224
 from lib.models.sglatrack.vit_sima import vit_base_patch16_224 as vit_sima_base_patch16_224
 from lib.models.sglatrack.vit_CARE import vit_base_patch16_224 as vit_care_base_patch16_224
 from lib.models.sglatrack.vit_CARE_relu import vit_base_patch16_224 as vit_care_relu_base_patch16_224
@@ -15,6 +16,7 @@ from lib.models.sglatrack.vit_CARE_gelu import vit_base_patch16_224 as vit_care_
 from lib.models.sglatrack.vit_MALA import vit_base_patch16_224 as vit_mala_base_patch16_224
 from lib.models.sglatrack.vit_MALA_CR import vit_base_patch16_224 as vit_mala_cr_base_patch16_224
 from lib.models.sglatrack.vit_MALA_relu import vit_base_patch16_224 as vit_mala_relu_base_patch16_224
+from lib.models.sglatrack.vit_MALA_relu6 import vit_base_patch16_224 as vit_mala_relu6_base_patch16_224
 from lib.models.sglatrack.vit_MALA_relu_eps import vit_base_patch16_224 as vit_mala_relu_eps_base_patch16_224
 from lib.models.sglatrack.deit import deit_tiny_distilled_patch16_224
 from lib.utils.box_ops import box_xyxy_to_cxcywh
@@ -127,6 +129,15 @@ def build_sglatrack(cfg, training=True):
         backbone = vit_base_patch16_224(pretrained, drop_path_rate=cfg.TRAIN.DROP_PATH_RATE)
         hidden_dim = backbone.embed_dim
         patch_start_index = 1
+    elif cfg.MODEL.BACKBONE.TYPE == 'vit_square_base_patch16_224':
+        squaremax_eps = float(getattr(cfg.MODEL.BACKBONE, 'SQUAREMAX_EPS', 1e-6))
+        backbone = vit_square_base_patch16_224(
+            pretrained,
+            drop_path_rate=cfg.TRAIN.DROP_PATH_RATE,
+            squaremax_eps=squaremax_eps,
+        )
+        hidden_dim = backbone.embed_dim
+        patch_start_index = 1
     elif cfg.MODEL.BACKBONE.TYPE == 'vit_sima_base_patch16_224':
         backbone = vit_sima_base_patch16_224(pretrained, drop_path_rate=cfg.TRAIN.DROP_PATH_RATE)
         hidden_dim = backbone.embed_dim
@@ -153,6 +164,10 @@ def build_sglatrack(cfg, training=True):
         patch_start_index = 1
     elif cfg.MODEL.BACKBONE.TYPE == 'vit_mala_relu_base_patch16_224':
         backbone = vit_mala_relu_base_patch16_224(pretrained, drop_path_rate=cfg.TRAIN.DROP_PATH_RATE)
+        hidden_dim = backbone.embed_dim
+        patch_start_index = 1
+    elif cfg.MODEL.BACKBONE.TYPE == 'vit_mala_relu6_base_patch16_224':
+        backbone = vit_mala_relu6_base_patch16_224(pretrained, drop_path_rate=cfg.TRAIN.DROP_PATH_RATE)
         hidden_dim = backbone.embed_dim
         patch_start_index = 1
     elif cfg.MODEL.BACKBONE.TYPE == 'vit_mala_relu_eps_base_patch16_224':

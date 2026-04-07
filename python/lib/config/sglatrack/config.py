@@ -42,6 +42,7 @@ cfg.MODEL.BACKBONE.ADD_CLS_TOKEN = False
 cfg.MODEL.BACKBONE.CLS_TOKEN_USE_MODE = 'ignore'
 
 cfg.MODEL.BACKBONE.EPS_INIT = 1e-3  # for vit_MALA_relu_eps: phi(x)=relu(x)+eps (eps learnable init)
+cfg.MODEL.BACKBONE.SQUAREMAX_EPS = 1e-6  # vit_square: Squaremax denom clamp
 
 cfg.MODEL.BACKBONE.CE_LOC = []
 cfg.MODEL.BACKBONE.CE_KEEP_RATIO = []
