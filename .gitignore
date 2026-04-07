@@ -38,4 +38,5 @@ python/tensorboard/train/sglatrack/
 # pretrained_models
 python/pretrained_models
 
-
+#vscode
+.vscode
