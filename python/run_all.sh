@@ -24,7 +24,7 @@ SAVE_DIR="${SAVE_DIR:-output}"
 MODE="${MODE:-multiple}"                       # single | multiple | multi_node（通常用 single/multiple）
 NUM_GPUS="${NUM_GPUS:-1}"                      # multiple 模式下用到
 
-DATASET="${DATASET:-uav123}"                   # uav123 / uav123_10fps / lasot ...
+DATASET="${DATASET:-uav123}"                   # test dataset name
 THREADS="${THREADS:-0}"
 TEST_NUM_GPUS="${TEST_NUM_GPUS:-1}"
 
@@ -119,4 +119,8 @@ echo "- checkpoints: $SAVE_DIR/checkpoints/train/$SCRIPT/$CONFIG/"
 echo "- test results: $SAVE_DIR/test/tracking_results/$SCRIPT/$CONFIG/$DATASET/"
 echo "- eval plots: $SAVE_DIR/test/result_plots/$DATASET/"
 echo "========================================================================"
+
+echo ""
+echo "[Profile] forward_test 速度（MACs / latency / FPS，隨機張量，非完整追蹤 pipeline）"
+python tracking/profile_model.py --script "$SCRIPT" --config "$CONFIG"
 
