@@ -24,18 +24,18 @@ DATA:
   TRAIN:
     DATASETS_NAME:
       - COCO17
-      - UAV123
+      - GOT10K_train_full
     DATASETS_RATIO:
       - 1
       - 1
-    SAMPLE_PER_EPOCH: 20000
+    SAMPLE_PER_EPOCH: 60000
 
   VAL:
     DATASETS_NAME:
-      - UAV123
+      - GOT10K_votval
     DATASETS_RATIO:
       - 1
-    SAMPLE_PER_EPOCH: 5000
+    SAMPLE_PER_EPOCH: 10000
 
 MODEL:
   # 使用 ViT backbone（在 config.py 內預設為 vit_base_patch16_224）
@@ -81,7 +81,8 @@ TRAIN:
   AMP: False
   CE_START_EPOCH: 20
   CE_WARM_EPOCH: 80
-  FREEZE_LAYERS: [0, 1, 2]
+  # FREEZE_LAYERS: [0, 1, 2]
+  FREEZE_LAYERS: []
 
 TEST:
   EPOCH: 50

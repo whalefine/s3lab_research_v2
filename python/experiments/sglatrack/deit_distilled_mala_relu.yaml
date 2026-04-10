@@ -1,19 +1,19 @@
 DATA:
   MAX_SAMPLE_INTERVAL: 200
   MEAN:
-    - 0.485
-    - 0.456
-    - 0.406
+  - 0.485
+  - 0.456
+  - 0.406
   SEARCH:
     CENTER_JITTER: 4.5
     FACTOR: 5.0
     SCALE_JITTER: 0.5
     SIZE: 256
     NUMBER: 1
-  STD:
-    - 0.229
-    - 0.224
-    - 0.225
+  STD: 
+  - 0.229
+  - 0.224
+  - 0.225
   TEMPLATE:
     CENTER_JITTER: 0
     FACTOR: 2.0
@@ -23,28 +23,27 @@ DATA:
 
   TRAIN:
     DATASETS_NAME:
-      - COCO17
-      - GOT10K_train_full
+    - COCO17
+    - UAV123
     DATASETS_RATIO:
-      - 1
-      - 1
+    - 1
+    - 1
     SAMPLE_PER_EPOCH: 60000
-
   VAL:
     DATASETS_NAME:
-      - GOT10K_votval
+    - UAV123
     DATASETS_RATIO:
-      - 1
+    - 1
     SAMPLE_PER_EPOCH: 10000
 
 MODEL:
-  # vit_MALA_relu6：與 vit_MALA 權重鍵對齊；Attention forward 改為 MALA softmax-free 線性注意力（ReLU6 kernel mapping）
-  PRETRAIN_FILE: "mae_pretrain_vit_base.pth"
+  # 骨幹：lib/models/sglatrack/deit_MALA_relu.py（DeiT-Tiny distilled + MALA ReLU 線性注意力）
+  PRETRAIN_FILE: "output/checkpoints/train/sglatrack/deit_distilled/sglatrack_ep0297.pth.tar"
   EXTRA_MERGER: False
   RETURN_INTER: False
   RETURN_STAGES: []
   BACKBONE:
-    TYPE: vit_mala_relu6_base_patch16_224
+    TYPE: deit_tiny_distilled_mala_relu_patch16_224
     STRIDE: 16
     MID_PE: False
     SEP_SEG: False
@@ -81,7 +80,7 @@ TRAIN:
   AMP: False
   CE_START_EPOCH: 20
   CE_WARM_EPOCH: 80
-  FREEZE_LAYERS: []
+  FREEZE_LAYERS: [0, 1, 2]
 
 TEST:
   EPOCH: 50
@@ -89,4 +88,3 @@ TEST:
   SEARCH_SIZE: 256
   TEMPLATE_FACTOR: 2.0
   TEMPLATE_SIZE: 128
-

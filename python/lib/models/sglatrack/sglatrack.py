@@ -19,6 +19,7 @@ from lib.models.sglatrack.vit_MALA_relu import vit_base_patch16_224 as vit_mala_
 from lib.models.sglatrack.vit_MALA_relu6 import vit_base_patch16_224 as vit_mala_relu6_base_patch16_224
 from lib.models.sglatrack.vit_MALA_relu_eps import vit_base_patch16_224 as vit_mala_relu_eps_base_patch16_224
 from lib.models.sglatrack.deit import deit_tiny_distilled_patch16_224
+from lib.models.sglatrack.deit_MALA_relu import deit_tiny_distilled_mala_relu_patch16_224
 from lib.utils.box_ops import box_xyxy_to_cxcywh
 
 
@@ -183,6 +184,13 @@ def build_sglatrack(cfg, training=True):
         patch_start_index = 1
     elif cfg.MODEL.BACKBONE.TYPE in ('deit_tiny_distilled_patch16', 'deit_tiny_distilled_patch16_224'):
         backbone = deit_tiny_distilled_patch16_224(pretrained, drop_path_rate=cfg.TRAIN.DROP_PATH_RATE)
+        hidden_dim = backbone.embed_dim
+        patch_start_index = 2
+    elif cfg.MODEL.BACKBONE.TYPE in (
+        'deit_tiny_distilled_mala_relu_patch16_224',
+        'deit_tiny_distilled_mala_relu_patch16',
+    ):
+        backbone = deit_tiny_distilled_mala_relu_patch16_224(pretrained, drop_path_rate=cfg.TRAIN.DROP_PATH_RATE)
         hidden_dim = backbone.embed_dim
         patch_start_index = 2
     else:

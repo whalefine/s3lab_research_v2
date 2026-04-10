@@ -24,18 +24,18 @@ DATA:
   TRAIN:
     DATASETS_NAME:
       - COCO17
-      - UAV123
+      - GOT10K_train_full
     DATASETS_RATIO:
       - 1
       - 1
-    SAMPLE_PER_EPOCH: 20000
+    SAMPLE_PER_EPOCH: 60000
 
   VAL:
     DATASETS_NAME:
-      - UAV123
+      - GOT10K_votval
     DATASETS_RATIO:
       - 1
-    SAMPLE_PER_EPOCH: 5000
+    SAMPLE_PER_EPOCH: 10000
 
 MODEL:
   # vit_MALA_relu_eps：與 vit_MALA 權重鍵對齊；Attention forward 改為 MALA softmax-free 線性注意力

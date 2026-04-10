@@ -28,13 +28,13 @@ DATA:
     DATASETS_RATIO:
     - 1
     - 1
-    SAMPLE_PER_EPOCH: 20000
+    SAMPLE_PER_EPOCH: 60000
   VAL:
     DATASETS_NAME:
     - UAV123
     DATASETS_RATIO:
     - 1
-    SAMPLE_PER_EPOCH: 5000
+    SAMPLE_PER_EPOCH: 10000
 
 MODEL:
   PRETRAIN_FILE: "output/checkpoints/train/sglatrack/deit_distilled/sglatrack_ep0297.pth.tar"
