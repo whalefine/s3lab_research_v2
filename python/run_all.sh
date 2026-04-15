@@ -25,7 +25,7 @@ MODE="${MODE:-multiple}"                       # single | multiple | multi_node�
 NUM_GPUS="${NUM_GPUS:-1}"                      # multiple 模式下用到
 
 DATASET="${DATASET:-uav123}"                   # test dataset name
-THREADS="${THREADS:-0}"
+THREADS="${THREADS:-8}"
 TEST_NUM_GPUS="${TEST_NUM_GPUS:-1}"
 
 # evaluation 畫圖（PDF）
