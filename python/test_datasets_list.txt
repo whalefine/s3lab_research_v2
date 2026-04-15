@@ -1,0 +1,11 @@
+# 複製為 test_datasets_list.txt 或直接用：
+#   bash python/run_test_datasets.sh python/test_datasets_list.example.txt
+#
+# 每行一個 dataset 名稱（與 tracking/test.py 的 --dataset_name 相同）
+
+uav123
+#uavdt
+uav123_10fps
+uavtrack112
+uavtrack
+dtb70
