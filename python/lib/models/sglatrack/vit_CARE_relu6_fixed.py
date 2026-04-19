@@ -36,17 +36,9 @@ from timm.models.helpers import build_model_with_cfg, named_apply, adapt_input_c
 from timm.models.layers import Mlp, DropPath, trunc_normal_, lecun_normal_
 from timm.models.registry import register_model
 
+from lib.module import to_fixed_point
 from lib.models.layers.patch_embed import PatchEmbed
 from lib.models.sglatrack.base_backbone import BaseBackbone
-
-
-def to_fixed_point(tensor, int_bits=8, frac_bits=8):
-    scale = 2 ** frac_bits
-    qmin = -(2 ** (int_bits + frac_bits - 1))
-    qmax = (2 ** (int_bits + frac_bits - 1)) - 1
-    q = torch.round(tensor * scale)
-    q = torch.clamp(q, qmin, qmax)
-    return q / scale
 
 
 class Attention(nn.Module):
@@ -112,7 +104,7 @@ class Attention(nn.Module):
 class Block(nn.Module):
 
     def __init__(self, dim, num_heads, mlp_ratio=4., qkv_bias=False, drop=0., attn_drop=0.,
-                 drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm):
+                 drop_path=0., act_layer=nn.ReLU, norm_layer=nn.LayerNorm):
         super().__init__()
         self.norm1 = norm_layer(dim)
         self.attn = Attention(dim, num_heads=num_heads, qkv_bias=qkv_bias, attn_drop=attn_drop, proj_drop=drop)
@@ -190,7 +182,8 @@ class VisionTransformer(BaseBackbone):
         self.num_features = self.embed_dim = embed_dim  # num_features for consistency with other models
         self.num_tokens = 2 if distilled else 1
         norm_layer = norm_layer or partial(nn.LayerNorm, eps=1e-6)
-        act_layer = act_layer or nn.GELU
+        # act_layer = act_layer or nn.GELU
+        act_layer = act_layer or nn.ReLU
 
         self.patch_embed = embed_layer(
             img_size=img_size, patch_size=patch_size, in_chans=in_chans, embed_dim=embed_dim)
