@@ -1,0 +1,56 @@
+---
+description: Verilog RTL synthesis coding rules for SGLATrack hardware accelerator
+globs: "**/*.v"
+alwaysApply: false
+---
+
+# Verilog RTL 設計規範
+
+## 語言規則
+- 僅使用 Verilog-2005 語法，禁止 SystemVerilog 特性（logic, always_ff, always_comb, interface, typedef, enum, struct, package, assertions）
+- 所有 RTL 必須可合成（synthesizable），禁止 initial（硬體邏輯）、# delay、fork/join、force/release
+
+## 程式結構
+- Parameter 宣告在前，reg 宣告居中，always block 在後
+- 不交錯 reg 宣告與 always block
+- 每個 always block 前必須有一行用途註解
+
+## 模組化設計
+- 採用 top-down 架構：top → controller → datapath modules
+- 介面必須定義 clk, reset, start, busy, done, data_in, data_out
+- 大邏輯拆分為 controller / compute core / pipeline stage / memory interface
+
+## FSM 設計
+- FSM 必須獨立為三段式：state register / next-state logic / output logic
+- 使用 parameter 定義狀態名稱
+- FSM 不可與 datapath 混寫
+
+## 時序與組合邏輯
+- `always @(posedge clk)` 用於 sequential，`always @(*)` 用於 combinational
+- 優先使用同步 reset
+- Sequential 用 `<=`（non-blocking），combinational 用 `=`（blocking）
+- 組合邏輯必須覆蓋所有輸出，禁止 latch 推論
+
+## Transformer 加速器特有規範
+
+### 線性注意力硬體
+- φ(Q)(φ(K)^T V) 可拆為兩步矩陣乘法，用 MAC array 實現
+- ReLU kernel: 一個比較器 + MUX，零額外延遲
+- 歸一化除法: 用 Newton-Raphson 倒數近似（1-2 迭代）或 LUT
+- 考慮 d_head=64 時的矩陣大小 (64×64)，選擇合適的並行度
+
+### 定點數設計
+- 明確定義每個信號的位寬（整數位 + 小數位）
+- 乘法器輸出位寬 = 兩輸入位寬之和，需適當截斷
+- 累加器需預留足夠位寬防止溢出
+- 建議 Activation: Q16.8 或 Q8.8，Weight: Q8.8 或 Q4.12
+
+### 面積/延遲/吞吐量取捨
+- 說明設計是 parallel / partially parallel / multi-cycle iterative
+- 估算 MAC 數量、cycle 數、pipeline 深度
+- 與 Python 模型的 FLOPs 對照說明加速比
+
+## 驗證
+- 測試平台用 Verilog 撰寫，DUT 必須保持可合成
+- 包含 clock 產生與 reset 行為
+- 與 Python golden model 的輸出做 bit-accurate 比對

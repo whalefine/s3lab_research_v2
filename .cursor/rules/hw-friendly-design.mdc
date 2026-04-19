@@ -1,0 +1,85 @@
+---
+description: Hardware-friendly design principles for SGLATrack attention mechanism research
+alwaysApply: true
+---
+
+# SGLATrack 硬體友善設計原則
+
+## 專案目標
+
+本專案最終目標是將 ViT-based tracker (SGLATrack) 的注意力機制寫成  Verilog RTL ，接著部署到 FPGA 上。
+所有 Python 模型修改都是為了找到 **精度損失最小、但硬體實現成本最低** 的 softmax-free 注意力方案。
+
+## 架構概覽
+
+- 基線：`vit.py`（標準 softmax attention），Avg AUC=62.1
+- 目標：找到線性注意力替代方案，縮小與 baseline 的精度差距，同時確保可直接轉為 RTL
+- 模型檔案位於 `python/lib/models/sglatrack/vit_*.py`，僅修改 `Attention` class 的 forward
+- 必須保持 state_dict 鍵名與 `vit.py` 一致，以便載入 MAE 預訓練權重
+
+## 硬體友善運算偏好（按優先級排序）
+
+### 優先使用（硬體成本低）
+- **ReLU**：`max(0, x)` — 只需比較器，零成本
+- **ReLU6**：`min(max(0, x), 6)` — 兩個比較器，位寬有界
+- **加法 / 減法** — 基本運算
+- **位移（shift）** — 用於近似乘除 2 的冪次
+- **整數乘法** — 固定位寬乘法器，可預估面積
+- **矩陣乘法（線性層）** — 可用 systolic array 或 MAC array 實現
+
+### 可接受但需評估
+- **LayerNorm** — 需要均值/方差計算，硬體成本中等，可用近似方案
+- **BatchNorm（推論）** — 融合為 scale+bias，硬體友善
+- **Sigmoid 近似** — 可用分段線性或查表
+- **L1/L2 正規化** — 需要 sum of abs/squares + 除法
+
+### 盡量避免（硬體成本高）
+- **Softmax** — 需要 exp、求和、除法，是本專案要消除的核心目標
+- **exp / log** — 需要 CORDIC 或查表，面積大延遲高
+- **ELU(x)+1** — 負半軸需 exp，不如 ReLU
+- **GELU** — 涉及 erf/tanh 近似，硬體極不友善
+- **動態除法** — 除數非常數時需迭代除法器，延遲大
+- **Dropout** — 推論時不需要，訓練用即可，不影響硬體
+
+### 絕對禁止用於最終方案
+- **浮點運算** — 最終硬體用定點（fixed-point），Python 先驗證浮點精度
+- **動態形狀** — 硬體需要靜態已知的張量維度
+
+## 線性注意力核心公式
+
+標準 softmax attention: `Y = softmax(QK^T / √d) V`
+
+線性注意力目標形式: `Y = φ(Q)(φ(K)^T V)` — 複雜度從 O(N²d) 降為 O(Nd²)
+
+其中 φ 為 kernel mapping（正值化函數），硬體友善排序：
+1. **ReLU** — `max(0, x)`，最佳選擇
+2. **ReLU6** — `min(max(0, x), 6)`，有界更好量化
+3. **1+ReLU** — 保證正值，但加法器成本可忽略
+4. **(避免)** ELU+1、GELU+1 — 負半軸需 exp/erf
+
+## 數值穩定性注意事項
+
+線性注意力的分母 `φ(Q) @ sum(φ(K))` 可能趨近零，需加 epsilon。
+硬體中 epsilon 可實現為固定小值加法，成本極低。
+除法建議用倒數近似（Newton-Raphson 1-2 迭代）或查表。
+
+## 修改 Attention 時的規範
+
+1. 新建 `vit_<方法名>.py`，從 `vit.py` 複製後只改 `Attention.forward`
+2. 保持 `__init__` 中的參數名與 `vit.py` 一致（`qkv`, `proj`, `scale` 等）
+3. 如需新增可學習參數（如 gate），用 `nn.Parameter` 並在註解中說明硬體含義
+4. 在檔案開頭 docstring 說明對應的參考論文/方法
+5. 對應建立 `python/experiments/sglatrack/vit_coco_uav123_<名稱>.yaml` 設定檔
+
+## 實驗與比較基準
+
+- 訓練配置：COCO17 + GOT10K_train_full, Epoch 50, Batch 32, LR 5e-5
+- 主要評估資料集：UAV123, UAV123_10fps, UAVTrack112, UAVTrack112L, DTB70
+- 核心指標：**AUC**（成功率曲線下面積）、**Precision**（精確度）與 **FPS**（速度）
+- 目標：Avg AUC ≥ 59（與 baseline 62.1 差距 ≤ 3），Precision 不顯著下降，FPS ≥ 150
+
+## 從 Python 到硬體的轉換路徑
+
+1. Python 浮點驗證 → 2. Python 定點模擬（未來） → 3. Verilog RTL 實現 → 4. 燒錄到 FPGA 板上
+- 當前階段：步驟 1，用 PyTorch 驗證各種硬體友善注意力的精度
+- 每個新方案都要思考：這個運算在 Verilog 裡怎麼做？需要多少 cycle？多少面積？

@@ -1,0 +1,32 @@
+---
+description: Python coding rules for SGLATrack ML research with hardware deployment target
+globs: "**/*.py"
+alwaysApply: false
+---
+
+# Python 程式規範（面向硬體部署）
+
+## 基本規範
+- 遵循 PEP8 風格
+- 使用有意義的變數名（與 ML / 注意力機制相關）
+- 避免不必要的全域變數
+- 修改現有程式碼時，保留原始功能除非明確要求更改
+
+## 模型修改規範
+- 新注意力變體建為獨立檔案 `vit_<方法名>.py`，不修改 `vit.py` 基線
+- `Attention.__init__` 的權重結構必須與 `vit.py` 的 state_dict 鍵名一致
+- 新增可學習參數需用 `nn.Parameter`，並註解其硬體意義與位寬預估
+- forward 中每一步運算都要能對應到硬體操作（矩陣乘、比較、加法等）
+
+## 硬體意識寫法
+- 在 Attention.forward 的關鍵步驟旁加註硬體對應：
+  - `φ(Q)` → kernel mapping，如 ReLU = 比較器
+  - `φ(K)^T @ V` → Nd² MAC 運算
+  - 歸一化分母 → 倒數查表或 Newton 迭代
+- 避免使用 Python 動態特性（動態形狀、變長迴圈）做核心計算
+- 運算順序要考慮硬體 pipeline 可行性
+
+## 數值考量
+- 使用 float32 訓練，但心中要有定點轉換的概念
+- 加 epsilon 時用 `1e-5` 或 `1e-6`，對應硬體中的最小精度位
+- 避免數值範圍爆炸的運算鏈（連乘、未歸一化的累加）
