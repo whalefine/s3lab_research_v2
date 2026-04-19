@@ -15,7 +15,7 @@ from lib.models.sglatrack.vit_CARE_relu import vit_base_patch16_224 as vit_care_
 from lib.models.sglatrack.vit_CARE_relu_fixed import vit_base_patch16_224 as vit_care_relu_fixed_base_patch16_224
 from lib.models.sglatrack.vit_CARE_relu6 import vit_base_patch16_224 as vit_care_relu6_base_patch16_224
 from lib.models.sglatrack.vit_CARE_relu6_fixed import vit_base_patch16_224 as vit_care_relu6_fixed_base_patch16_224
-from lib.models.sglatrack.vit_CARE_relu_BN import vit_base_patch16_224 as vit_care_relu_bn_base_patch16_224
+from lib.models.sglatrack.vit_CARE_relu6_BN import vit_base_patch16_224 as vit_care_relu6_bn_base_patch16_224
 from lib.models.sglatrack.vit_CARE_gelu import vit_base_patch16_224 as vit_care_gelu_base_patch16_224
 from lib.models.sglatrack.vit_MALA import vit_base_patch16_224 as vit_mala_base_patch16_224
 from lib.models.sglatrack.vit_MALA_CR import vit_base_patch16_224 as vit_mala_cr_base_patch16_224
@@ -168,8 +168,8 @@ def build_sglatrack(cfg, training=True):
         backbone = vit_care_relu6_fixed_base_patch16_224(pretrained, drop_path_rate=cfg.TRAIN.DROP_PATH_RATE)
         hidden_dim = backbone.embed_dim
         patch_start_index = 1
-    elif cfg.MODEL.BACKBONE.TYPE == 'vit_care_relu_bn_base_patch16_224':
-        backbone = vit_care_relu_bn_base_patch16_224(pretrained, drop_path_rate=cfg.TRAIN.DROP_PATH_RATE)
+    elif cfg.MODEL.BACKBONE.TYPE == 'vit_care_relu6_bn_base_patch16_224':
+        backbone = vit_care_relu6_bn_base_patch16_224(pretrained, drop_path_rate=cfg.TRAIN.DROP_PATH_RATE)
         hidden_dim = backbone.embed_dim
         patch_start_index = 1
     elif cfg.MODEL.BACKBONE.TYPE == 'vit_care_gelu_base_patch16_224':

@@ -18,7 +18,7 @@ Hacked together by / Copyright 2021 Ross Wightman
 Modified by Botao Ye
 
 本檔與 vit.py 模組結構與 **state_dict 鍵名／張量形狀完全一致**（Attention 僅 forward 改為
-CARE-Transformer 風格 softmax-free 線性注意力，見 reference/CARE-Transformer/CARETrans.py）。
+CARE-Transformer 風格 softmax-free 線性注意力，並將 ReLU mapping 改為 ReLU6）。
 """
 import math
 import logging
@@ -39,15 +39,15 @@ from lib.models.layers.patch_embed import PatchEmbed
 from lib.models.sglatrack.base_backbone import BaseBackbone
 
 
-class BN1d(nn.Module):
-    """BatchNorm1d wrapper for (B, L, C) shaped ViT token sequences."""
+class BN1d(nn.BatchNorm1d):
+    """BatchNorm1d for ViT token sequences with LN-compatible parameter names."""
+
     def __init__(self, dim, eps=1e-5, momentum=0.1):
-        super().__init__()
-        self.bn = nn.BatchNorm1d(dim, eps=eps, momentum=momentum)
+        super().__init__(dim, eps=eps, momentum=momentum)
 
     def forward(self, x):
         # x: (B, L, C) -> transpose -> BN (B, C, L) -> transpose back (B, L, C)
-        return self.bn(x.transpose(1, 2)).transpose(1, 2)
+        return super().forward(x.transpose(1, 2)).transpose(1, 2)
 
 
 class Attention(nn.Module):
@@ -72,12 +72,12 @@ class Attention(nn.Module):
         q, k, v = qkv[0], qkv[1], qkv[2]  # make torchscript happy (cannot use tensor as tuple)
 
         # 與 vit.py 相同：scaled dot-product 為 (q @ k^T) * (1/sqrt(d))，等價於兩邊各乘 d^{-1/4}
-        # 再送入 ReLU+1 正值核，並以 per-head gating 銳化注意力分佈
+        # 再送入 ReLU6 正值核，並以 per-head gating 銳化注意力分佈
         s = self.scale ** 0.5
         qs = q * s
         ks = k * s
-        q = F.relu(qs)
-        k = F.relu(ks)
+        q = F.relu6(qs)
+        k = F.relu6(ks)
         v = self.attn_drop(v)
         k_mean = k.mean(dim=-2, keepdim=True)
         z = 1.0 / (q @ k_mean.transpose(-2, -1) + 1e-5)
@@ -97,7 +97,7 @@ class Attention(nn.Module):
 class Block(nn.Module):
 
     def __init__(self, dim, num_heads, mlp_ratio=4., qkv_bias=False, drop=0., attn_drop=0.,
-                 drop_path=0., act_layer=nn.GELU, norm_layer=BN1d):
+                 drop_path=0., act_layer=nn.ReLU, norm_layer=BN1d):
         super().__init__()
         self.norm1 = norm_layer(dim)
         self.attn = Attention(dim, num_heads=num_heads, qkv_bias=qkv_bias, attn_drop=attn_drop, proj_drop=drop)
@@ -156,7 +156,7 @@ class VisionTransformer(BaseBackbone):
         self.num_features = self.embed_dim = embed_dim  # num_features for consistency with other models
         self.num_tokens = 2 if distilled else 1
         norm_layer = norm_layer or partial(BN1d, eps=1e-6)
-        act_layer = act_layer or nn.GELU
+        act_layer = act_layer or nn.ReLU
 
         self.patch_embed = embed_layer(
             img_size=img_size, patch_size=patch_size, in_chans=in_chans, embed_dim=embed_dim)
@@ -229,6 +229,16 @@ class VisionTransformer(BaseBackbone):
         self.head = nn.Linear(self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
         if self.num_tokens == 2:
             self.head_dist = nn.Linear(self.embed_dim, self.num_classes) if num_classes > 0 else nn.Identity()
+
+    def finetune_track(self, cfg, patch_start_index=1):
+        super().finetune_track(cfg, patch_start_index=patch_start_index)
+
+        # BaseBackbone always creates LayerNorm for RETURN_INTER; swap them locally for this BN backbone.
+        if self.return_inter:
+            for i_layer in self.return_stage:
+                if i_layer != 11:
+                    layer_name = f'norm{i_layer}'
+                    setattr(self, layer_name, BN1d(self.embed_dim, eps=self.norm.eps, momentum=self.norm.momentum))
 
 
 def _init_vit_weights(module: nn.Module, name: str = '', head_bias: float = 0., jax_impl: bool = False):
@@ -406,7 +416,7 @@ def _create_vision_transformer(variant, pretrained=False, default_cfg=None, **kw
 
 def vit_base_patch16_224(pretrained=False, **kwargs):
     """
-    ViT-Base (ViT-B/16)，與 vit.py 相同結構與權重鍵名；Attention 為 CARE softmax-free 前向。
+    ViT-Base (ViT-B/16)，與 vit.py 相同結構與權重鍵名；Attention 為 CARE ReLU6 softmax-free 前向。
     """
     model_kwargs = dict(
         patch_size=16, embed_dim=768, depth=12, num_heads=12, **kwargs)
