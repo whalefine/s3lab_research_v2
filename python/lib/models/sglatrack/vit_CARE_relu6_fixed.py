@@ -53,10 +53,6 @@ class Attention(nn.Module):
         self.proj = nn.Linear(dim, dim)
         self.proj_drop = nn.Dropout(proj_drop)
 
-        # 方案二：per-head per-channel 可學習 gate，初始值 ones → sigmoid ≈ 0.73（接近不改動）
-        self.gate_q = nn.Parameter(torch.ones(1, num_heads, 1, head_dim))
-        self.gate_k = nn.Parameter(torch.ones(1, num_heads, 1, head_dim))
-
     def forward(self, x, return_attention=False):
         B, N, C = x.shape
         qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
