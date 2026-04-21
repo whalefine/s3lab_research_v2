@@ -127,11 +127,13 @@ class BaseBackbone(nn.Module):
     def forward_(self, z, x):
         B = x.shape[0]
 
-        z = self.patch_embed(z)
-        x = self.patch_embed(x)
+        z_patch = self.patch_embed(z)
+        x_patch = self.patch_embed(x)
+        z_pos = self.pos_embed_z
+        x_pos = self.pos_embed_x
 
-        z += self.pos_embed_z
-        x += self.pos_embed_x
+        z = z_patch + z_pos
+        x = x_patch + x_pos
 
         lens_z = self.pos_embed_z.shape[1]
         lens_x = self.pos_embed_x.shape[1]
@@ -177,11 +179,13 @@ class BaseBackbone(nn.Module):
     def forward_test(self, z, x):
         B = x.shape[0]
 
-        z = self.patch_embed(z)
-        x = self.patch_embed(x)
+        z_patch = self.patch_embed(z)
+        x_patch = self.patch_embed(x)
+        z_pos = self.pos_embed_z
+        x_pos = self.pos_embed_x
 
-        z += self.pos_embed_z
-        x += self.pos_embed_x
+        z = z_patch + z_pos
+        x = x_patch + x_pos
 
         lens_z = self.pos_embed_z.shape[1]
         lens_x = self.pos_embed_x.shape[1]

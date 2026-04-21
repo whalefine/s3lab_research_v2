@@ -244,5 +244,15 @@ def build_box_head(cfg, hidden_dim):
         center_head = CenterPredictor(inplanes=in_channel, channel=out_channel,
                                       feat_sz=feat_sz, stride=stride)
         return center_head
+    elif cfg.MODEL.HEAD.TYPE == "CENTER_DUMP":
+        # Dump-only CenterPredictor：結構與 CENTER 完全一致、可直接載同一 checkpoint，
+        # 僅在 forward / get_score_map 中多插入 .npy dump（需由外部設定 dump_enabled / dump_dir）
+        from lib.models.layers.head_dump import CenterPredictorDump
+        in_channel = hidden_dim
+        out_channel = cfg.MODEL.HEAD.NUM_CHANNELS
+        feat_sz = int(cfg.DATA.SEARCH.SIZE / stride)
+        center_head = CenterPredictorDump(inplanes=in_channel, channel=out_channel,
+                                          feat_sz=feat_sz, stride=stride)
+        return center_head
     else:
         raise ValueError("HEAD TYPE %s is not supported." % cfg.MODEL.HEAD_TYPE)

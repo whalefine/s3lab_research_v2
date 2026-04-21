@@ -15,6 +15,7 @@ from lib.models.sglatrack.vit_CARE_relu import vit_base_patch16_224 as vit_care_
 from lib.models.sglatrack.vit_CARE_relu_fixed import vit_base_patch16_224 as vit_care_relu_fixed_base_patch16_224
 from lib.models.sglatrack.vit_CARE_relu6 import vit_base_patch16_224 as vit_care_relu6_base_patch16_224
 from lib.models.sglatrack.vit_CARE_relu6_fixed import vit_base_patch16_224 as vit_care_relu6_fixed_base_patch16_224
+from lib.models.sglatrack.vit_CARE_relu6_fixed_dump import vit_base_patch16_224 as vit_care_relu6_fixed_dump_base_patch16_224
 from lib.models.sglatrack.vit_CARE_relu6_BN import vit_base_patch16_224 as vit_care_relu6_bn_base_patch16_224
 from lib.models.sglatrack.vit_CARE_gelu import vit_base_patch16_224 as vit_care_gelu_base_patch16_224
 from lib.models.sglatrack.vit_MALA import vit_base_patch16_224 as vit_mala_base_patch16_224
@@ -168,6 +169,11 @@ def build_sglatrack(cfg, training=True):
         backbone = vit_care_relu6_fixed_base_patch16_224(pretrained, drop_path_rate=cfg.TRAIN.DROP_PATH_RATE)
         hidden_dim = backbone.embed_dim
         patch_start_index = 1
+    elif cfg.MODEL.BACKBONE.TYPE == 'vit_care_relu6_fixed_dump_base_patch16_224':
+        # Dump-only variant：僅用於產生 RTL golden intermediate .npy，不應用於 training
+        backbone = vit_care_relu6_fixed_dump_base_patch16_224(pretrained, drop_path_rate=cfg.TRAIN.DROP_PATH_RATE)
+        hidden_dim = backbone.embed_dim
+        patch_start_index = 1
     elif cfg.MODEL.BACKBONE.TYPE == 'vit_care_relu6_bn_base_patch16_224':
         backbone = vit_care_relu6_bn_base_patch16_224(pretrained, drop_path_rate=cfg.TRAIN.DROP_PATH_RATE)
         hidden_dim = backbone.embed_dim
@@ -225,11 +231,14 @@ def build_sglatrack(cfg, training=True):
 
     box_head = build_box_head(cfg, hidden_dim)
 
+    # CENTER_DUMP 是 CENTER 的 dump-only 變體，在 sglatrack 層級行為與 CENTER 相同
+    head_type_for_sglatrack = "CENTER" if cfg.MODEL.HEAD.TYPE == "CENTER_DUMP" else cfg.MODEL.HEAD.TYPE
+
     model = sglatrack(
         backbone,
         box_head,
         aux_loss=False,
-        head_type=cfg.MODEL.HEAD.TYPE,
+        head_type=head_type_for_sglatrack,
     )
 
     if 'sglatrack' in cfg.MODEL.PRETRAIN_FILE and training:
