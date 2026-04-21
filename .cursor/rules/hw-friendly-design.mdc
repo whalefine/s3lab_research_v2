@@ -1,6 +1,6 @@
 ---
 description: Hardware-friendly design principles for SGLATrack attention mechanism research
-alwaysApply: true
+alwaysApply: false
 ---
 
 # SGLATrack 硬體友善設計原則
