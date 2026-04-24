@@ -1,17 +1,25 @@
-"""Dump-only variant of vit_CARE_relu6_fixed.
+"""Dump-only variant of vit_CARE_relu6_fixed_hand.
 
-此檔是 `vit_CARE_relu6_fixed.py` 的複製版本，**僅在 test-time 用於產生 RTL golden
-intermediate `.npy`**。
+此檔是 ``vit_CARE_relu6_fixed_hand.py`` 的複製版本，**僅在 test-time 用於產生 RTL
+golden intermediate ``.npy``**。
 
 設計原則：
-1. 不修改 `vit_CARE_relu6_fixed.py`、`base_backbone.py`、`head.py`、`sglatrack.py`
-   的原始行為。這些檔案維持純淨，供正常 train/test 使用。
-2. 本檔內所有 dump 邏輯 100% 自包含。數值計算結果與 `vit_CARE_relu6_fixed.py`
+1. 不修改 ``vit_CARE_relu6_fixed_hand.py``、``base_backbone_fix.py``、``head_fixed.py``、
+   ``sglatrack.py`` 的原始行為。這些檔案維持純淨，供正常 train/test 使用。
+2. 本檔內所有 dump 邏輯 100% 自包含。數值計算結果與 ``vit_CARE_relu6_fixed_hand.py``
    **完全一致**（dump 僅是旁路寫檔，不改任何中間張量）。
-3. 所有 dump 都發生在 `to_fixed_point(..., 8, 8)` 之後，確保寫入磁碟的就是 Q8.8
+3. 所有 dump 都發生在 ``to_fixed_point(..., 8, 8)`` 之後，確保寫入磁碟的就是 Q8.8
    量化後值（bit-accurate with RTL）。
-4. RTL 的真正入口是 `forward_test_from_post_embed(template_post_embed, search_post_embed)`
+4. RTL 的真正入口是 ``forward_test_from_post_embed(template_post_embed, search_post_embed)``
    （兩路 post-embedding token），外層 patch_embed + pos_add 屬於 Python-only 前處理。
+
+與 ``vit_CARE_relu6_fixed_dump`` 先前（基於 ``vit_CARE_relu6_fixed.py``）的差異：
+- Linear / LayerNorm / Dropout / DropPath / Mlp / ReLU6 全部改用 ``lib.module``
+  的手刻版本（與 ``vit_CARE_relu6_fixed_hand.py`` 完全一致）。
+- Backbone 父類別由 ``BaseBackbone`` 改為 ``BaseBackboneFix``（含 Q8.8 截斷的
+  ``ThreeLayerMLP`` 與 ``_forward_impl`` 對齊版本）。
+- Attention 內新增 ``qk_mean`` / ``qk_mean_eps`` 的 pre-reciprocal 量化節點，
+  與 hand 版的最新設計一致。
 
 用法：
     cfg.MODEL.BACKBONE.TYPE: 'vit_care_relu6_fixed_dump_base_patch16_224'
@@ -21,22 +29,30 @@ intermediate `.npy`**。
 """
 import math
 import os
-import logging
 from functools import partial
-from collections import OrderedDict
 
 import numpy as np
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 
-from timm.models.layers import Mlp, DropPath, trunc_normal_, lecun_normal_
+from timm.models.layers import trunc_normal_
 
-from lib.module import to_fixed_point
+from lib.module import (
+    Dropout,
+    DropPath,
+    LayerNorm,
+    Linear,
+    Mlp,
+    relu6,
+    to_fixed_point,
+)
 from lib.models.layers.patch_embed import PatchEmbed
-from lib.models.sglatrack.base_backbone import BaseBackbone
+from lib.models.sglatrack.base_backbone_fix import (
+    BaseBackboneFix,
+    enabled_layer_num,
+    start_layer,
+)
 from lib.models.sglatrack.utils import combine_tokens, recover_tokens
-from lib.models.sglatrack.base_backbone import enabled_layer_num, start_layer
 
 
 def _save_npy(enabled: bool, dump_dir: str, filename: str, tensor: torch.Tensor) -> None:
@@ -48,7 +64,7 @@ def _save_npy(enabled: bool, dump_dir: str, filename: str, tensor: torch.Tensor)
 
 
 class AttentionDump(nn.Module):
-    """與 vit_CARE_relu6_fixed.Attention 完全一致的數值路徑；僅在幾個關鍵節點插入 dump。"""
+    """與 ``vit_CARE_relu6_fixed_hand.Attention`` 完全一致的數值路徑；僅在幾個關鍵節點插入 dump。"""
 
     def __init__(self, dim, num_heads=8, qkv_bias=False, attn_drop=0., proj_drop=0.):
         super().__init__()
@@ -56,10 +72,10 @@ class AttentionDump(nn.Module):
         head_dim = dim // num_heads
         self.scale = head_dim ** -0.5
 
-        self.qkv = nn.Linear(dim, dim * 3, bias=qkv_bias)
-        self.attn_drop = nn.Dropout(attn_drop)
-        self.proj = nn.Linear(dim, dim)
-        self.proj_drop = nn.Dropout(proj_drop)
+        self.qkv = Linear(dim, dim * 3, bias=qkv_bias)
+        self.attn_drop = Dropout(attn_drop)
+        self.proj = Linear(dim, dim)
+        self.proj_drop = Dropout(proj_drop)
 
     def forward(self, x, return_attention=False):
         en = getattr(self, "dump_enabled", False)
@@ -81,15 +97,19 @@ class AttentionDump(nn.Module):
         ks = k * s
         qs = to_fixed_point(qs, 8, 8)
         ks = to_fixed_point(ks, 8, 8)
-        q = F.relu6(qs)
-        k = F.relu6(ks)
+        q = relu6(qs)
+        k = relu6(ks)
         q = to_fixed_point(q, 8, 8)
         k = to_fixed_point(k, 8, 8)
         v = self.attn_drop(v)
         v = to_fixed_point(v, 8, 8)
         k_mean = k.mean(dim=-2, keepdim=True)
         k_mean = to_fixed_point(k_mean, 8, 8)
-        z = 1.0 / (q @ k_mean.transpose(-2, -1) + 1e-5)
+        qk_mean = q @ k_mean.transpose(-2, -1)
+        qk_mean = to_fixed_point(qk_mean, 8, 8)
+        qk_mean_eps = qk_mean + 1e-5
+        qk_mean_eps = to_fixed_point(qk_mean_eps, 8, 8)
+        z = 1.0 / qk_mean_eps
         z = to_fixed_point(z, 8, 8)
         kv = (k.transpose(-2, -1) @ v) / float(N)
         kv = to_fixed_point(kv, 8, 8)
@@ -112,8 +132,9 @@ class AttentionDump(nn.Module):
 
 class BlockDump(nn.Module):
     def __init__(self, dim, num_heads, mlp_ratio=4., qkv_bias=False, drop=0., attn_drop=0.,
-                 drop_path=0., act_layer=nn.ReLU, norm_layer=nn.LayerNorm):
+                 drop_path=0., act_layer=nn.ReLU, norm_layer=None):
         super().__init__()
+        norm_layer = norm_layer or partial(LayerNorm, eps=1e-6)
         self.norm1 = norm_layer(dim)
         self.attn = AttentionDump(dim, num_heads=num_heads, qkv_bias=qkv_bias,
                                   attn_drop=attn_drop, proj_drop=drop)
@@ -127,7 +148,6 @@ class BlockDump(nn.Module):
         dd = getattr(self, "dump_dir", "")
         pf = getattr(self, "dump_prefix", "")
 
-        # 將 dump 設定下發到 attn
         self.attn.dump_enabled = en
         self.attn.dump_dir = dd
         self.attn.dump_prefix = pf
@@ -172,12 +192,12 @@ class BlockDump(nn.Module):
             return x
 
 
-class VisionTransformerDump(BaseBackbone):
-    """Dump 專用 backbone：結構／state_dict 鍵名與 VisionTransformer 相同。
+class VisionTransformerDump(BaseBackboneFix):
+    """Dump 專用 backbone：結構／state_dict 鍵名與 ``VisionTransformer``（hand 版）相同。
 
     關鍵差異：
-    - `forward_test` 會做 dump（patch embed / pos add / merged / pos_drop / blocks / recover / norm）
-    - 額外提供 `forward_test_from_post_embed(template_post_embed, search_post_embed)`，
+    - ``forward_test`` 會做 dump（patch embed / pos add / merged / pos_drop / blocks / recover / norm）
+    - 額外提供 ``forward_test_from_post_embed(template_post_embed, search_post_embed)``，
       對應 RTL 的真正入口：直接吃兩路 post-embedding token，略過 patch_embed + pos_add。
     """
 
@@ -189,7 +209,7 @@ class VisionTransformerDump(BaseBackbone):
         self.num_classes = num_classes
         self.num_features = self.embed_dim = embed_dim
         self.num_tokens = 2 if distilled else 1
-        norm_layer = norm_layer or partial(nn.LayerNorm, eps=1e-6)
+        norm_layer = norm_layer or partial(LayerNorm, eps=1e-6)
         act_layer = act_layer or nn.ReLU
 
         self.patch_embed = embed_layer(
@@ -199,7 +219,7 @@ class VisionTransformerDump(BaseBackbone):
         self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
         self.dist_token = nn.Parameter(torch.zeros(1, 1, embed_dim)) if distilled else None
         self.pos_embed = nn.Parameter(torch.zeros(1, num_patches + self.num_tokens, embed_dim))
-        self.pos_drop = nn.Dropout(p=drop_rate)
+        self.pos_drop = Dropout(p=drop_rate)
 
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)]
         self.blocks = nn.Sequential(*[
@@ -211,7 +231,6 @@ class VisionTransformerDump(BaseBackbone):
 
         self.init_weights(weight_init)
 
-        # Dump 開關（由外部指派）
         self.dump_enabled = False
         self.dump_dir = ""
 
@@ -239,7 +258,6 @@ class VisionTransformerDump(BaseBackbone):
     # 正常 test：從影像 (z, x) 做完整 patch_embed + pos_add，含 dump
     # ------------------------------------------------------------------
     def forward(self, z, x, **kwargs):
-        # Dump 版本僅支援 test 使用（training 請使用 vit_CARE_relu6_fixed.py）
         return self.forward_test(z, x)
 
     def forward_test(self, z, x):
@@ -249,16 +267,18 @@ class VisionTransformerDump(BaseBackbone):
 
         z_patch = self.patch_embed(z)
         x_patch = self.patch_embed(x)
+        z_patch = to_fixed_point(z_patch, 8, 8)
+        x_patch = to_fixed_point(x_patch, 8, 8)
         self._dump(z_patch, "template_after_patch_embed_out.npy")
         self._dump(x_patch, "search_after_patch_embed_out.npy")
 
-        z_pos = self.pos_embed_z
-        x_pos = self.pos_embed_x
+        z_pos = to_fixed_point(self.pos_embed_z, 8, 8)
+        x_pos = to_fixed_point(self.pos_embed_x, 8, 8)
         self._dump(z_pos, "template_pos_embed.npy")
         self._dump(x_pos, "search_pos_embed.npy")
 
-        z = z_patch + z_pos
-        x = x_patch + x_pos
+        z = to_fixed_point(z_patch + z_pos, 8, 8)
+        x = to_fixed_point(x_patch + x_pos, 8, 8)
         self._dump(z, "template_post_embed_input.npy")
         self._dump(x, "search_post_embed_input.npy")
 
@@ -268,13 +288,12 @@ class VisionTransformerDump(BaseBackbone):
                                      search_post_embed: torch.Tensor):
         """RTL 的正式入口：兩路 post-embedding token 直接進入。
 
-        template_post_embed, search_post_embed 必須是 `patch_embed(img) + pos_embed` 後的張量
-        （Python 端同步 dump `template_post_embed_input.npy` / `search_post_embed_input.npy`
-        來與 RTL 比對）。
+        ``template_post_embed``、``search_post_embed`` 必須是 ``patch_embed(img) + pos_embed``
+        之後、且已做過 Q8.8 截斷的張量。Python 端同步 dump
+        ``template_post_embed_input.npy`` / ``search_post_embed_input.npy`` 供與 RTL 比對。
         """
         self._propagate_dump()
         B = template_post_embed.shape[0]
-        # 兩路 post-embed 是 RTL 實際吃的正式輸入，也 dump 一份以防外部呼叫者沒 dump
         self._dump(template_post_embed, "template_post_embed_input.npy")
         self._dump(search_post_embed, "search_post_embed_input.npy")
         return self._forward_from_post_embed(template_post_embed, search_post_embed, B)
@@ -284,9 +303,11 @@ class VisionTransformerDump(BaseBackbone):
         lens_x = self.pos_embed_x.shape[1]
 
         x = combine_tokens(z, x, mode=self.cat_mode)
+        x = to_fixed_point(x, 8, 8)
         self._dump(x, "merged_tokens.npy")
 
         x = self.pos_drop(x)
+        x = to_fixed_point(x, 8, 8)
         self._dump(x, "after_pos_drop_out.npy")
 
         pro = None
@@ -295,8 +316,10 @@ class VisionTransformerDump(BaseBackbone):
         for i, blk in enumerate(self.blocks):
             if i < start_layer:
                 x = blk(x)
+                x = to_fixed_point(x, 8, 8)
             elif i == start_layer:
                 x = blk(x)
+                x = to_fixed_point(x, 8, 8)
                 pro = self.MLP(x[:, :, 0].clone())
                 _, topk_indices = torch.topk(pro, enabled_layer_num, dim=1)
                 sorted_topk_indices = torch.sort(topk_indices, dim=1).values + start_layer + 1
@@ -308,6 +331,7 @@ class VisionTransformerDump(BaseBackbone):
                 idx = torch.where(sorted_topk_indices[:, :] == i)[0]
                 if len(idx) > 0:
                     x[idx] = blk(x[idx])
+                    x[idx] = to_fixed_point(x[idx], 8, 8)
                     break
 
         # RTL 七層流程：由軟體 adaptive selector 決定唯一一個 6~11 層 block，
@@ -316,9 +340,11 @@ class VisionTransformerDump(BaseBackbone):
         cos_tensor = torch.zeros(B, 12 - 1 - start_layer, device=x.device)
 
         x = recover_tokens(x, lens_z, lens_x, mode=self.cat_mode)
+        x = to_fixed_point(x, 8, 8)
         self._dump(x, "backbone_after_recover_tokens_out.npy")
 
         x_norm = self.norm(x)
+        x_norm = to_fixed_point(x_norm, 8, 8)
         self._dump(x_norm, "backbone_after_norm_backbone_out.npy")
 
         aux_dict = {
@@ -331,13 +357,16 @@ class VisionTransformerDump(BaseBackbone):
 
 
 def _init_vit_weights(module: nn.Module, name: str = '', head_bias: float = 0., jax_impl: bool = False):
-    if isinstance(module, nn.Linear):
+    """與 hand 版同時支援 ``nn.Linear`` / ``Linear`` 及 ``nn.LayerNorm`` / ``LayerNorm``。"""
+    if isinstance(module, (nn.Linear, Linear)):
         trunc_normal_(module.weight, std=.02)
-        if module.bias is not None:
+        if getattr(module, "bias", None) is not None:
             nn.init.zeros_(module.bias)
-    elif isinstance(module, (nn.LayerNorm, nn.GroupNorm, nn.BatchNorm2d)):
-        nn.init.zeros_(module.bias)
-        nn.init.ones_(module.weight)
+    elif isinstance(module, (nn.LayerNorm, LayerNorm, nn.GroupNorm, nn.BatchNorm2d)):
+        if getattr(module, "bias", None) is not None:
+            nn.init.zeros_(module.bias)
+        if getattr(module, "weight", None) is not None:
+            nn.init.ones_(module.weight)
 
 
 def _create_vision_transformer(variant, pretrained=False, default_cfg=None, **kwargs):
@@ -352,7 +381,7 @@ def _create_vision_transformer(variant, pretrained=False, default_cfg=None, **kw
 
 
 def vit_base_patch16_224(pretrained=False, **kwargs):
-    """Dump-only ViT-Base (ViT-B/16)。結構與 state_dict 鍵名與 vit_CARE_relu6_fixed 完全相同。"""
+    """Dump-only ViT-Base (ViT-B/16)。結構與 state_dict 鍵名與 ``vit_CARE_relu6_fixed_hand`` 完全相同。"""
     model_kwargs = dict(patch_size=16, embed_dim=768, depth=12, num_heads=12, **kwargs)
     model = _create_vision_transformer(
         'vit_base_patch16_224_in21k', pretrained=pretrained, **model_kwargs)

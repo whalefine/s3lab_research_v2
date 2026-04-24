@@ -4,7 +4,7 @@ Pipeline（對齊 .cursor/rules/python-to-rtl-plan.mdc）：
 - frame1 (+ init_bbox) -> template crop -> preprocess -> patch_embed + pos_embed_z -> template_post_embed
 - frame2 -> search crop -> preprocess -> patch_embed + pos_embed_x -> search_post_embed
 - 呼叫 backbone.forward_test_from_post_embed(template_post_embed, search_post_embed)
-  內部會 dump（來自 vit_CARE_relu6_fixed_dump.py）：
+  內部會 dump（來自 vit_CARE_relu6_fixed_dump.py，該檔現以 vit_CARE_relu6_fixed_hand.py 為基底）：
     template_post_embed_input, search_post_embed_input,
     merged_tokens, after_pos_drop_out,
     每個 block 的 norm1 / qkv(q,k,v) / attn / residual1 / norm2 / mlp / block_out,
@@ -19,8 +19,12 @@ Pipeline（對齊 .cursor/rules/python-to-rtl-plan.mdc）：
 
 注意：
 - 本腳本預設使用 `vit_coco_uav123_care_relu6_fixed_dump.yaml`，其 backbone 是
-  `vit_CARE_relu6_fixed_dump.py` 中的 `VisionTransformerDump`。所有 dump 邏輯
-  都在該 dump 檔案裡；`vit_CARE_relu6_fixed.py` 本身完全純淨、可正常 train/test。
+  `vit_CARE_relu6_fixed_dump.py` 中的 `VisionTransformerDump`。
+- `vit_CARE_relu6_fixed_dump.py` 現已對齊 `vit_CARE_relu6_fixed_hand.py`：
+  Linear / LayerNorm / Dropout / DropPath / Mlp / ReLU6 全部改用 `lib.module`
+  的手刻版本，父類別改為 `BaseBackboneFix`，並包含 `qk_mean` / `qk_mean_eps` 的
+  pre-reciprocal 量化節點。所有 dump 邏輯都在該 dump 檔案裡；
+  `vit_CARE_relu6_fixed_hand.py` 本身完全純淨、可正常 train/test。
 - Head 使用 `CENTER_DUMP` 變體時會自動輸出 head conv / map / bbox dump；
   本腳本另外補存 `box_head_after_forward_head_pred_boxes.npy` 與 manifest 欄位。
 """
@@ -42,6 +46,7 @@ if prj_path not in sys.path:
 import numpy as np
 import torch
 
+from lib.module import to_fixed_point
 from lib.test.tracker.data_utils import Preprocessor
 from lib.test.utils.hann import hann2d
 from lib.train.data.processing_utils import sample_target
@@ -194,14 +199,18 @@ def main():
         search_tensor = ((t / 255.0) - mean) / std
 
     # --- patch_embed + pos_embed (Python-only 前處理) --------------------
-    # 這段同步 dump 以便跨檢查，但 RTL 的正式輸入是 template_post_embed / search_post_embed
+    # 這段同步 dump 以便跨檢查，但 RTL 的正式輸入是 template_post_embed / search_post_embed。
+    # 與 vit_CARE_relu6_fixed_hand.py / BaseBackboneFix._forward_impl 一致，
+    # patch_embed、pos_embed 以及相加結果都要做 Q8.8 截斷，確保 bit-accurate。
     with torch.no_grad():
         z_patch = model.backbone.patch_embed(template_tensor)
         x_patch = model.backbone.patch_embed(search_tensor)
-        z_pos = model.backbone.pos_embed_z
-        x_pos = model.backbone.pos_embed_x
-        template_post_embed = z_patch + z_pos
-        search_post_embed = x_patch + x_pos
+        z_patch = to_fixed_point(z_patch, 8, 8)
+        x_patch = to_fixed_point(x_patch, 8, 8)
+        z_pos = to_fixed_point(model.backbone.pos_embed_z, 8, 8)
+        x_pos = to_fixed_point(model.backbone.pos_embed_x, 8, 8)
+        template_post_embed = to_fixed_point(z_patch + z_pos, 8, 8)
+        search_post_embed = to_fixed_point(x_patch + x_pos, 8, 8)
 
     manifest_entries = []
     _save_npy(output_dir, "template_after_patch_embed_out.npy", z_patch, manifest_entries,
@@ -237,6 +246,8 @@ def main():
     # head input / score_map / size_map / offset_map / cal_bbox_bbox 由
     # CenterPredictorDump 內部 dump（透過 HEAD.TYPE=CENTER_DUMP 啟用）。
     # 這裡僅補存 sglatrack.forward_head 在 reshape 後的 pred_boxes。
+    # 依 Q8.8 對拍規則，存檔前先做固定點截斷。
+    pred_boxes_head = to_fixed_point(pred_boxes_head, 8, 8)
     _save_npy(output_dir, "box_head_after_forward_head_pred_boxes.npy",
               pred_boxes_head, manifest_entries,
               stage="head.forward_head", source="sglatrack.forward_head.pred_boxes")
@@ -246,9 +257,11 @@ def main():
         device = pred_score_map.device
         output_window = hann2d(torch.tensor([feat_sz, feat_sz]).long(), centered=True).to(device)
         response = output_window * pred_score_map
+        response = to_fixed_point(response, 8, 8)
         _save_npy(output_dir, "tracker_after_output_window_response.npy", response,
                   manifest_entries, stage="tracker.post", source="hann2d * score_map")
         bbox_after = model.box_head.cal_bbox(response, pred_size_map, pred_offset_map)
+        bbox_after = to_fixed_point(bbox_after, 8, 8)
         _save_npy(output_dir, "tracker_after_cal_bbox_bbox.npy", bbox_after,
                   manifest_entries, stage="tracker.post",
                   source="box_head.cal_bbox(response, size_map, offset_map)")
@@ -256,10 +269,12 @@ def main():
         pred_box = (pred_boxes.mean(dim=0) * search_size / x_resize_factor).tolist()
         mapped = _map_box_back(state, pred_box, x_resize_factor, search_size)
         mapped_t = torch.tensor(mapped)
+        mapped_t = to_fixed_point(mapped_t, 8, 8)
         _save_npy(output_dir, "tracker_after_map_box_back_bbox.npy", mapped_t,
                   manifest_entries, stage="tracker.post", source="tracker.map_box_back")
         final_bbox = clip_box(mapped, H, W, margin=10)
         final_t = torch.tensor(final_bbox)
+        final_t = to_fixed_point(final_t, 8, 8)
         _save_npy(output_dir, "tracker_after_final_bbox_bbox.npy", final_t,
                   manifest_entries, stage="tracker.post", source="clip_box")
 
