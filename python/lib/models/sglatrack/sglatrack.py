@@ -7,6 +7,7 @@ from torch import nn
 from torch.nn.modules.transformer import _get_clones
 
 from lib.models.layers.head import build_box_head
+from lib.models.layers.head_hand import build_box_head as build_box_head_hand
 from lib.models.sglatrack.vit import vit_base_patch16_224
 from lib.models.sglatrack.vit_square import vit_base_patch16_224 as vit_square_base_patch16_224
 from lib.models.sglatrack.vit_sima import vit_base_patch16_224 as vit_sima_base_patch16_224
@@ -14,7 +15,9 @@ from lib.models.sglatrack.vit_CARE import vit_base_patch16_224 as vit_care_base_
 from lib.models.sglatrack.vit_CARE_relu import vit_base_patch16_224 as vit_care_relu_base_patch16_224
 from lib.models.sglatrack.vit_CARE_relu_fixed import vit_base_patch16_224 as vit_care_relu_fixed_base_patch16_224
 from lib.models.sglatrack.vit_CARE_relu6 import vit_base_patch16_224 as vit_care_relu6_base_patch16_224
+from lib.models.sglatrack.vit_CARE_relu6_hand import vit_base_patch16_224 as vit_care_relu6_hand_base_patch16_224
 from lib.models.sglatrack.vit_CARE_relu6_fixed import vit_base_patch16_224 as vit_care_relu6_fixed_base_patch16_224
+from lib.models.sglatrack.vit_CARE_relu6_fixed_hand import vit_base_patch16_224 as vit_care_relu6_fixed_hand_base_patch16_224
 from lib.models.sglatrack.vit_CARE_relu6_fixed_dump import vit_base_patch16_224 as vit_care_relu6_fixed_dump_base_patch16_224
 from lib.models.sglatrack.vit_CARE_relu6_BN import vit_base_patch16_224 as vit_care_relu6_bn_base_patch16_224
 from lib.models.sglatrack.vit_CARE_gelu import vit_base_patch16_224 as vit_care_gelu_base_patch16_224
@@ -43,7 +46,7 @@ class sglatrack(nn.Module):
 
         self.aux_loss = aux_loss
         self.head_type = head_type
-        if head_type == "CORNER" or head_type == "CENTER":
+        if head_type in ("CORNER", "CENTER", "CENTER_HAND", "CENTER_FIXED"):
             self.feat_sz_s = int(box_head.feat_sz)
             self.feat_len_s = int(box_head.feat_sz ** 2)
 
@@ -109,7 +112,7 @@ class sglatrack(nn.Module):
             }
             return out
 
-        elif self.head_type == "CENTER":
+        elif self.head_type in ("CENTER", "CENTER_HAND", "CENTER_FIXED"):
             # run the center head
             score_map_ctr, bbox, size_map, offset_map = self.box_head(opt_feat, gt_score_map)
             outputs_coord = bbox
@@ -165,8 +168,17 @@ def build_sglatrack(cfg, training=True):
         backbone = vit_care_relu6_base_patch16_224(pretrained, drop_path_rate=cfg.TRAIN.DROP_PATH_RATE)
         hidden_dim = backbone.embed_dim
         patch_start_index = 1
+    elif cfg.MODEL.BACKBONE.TYPE == 'vit_care_relu6_hand_base_patch16_224':
+        backbone = vit_care_relu6_hand_base_patch16_224(pretrained, drop_path_rate=cfg.TRAIN.DROP_PATH_RATE)
+        hidden_dim = backbone.embed_dim
+        patch_start_index = 1
     elif cfg.MODEL.BACKBONE.TYPE == 'vit_care_relu6_fixed_base_patch16_224':
         backbone = vit_care_relu6_fixed_base_patch16_224(pretrained, drop_path_rate=cfg.TRAIN.DROP_PATH_RATE)
+        hidden_dim = backbone.embed_dim
+        patch_start_index = 1
+    elif cfg.MODEL.BACKBONE.TYPE == 'vit_care_relu6_fixed_hand_base_patch16_224':
+        # Hand-coded inference-friendly variant: keeps architecture/key names but uses explicit module dataflow.
+        backbone = vit_care_relu6_fixed_hand_base_patch16_224(pretrained, drop_path_rate=cfg.TRAIN.DROP_PATH_RATE)
         hidden_dim = backbone.embed_dim
         patch_start_index = 1
     elif cfg.MODEL.BACKBONE.TYPE == 'vit_care_relu6_fixed_dump_base_patch16_224':
@@ -229,10 +241,14 @@ def build_sglatrack(cfg, training=True):
 
     backbone.finetune_track(cfg=cfg, patch_start_index=patch_start_index)
 
-    box_head = build_box_head(cfg, hidden_dim)
+    # The hand-coded backbone variant expects the hand head implementation as well.
+    box_head_builder = build_box_head_hand if cfg.MODEL.HEAD.TYPE == "CENTER_HAND" else build_box_head
+    box_head = box_head_builder(cfg, hidden_dim)
 
-    # CENTER_DUMP 是 CENTER 的 dump-only 變體，在 sglatrack 層級行為與 CENTER 相同
-    head_type_for_sglatrack = "CENTER" if cfg.MODEL.HEAD.TYPE == "CENTER_DUMP" else cfg.MODEL.HEAD.TYPE
+    # CENTER_DUMP / CENTER_FIXED 在 sglatrack 層級行為都與 CENTER 相同
+    head_type_for_sglatrack = (
+        "CENTER" if cfg.MODEL.HEAD.TYPE in ("CENTER_DUMP", "CENTER_FIXED") else cfg.MODEL.HEAD.TYPE
+    )
 
     model = sglatrack(
         backbone,
