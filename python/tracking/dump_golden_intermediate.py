@@ -12,7 +12,8 @@ Pipeline（對齊 .cursor/rules/python-to-rtl-plan.mdc）：
     adaptive_pro, adaptive_sorted_topk_indices.
 - 另外再跑 tracker 後處理（Hann window + cal_bbox + mean + map_box_back + clip_box），
   dump tracker_after_output_window_response, tracker_after_cal_bbox_bbox,
-  tracker_after_map_box_back_bbox, tracker_after_final_bbox_bbox.
+  tracker_after_map_box_back_bbox, tracker_after_final_bbox_bbox，並於終端列印最終
+  frame2 像素 xywh（格式對齊 ``run_backbone_numpy.py``）。
 
 最後輸出 golden_manifest.json 紀錄每個檔案對應的 stage / shape / dtype，
 並包含 adaptive selector 選出的 block index（RTL 僅需跑第 0~5 層 + 此 selected 層）。
@@ -277,6 +278,13 @@ def main():
         final_t = to_fixed_point(final_t, 8, 8)
         _save_npy(output_dir, "tracker_after_final_bbox_bbox.npy", final_t,
                   manifest_entries, stage="tracker.post", source="clip_box")
+        x1, y1, bw, bh = final_bbox
+        print(
+            f"[tracker] 最終 bbox（frame2 像素 xywh）: "
+            f"x1={float(x1):.4f}, y1={float(y1):.4f}, w={float(bw):.4f}, h={float(bh):.4f}"
+        )
+    else:
+        print("[tracker] 最終 bbox: 未計算（已使用 --no-dump-tracker-post）")
 
     # --- 蒐集所有已 dump 的檔案（含 backbone 自動 dump 的） ------------
     all_files = sorted(f.name for f in output_dir.iterdir()
