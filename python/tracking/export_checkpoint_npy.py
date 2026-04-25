@@ -13,6 +13,12 @@ Scope：
 
 若 scope 包含 head，會額外匯出 Conv2d+BatchNorm2d 的 folded new_gamma / new_beta
 (`{prefix}_folded_weight.npy` / `_folded_bias.npy`)，供硬體直接使用。
+
+備註（與 ``vit_CARE_relu6_fixed_hand.py`` 相容）：
+- 當 backbone 採用 hand 版（或其 dump 變體）時，`Linear` / `LayerNorm` 實作位於
+  ``lib.module``；它們不是 ``nn.Linear`` / ``nn.LayerNorm`` 的子類別。
+- 本檔 `category_for_module` 會同時辨識原生 PyTorch 版與 ``lib.module`` 版，
+  以保證參數被放到 ``linearParam`` / ``layerParam`` 正確子資料夾。
 """
 import argparse
 import datetime as _dt
@@ -29,6 +35,9 @@ if prj_path not in sys.path:
 import numpy as np
 import torch
 import torch.nn as nn
+
+from lib.module import Linear as HandLinear
+from lib.module import LayerNorm as HandLayerNorm
 
 
 # ---------------------------------------------------------------------------
@@ -96,11 +105,11 @@ def key_in_scope(key: str, scope: str, selected_layer: int = None) -> bool:
 def category_for_module(module: nn.Module) -> str:
     if isinstance(module, nn.Conv2d):
         return "conv"
-    if isinstance(module, nn.Linear):
+    if isinstance(module, (nn.Linear, HandLinear)):
         return "linear"
     if isinstance(module, (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d)):
         return "batchnorm"
-    if isinstance(module, nn.LayerNorm):
+    if isinstance(module, (nn.LayerNorm, HandLayerNorm)):
         return "layernorm"
     return "other"
 
