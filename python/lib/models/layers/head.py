@@ -254,5 +254,14 @@ def build_box_head(cfg, hidden_dim):
         center_head = CenterPredictorDump(inplanes=in_channel, channel=out_channel,
                                           feat_sz=feat_sz, stride=stride)
         return center_head
+    elif cfg.MODEL.HEAD.TYPE == "CENTER_FIXED":
+        # Fixed-point CenterPredictor：與 CENTER 結構一致，僅在前向關鍵節點插入 to_fixed_point。
+        from lib.models.layers.head_fixed import CenterPredictorFixed
+        in_channel = hidden_dim
+        out_channel = cfg.MODEL.HEAD.NUM_CHANNELS
+        feat_sz = int(cfg.DATA.SEARCH.SIZE / stride)
+        center_head = CenterPredictorFixed(inplanes=in_channel, channel=out_channel,
+                                           feat_sz=feat_sz, stride=stride)
+        return center_head
     else:
-        raise ValueError("HEAD TYPE %s is not supported." % cfg.MODEL.HEAD_TYPE)
+        raise ValueError("HEAD TYPE %s is not supported." % cfg.MODEL.HEAD.TYPE)
