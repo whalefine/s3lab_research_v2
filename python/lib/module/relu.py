@@ -1,46 +1,60 @@
-"""Reference-compatible ReLU activation.
+"""RTL-friendly ReLU activation.
 
 Target API:
 - torch.nn.functional.relu
+- torch.nn.ReLU
 
-Upstream references:
-- https://github.com/pytorch/pytorch/blob/main/torch/nn/functional.py
-  (``relu`` delegates to ATen ``relu`` / ``relu_`` kernels)
+RTL mapping:
+    out = x * (x > 0)
+    Step 1 — compare: (x > 0)  → 1-bit comparator
+    Step 2 — mux:     x * mask  → pass-through or zero
 
-Notes:
-- Math: ``relu(x) = max(x, 0)``.
-- This implementation uses an explicit element-wise maximum so the dataflow maps
-  more directly to RTL than a generic clamp kernel.
+No torch / torch.nn imports — only Python operators and module_base.
 """
 
 from __future__ import annotations
 
-import torch
-import torch.nn.functional as F
+from lib.module.module_base import Module
 
 
-def relu(input: torch.Tensor, inplace: bool = False) -> torch.Tensor:
-    """逐元素 ReLU：``max(x, 0)``，與 ``F.relu`` 語意對齊。"""
-    zero = torch.zeros_like(input)
-    out = torch.maximum(input, zero)
+def relu(input, inplace: bool = False):
+    """逐元素 ReLU：負值歸零，以比較器 mask 實作。"""
+    mask = input > 0      # BoolTensor: 1 where x > 0
+    out = input * mask    # type promotion: float * bool → float
     if inplace:
         input.copy_(out)
         return input
     return out
 
 
-@torch.no_grad()
+class ReLU(Module):
+    """``nn.ReLU`` 相容模組，呼叫手刻 ``relu`` 函式。"""
+
+    def __init__(self, inplace: bool = False) -> None:
+        self.inplace = inplace
+
+    def forward(self, input):
+        return relu(input, inplace=self.inplace)
+
+    def __repr__(self) -> str:
+        return f"ReLU(inplace={self.inplace})"
+
+
 def _quick_parity_check() -> None:
+    import torch
+    import torch.nn.functional as F
     torch.manual_seed(0)
     x = torch.randn(3, 4)
     y_ref = F.relu(x)
     y_impl = relu(x)
-    assert torch.equal(y_ref, y_impl)
+    assert torch.equal(y_ref, y_impl), f"mismatch: max_err={(y_ref-y_impl).abs().max().item()}"
+    print("relu parity: exact match")
+
     a, b = x.clone(), x.clone()
-    y_a = F.relu(a, inplace=True)
-    y_b = relu(b, inplace=True)
-    assert torch.equal(y_a, y_b) and torch.equal(a, b)
-    print("relu parity: max_abs_err = 0.0 (exact match on random tensor)")
+    F.relu(a, inplace=True)
+    relu(b, inplace=True)
+    assert torch.equal(a, b)
+    print("relu inplace parity: exact match")
 
 
 if __name__ == "__main__":

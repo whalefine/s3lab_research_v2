@@ -3,33 +3,31 @@
 Target API:
 - torch.topk
 
-Upstream references:
-- https://github.com/pytorch/pytorch/blob/main/torch/_refs/__init__.py
-- Runtime dispatch is handled by ATen/C++ kernels.
+Changes from original:
+- torch.iinfo  → element_size() * 8 to derive integer bit-width (tensor method).
+- torch.full_like  → .new_full() (tensor method).
+- torch.stack  → pre-allocated tensor + slice assignment (no torch function call).
+- torch.empty_like → .new_empty().long() (tensor methods).
+- torch.argsort    → lib.module.sort (hand-crafted sort module).
+- All other operations use tensor methods (.movedim, .reshape, .max, .min,
+  .scatter_, .clone, .gather) — no torch.xxx function calls.
 
-Notes:
-- This implementation uses iterative selection on the target dimension.
-- The dataflow is closer to a repeated compare-select block than the fused
-- backend implementation.
+Hardware note:
+- Iterative compare-select maps to a comparator tree; manageable in RTL.
+- scatter_ (fill-with-sentinel) maps to a conditional write with a mask.
 """
 
 from __future__ import annotations
 
 from collections import namedtuple
 
-import torch
+from lib.module.sort import sort as _sort
 
 
 TopkResult = namedtuple("TopkResult", ["values", "indices"])
 
 
-def topk(
-    input: torch.Tensor,
-    k: int,
-    dim: int = -1,
-    largest: bool = True,
-    sorted: bool = True,
-) -> TopkResult:
+def topk(input, k: int, dim: int = -1, largest: bool = True, sorted: bool = True) -> TopkResult:
     """Select the top-k elements with explicit iterative compare-select steps."""
     if input.ndim == 0:
         raise ValueError("topk expects at least 1D input")
@@ -44,16 +42,18 @@ def topk(
 
     moved = input.movedim(dim, -1)
     flat = moved.reshape(-1, size_along_dim)
+    N = flat.shape[0]
     work = flat.clone()
 
+    # Sentinel fill value — avoids torch.iinfo
     if input.dtype.is_floating_point:
         fill_value = float("-inf") if largest else float("inf")
     else:
-        info = torch.iinfo(input.dtype)
-        fill_value = info.min if largest else info.max
+        bits = input.element_size() * 8          # tensor method: bytes → bits
+        fill_value = -(2 ** (bits - 1)) if largest else (2 ** (bits - 1) - 1)
 
-    selected_values = []
-    selected_indices = []
+    selected_values: list = []
+    selected_indices: list = []
     for _ in range(k):
         if largest:
             values, indices = work.max(dim=-1)
@@ -61,13 +61,25 @@ def topk(
             values, indices = work.min(dim=-1)
         selected_values.append(values)
         selected_indices.append(indices)
-        work.scatter_(-1, indices.unsqueeze(-1), torch.full_like(indices.unsqueeze(-1), fill_value, dtype=work.dtype))
+        # Mark selected position as sentinel — .new_full() instead of torch.full_like
+        idx_unsq = indices.unsqueeze(-1)
+        sentinel = work.new_full(idx_unsq.shape, fill_value)
+        work.scatter_(-1, idx_unsq, sentinel)
 
-    values_out = torch.stack(selected_values, dim=-1) if k > 0 else flat[:, :0]
-    indices_out = torch.stack(selected_indices, dim=-1) if k > 0 else torch.empty_like(flat[:, :0], dtype=torch.long)
+    # Assemble results via pre-allocated tensor + slice assignment — avoids torch.stack
+    if k > 0:
+        values_out = flat.new_empty(N, k)
+        indices_out = flat.new_empty(N, k).long()
+        for i, (v, idx) in enumerate(zip(selected_values, selected_indices)):
+            values_out[:, i] = v
+            indices_out[:, i] = idx
+    else:
+        values_out = flat[:, :0]
+        indices_out = flat[:, :0].long()
 
     if sorted and k > 1:
-        sorter = torch.argsort(values_out, dim=-1, descending=largest)
+        # Use hand-crafted sort module instead of torch.argsort
+        sorter = _sort(values_out, dim=-1, descending=largest).indices
         values_out = values_out.gather(-1, sorter)
         indices_out = indices_out.gather(-1, sorter)
 
@@ -77,18 +89,18 @@ def topk(
     return TopkResult(values=values_out, indices=indices_out)
 
 
-@torch.no_grad()
 def _quick_parity_check() -> None:
+    import torch
     torch.manual_seed(0)
     x = torch.randn(3, 7)
     ref = torch.topk(x, 3, dim=1)
     impl = topk(x, 3, dim=1)
     err_v = (ref.values - impl.values).abs().max().item()
     err_i = (ref.indices - impl.indices).abs().max().item()
-    print("topk values max_abs_err =", err_v)
-    print("topk indices max_abs_err =", err_i)
-    assert err_v < 1e-6
-    assert err_i == 0
+    print(f"topk values max_abs_err = {err_v}")
+    print(f"topk indices max_abs_err = {err_i}")
+    assert err_v < 1e-6 and err_i == 0
+    print("topk OK")
 
 
 if __name__ == "__main__":

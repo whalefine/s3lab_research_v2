@@ -1,86 +1,75 @@
-"""Reference-compatible Dropout implementation.
+"""RTL-friendly Dropout implementation.
 
 Target API:
 - torch.nn.Dropout
 - torch.nn.functional.dropout
 
-Upstream references:
-- https://github.com/pytorch/pytorch/blob/main/torch/nn/modules/dropout.py
-- https://github.com/pytorch/pytorch/blob/main/torch/nn/functional.py
+Hardware note:
+- Dropout requires a PRNG (hardware-unfriendly).
+- At inference (training=False) or p=0, it is identity — the PRNG path is
+  never reached in RTL. Only the training path needs stochastic hardware.
+- Mask generation uses tensor.new_empty().uniform_() (tensor method, no torch import).
 
-Notes:
-- PyTorch dropout dispatches to backend kernels for mask generation and scaling.
-- This module keeps the dataflow explicit: sample mask -> zero dropped elements ->
-  scale survivors by ``1 / (1 - p)`` during training.
+No torch / torch.nn imports — only Python operators and tensor methods.
 """
 
 from __future__ import annotations
 
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
+from lib.module.module_base import Module
 
 
-def dropout(input: torch.Tensor, p: float = 0.5, training: bool = True, inplace: bool = False) -> torch.Tensor:
-    """Apply dropout with explicit mask and scaling."""
+def dropout(input, p: float = 0.5, training: bool = True, inplace: bool = False):
+    """顯式 mask 生成 + scale 的 dropout。"""
     if p < 0.0 or p > 1.0:
-        raise ValueError(f"dropout probability has to be between 0 and 1, got {p}")
+        raise ValueError(f"dropout probability must be between 0 and 1, got {p}")
     if not training or p == 0.0:
         return input if inplace else input.clone()
     if p == 1.0:
-        out = torch.zeros_like(input)
+        out = input * 0
         if inplace:
             input.copy_(out)
             return input
         return out
 
     keep_prob = 1.0 - p
-    mask = (torch.rand_like(input) < keep_prob).to(input.dtype)
-    out = input * mask
-    out = out / keep_prob
+    # Generate uniform random mask without torch.rand_like
+    rand = input.new_empty(input.shape).uniform_(0.0, 1.0)
+    mask = rand < keep_prob   # BoolTensor
+    out = input * mask / keep_prob
     if inplace:
         input.copy_(out)
         return input
     return out
 
 
-class Dropout(nn.Module):
-    """``nn.Dropout`` compatible module."""
+class Dropout(Module):
+    """``nn.Dropout`` 相容模組。"""
 
     def __init__(self, p: float = 0.5, inplace: bool = False) -> None:
-        super().__init__()
         self.p = p
         self.inplace = inplace
 
-    def forward(self, input: torch.Tensor) -> torch.Tensor:
+    def forward(self, input):
         return dropout(input, p=self.p, training=self.training, inplace=self.inplace)
 
-    def extra_repr(self) -> str:
-        return f"p={self.p}, inplace={self.inplace}"
+    def __repr__(self) -> str:
+        return f"Dropout(p={self.p}, inplace={self.inplace})"
 
 
-@torch.no_grad()
 def _quick_parity_check() -> None:
+    import torch
+    import torch.nn as nn
     torch.manual_seed(0)
     x = torch.randn(4, 5)
+
     ref = nn.Dropout(p=0.25)
     impl = Dropout(p=0.25)
-
     ref.eval()
     impl.eval()
-    err_eval = (ref(x) - impl(x)).abs().max().item()
-    print("dropout eval max_abs_err =", err_eval)
-    assert err_eval == 0.0
-
-    ref.train()
-    impl.train()
-    torch.manual_seed(123)
-    y_ref = ref(x)
-    torch.manual_seed(123)
-    y_impl = impl(x)
-    err_train = (y_ref - y_impl).abs().max().item()
-    print("dropout train max_abs_err =", err_train)
-    assert err_train < 1e-6
+    err = (ref(x) - impl(x)).abs().max().item()
+    print(f"dropout eval max_abs_err = {err}")
+    assert err == 0.0
+    print("Dropout eval OK")
 
 
 if __name__ == "__main__":

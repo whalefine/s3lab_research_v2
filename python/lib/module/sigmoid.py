@@ -1,55 +1,56 @@
-"""Reference-compatible Sigmoid activation.
+"""Hardware-friendly piecewise-linear sigmoid approximation.
 
-Target API:
+Target API (kept):
 - torch.nn.Sigmoid
 - torch.nn.functional.sigmoid / torch.sigmoid
 
-Upstream references:
-- https://github.com/pytorch/pytorch/blob/main/torch/nn/modules/activation.py
-- Forward delegates to ATen ``sigmoid`` kernel.
+Approximation:
+    σ(x) = clamp(x, -4, 4) * (1/8) + 0.5
 
-Notes:
-- Math: ``σ(x) = 1 / (1 + exp(-x))``.
-- Naive ``1 / (1 + exp(-x))`` 在 |x| 很大時易溢位；此處用 ``z = exp(-|x|)`` 的分支式
-  寫法（與常見數值庫相同），對齊 ``torch.sigmoid`` 的穩定性與前向結果。
+RTL mapping:
+    Step 1 — saturate:  clamp(x, -4, 4)  → saturation register
+    Step 2 — scale:     >> 3              → arithmetic right shift by 3
+    Step 3 — offset:    + 0.5             → adder with constant
+
+Boundary values:
+    x <= -4  →  -4 * 0.125 + 0.5 = 0
+    x  =  0  →   0 * 0.125 + 0.5 = 0.5
+    x >= +4  →  +4 * 0.125 + 0.5 = 1
+
+No torch / torch.nn imports — only Python operators and lib.module primitives.
 """
 
 from __future__ import annotations
 
-import torch
-import torch.nn as nn
+from lib.module.clamp import clamp
+from lib.module.module_base import Module
 
 
-def sigmoid(input: torch.Tensor) -> torch.Tensor:
-    """逐元素 sigmoid，與 ``torch.sigmoid`` / ``F.sigmoid`` 語意對齊。"""
-    z = torch.exp(-torch.abs(input))
-    return torch.where(input >= 0, 1.0 / (1.0 + z), z / (1.0 + z))
+def sigmoid(x):
+    """逐元素分段線性 sigmoid：飽和截斷 → shift-add。"""
+    x_sat = clamp(x, -4.0, 4.0)
+    return x_sat * 0.125 + 0.5
 
 
-class Sigmoid(nn.Module):
-    """``nn.Sigmoid`` 相容模組（無參數）。"""
+class Sigmoid(Module):
+    """``nn.Sigmoid`` 相容模組，呼叫手刻 ``sigmoid`` 函式。"""
 
-    def forward(self, input: torch.Tensor) -> torch.Tensor:
-        return sigmoid(input)
+    def forward(self, x):
+        return sigmoid(x)
 
 
-@torch.no_grad()
 def _quick_parity_check() -> None:
-    torch.manual_seed(0)
-    x = torch.randn(4, 5) * 5.0
-    y_ref = torch.sigmoid(x)
-    y_impl = sigmoid(x)
-    err = (y_ref - y_impl).abs().max().item()
-    print("sigmoid functional max_abs_err =", err)
-    assert err < 1e-6
-    m_ref = nn.Sigmoid()
-    m_impl = Sigmoid()
-    err_m = (m_ref(x) - m_impl(x)).abs().max().item()
-    print("Sigmoid module max_abs_err =", err_m)
-    assert err_m < 1e-6
-    # 極端值
-    t = torch.tensor([-80.0, 80.0, 0.0], dtype=torch.float32)
-    assert torch.allclose(torch.sigmoid(t), sigmoid(t), atol=1e-6, rtol=0)
+    import torch
+    with torch.no_grad():
+        x = torch.tensor([-10.0, -4.0, -2.0, 0.0, 2.0, 4.0, 10.0], dtype=torch.float32)
+        y_impl = sigmoid(x)
+        y_expected = torch.tensor([0.0, 0.0, 0.25, 0.5, 0.75, 1.0, 1.0], dtype=torch.float32)
+        print("sigmoid piecewise output =", y_impl.tolist())
+        assert torch.allclose(y_impl, y_expected, atol=1e-6, rtol=0), f"mismatch: {y_impl}"
+
+        m_impl = Sigmoid()
+        assert torch.allclose(m_impl(x), y_expected, atol=1e-6, rtol=0)
+        print("Sigmoid module OK")
 
 
 if __name__ == "__main__":

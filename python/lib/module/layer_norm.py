@@ -3,17 +3,19 @@
 Target API:
 - torch.nn.LayerNorm
 
-Upstream references:
-- https://raw.githubusercontent.com/pytorch/pytorch/main/torch/nn/modules/normalization.py
-- https://raw.githubusercontent.com/pytorch/pytorch/main/torch/nn/functional.py
+Forward decomposition (explicit reduction steps):
+    sum → mean → centered → squared → variance → inv_std → affine
 
-Notes:
-- PyTorch's nn.LayerNorm.forward delegates to F.layer_norm, which dispatches to
-  torch.layer_norm (ATen/C++ backend kernel).
-- This module reimplements the forward path as explicit reduction steps:
-  sum -> mean -> centered square -> variance -> rsqrt path -> affine.
-- The goal is to keep the dataflow closer to a typical RTL decomposition.
+Hardware note:
+- inv_std = (var + eps) ** (-0.5)  requires reciprocal-sqrt.
+  In hardware this needs CORDIC or Newton-Raphson LUT; kept here as float
+  reference. Marked hardware-unfriendly in the module summary.
+
+Keeps nn.Module / nn.Parameter for checkpoint compatibility.
+torch.rsqrt removed; replaced with ** (-0.5) via Python power operator.
 """
+
+from __future__ import annotations
 
 import numbers
 from typing import Union, Tuple, List
@@ -26,7 +28,7 @@ ShapeLike = Union[int, List[int], Tuple[int, ...], torch.Size]
 
 
 class LayerNorm(nn.Module):
-    """Pure-Python LayerNorm with explicit reduction steps."""
+    """Pure-Python LayerNorm with explicit reduction steps; no torch.rsqrt."""
 
     __constants__ = ["normalized_shape", "eps", "elementwise_affine"]
 
@@ -72,15 +74,19 @@ class LayerNorm(nn.Module):
         for size in self.normalized_shape:
             norm_elem_count *= size
 
+        # Step 1: mean
         sum_x = input.sum(dim=dims, keepdim=True)
         mean = sum_x / norm_elem_count
 
+        # Step 2: variance (explicit squared residuals)
         centered = input - mean
         squared = centered * centered
         sum_sq = squared.sum(dim=dims, keepdim=True)
         var = sum_sq / norm_elem_count
 
-        inv_std = torch.rsqrt(var + self.eps)
+        # Step 3: inv_std via ** (-0.5)  [hardware-unfriendly: needs reciprocal-sqrt]
+        inv_std = (var + self.eps) ** (-0.5)
+
         out = centered * inv_std
         if self.weight is not None:
             out = out * self.weight
@@ -95,9 +101,8 @@ class LayerNorm(nn.Module):
         )
 
 
-@torch.no_grad()
 def _quick_parity_check() -> None:
-    """Quick smoke test against torch.nn.LayerNorm."""
+    import torch
     torch.manual_seed(0)
     x = torch.randn(2, 7, 16)
     ref = nn.LayerNorm(16, eps=1e-6)
@@ -105,9 +110,10 @@ def _quick_parity_check() -> None:
     impl.weight.copy_(ref.weight)
     if impl.bias is not None and ref.bias is not None:
         impl.bias.copy_(ref.bias)
-    y_ref = ref(x)
-    y_impl = impl(x)
-    print("layer_norm parity max_abs_err =", (y_ref - y_impl).abs().max().item())
+    err = (ref(x) - impl(x)).abs().max().item()
+    print(f"layer_norm parity max_abs_err = {err}")
+    assert err < 1e-5, f"mismatch: {err}"
+    print("LayerNorm OK")
 
 
 if __name__ == "__main__":
