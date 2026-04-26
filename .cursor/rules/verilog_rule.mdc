@@ -31,14 +31,6 @@ alwaysApply: false
 - Sequential 用 `<=`（non-blocking），combinational 用 `=`（blocking）
 - 組合邏輯必須覆蓋所有輸出，禁止 latch 推論
 
-## Transformer 加速器特有規範
-
-### 線性注意力硬體
-- φ(Q)(φ(K)^T V) 可拆為兩步矩陣乘法，用 MAC array 實現
-- ReLU kernel: 一個比較器 + MUX，零額外延遲
-- 歸一化除法: 用 Newton-Raphson 倒數近似（1-2 迭代）或 LUT
-- 考慮 d_head=64 時的矩陣大小 (64×64)，選擇合適的並行度
-
 ### 定點數設計
 - 明確定義每個信號的位寬（整數位 + 小數位）
 - 乘法器輸出位寬 = 兩輸入位寬之和，需適當截斷
