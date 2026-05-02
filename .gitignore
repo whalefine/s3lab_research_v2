@@ -42,4 +42,6 @@ python/pretrained_models
 .vscode
 
 reference/rongxuan
-
+reference/Lab_Theses
+.codex
+.tmp_pydeps
