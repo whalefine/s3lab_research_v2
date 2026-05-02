@@ -56,7 +56,8 @@ MODEL:
     CE_KEEP_RATIO: []
     CE_TEMPLATE_RANGE: 'ALL'
   HEAD:
-    TYPE: CENTER
+    # CenterPredictorFixed（lib/models/layers/head_fixed.py）；結構同 CENTER，前向插入 Q8.8 to_fixed_point
+    TYPE: CENTER_FIXED
     NUM_CHANNELS: 256
 
 TRAIN:
