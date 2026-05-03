@@ -15,6 +15,9 @@ from lib.models.sglatrack.vit_CARE import vit_base_patch16_224 as vit_care_base_
 from lib.models.sglatrack.vit_CARE_relu import vit_base_patch16_224 as vit_care_relu_base_patch16_224
 from lib.models.sglatrack.vit_CARE_relu_fixed import vit_base_patch16_224 as vit_care_relu_fixed_base_patch16_224
 from lib.models.sglatrack.vit_CARE_relu6 import vit_base_patch16_224 as vit_care_relu6_base_patch16_224
+from lib.models.sglatrack.vit_CARE_relu6_dim32 import (
+    vit_tiny32_care_patch16_224 as vit_care_relu6_dim32_base_patch16_224,
+)
 from lib.models.sglatrack.vit_CARE_relu6_hand import vit_base_patch16_224 as vit_care_relu6_hand_base_patch16_224
 from lib.models.sglatrack.vit_CARE_relu6_fixed import vit_base_patch16_224 as vit_care_relu6_fixed_base_patch16_224
 from lib.models.sglatrack.vit_CARE_relu6_fixed_hand import vit_base_patch16_224 as vit_care_relu6_fixed_hand_base_patch16_224
@@ -166,6 +169,13 @@ def build_sglatrack(cfg, training=True):
         patch_start_index = 1
     elif cfg.MODEL.BACKBONE.TYPE == 'vit_care_relu6_base_patch16_224':
         backbone = vit_care_relu6_base_patch16_224(pretrained, drop_path_rate=cfg.TRAIN.DROP_PATH_RATE)
+        hidden_dim = backbone.embed_dim
+        patch_start_index = 1
+    elif cfg.MODEL.BACKBONE.TYPE == 'vit_care_relu6_dim32_base_patch16_224':
+        # embed_dim=32；pretrained 為 vit_tiny_patch16_224.pth（192 維）時由 dim32 模組內投影載入
+        backbone = vit_care_relu6_dim32_base_patch16_224(
+            pretrained, drop_path_rate=cfg.TRAIN.DROP_PATH_RATE
+        )
         hidden_dim = backbone.embed_dim
         patch_start_index = 1
     elif cfg.MODEL.BACKBONE.TYPE == 'vit_care_relu6_hand_base_patch16_224':
