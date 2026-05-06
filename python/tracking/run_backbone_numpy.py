@@ -34,8 +34,8 @@ import numpy as np
 # ---------------------------------------------------------------------------
 # Model constants (vit_coco_uav123_care_relu6_fixed)
 # ---------------------------------------------------------------------------
-EMBED_DIM = 768
-NUM_HEADS = 12
+EMBED_DIM = 32
+NUM_HEADS = 4
 HEAD_DIM = EMBED_DIM // NUM_HEADS        # 64
 SCALE = HEAD_DIM ** -0.5                 # 0.125
 S = SCALE ** 0.5                         # ≈ 0.353553
