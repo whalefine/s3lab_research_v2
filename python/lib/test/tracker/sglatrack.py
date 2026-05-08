@@ -20,7 +20,10 @@ class sglatrack(BaseTracker):
     def __init__(self, params, dataset_name):
         super(sglatrack, self).__init__(params)
         network = build_sglatrack(params.cfg, training=False)
-        network.load_state_dict(torch.load(self.params.checkpoint, map_location='cpu')['net'], strict=True)
+        raw_sd = torch.load(self.params.checkpoint, map_location='cpu')['net']
+        # 訓練時可訓練的 distill_teacher_feat_align 不參與 test 路徑，自 state_dict 略過以保持 strict 載入其餘權重。
+        raw_sd = {k: v for k, v in raw_sd.items() if "distill_teacher_feat_align" not in k}
+        network.load_state_dict(raw_sd, strict=True)
         self.cfg = params.cfg
         self.network = network.cuda()
         self.network.eval()
@@ -46,6 +49,31 @@ class sglatrack(BaseTracker):
         # for save boxes from all queries
         self.save_all_boxes = params.save_all_boxes
         self.z_dict1 = {}
+        # 若預測框與 GT 的 IoU >= 此值，輸出該幀圖片路徑
+        self.correct_iou_threshold = float(getattr(params, "correct_iou_threshold", 0.8))
+
+    @staticmethod
+    def _xywh_iou(box_a, box_b):
+        """Compute IoU for two [x, y, w, h] boxes."""
+        ax1, ay1, aw, ah = [float(v) for v in box_a]
+        bx1, by1, bw, bh = [float(v) for v in box_b]
+        ax2, ay2 = ax1 + max(0.0, aw), ay1 + max(0.0, ah)
+        bx2, by2 = bx1 + max(0.0, bw), by1 + max(0.0, bh)
+
+        inter_x1 = max(ax1, bx1)
+        inter_y1 = max(ay1, by1)
+        inter_x2 = min(ax2, bx2)
+        inter_y2 = min(ay2, by2)
+        inter_w = max(0.0, inter_x2 - inter_x1)
+        inter_h = max(0.0, inter_y2 - inter_y1)
+        inter = inter_w * inter_h
+
+        area_a = max(0.0, aw) * max(0.0, ah)
+        area_b = max(0.0, bw) * max(0.0, bh)
+        union = area_a + area_b - inter
+        if union <= 0.0:
+            return 0.0
+        return inter / union
 
     def initialize(self, image, info: dict):
         # forward the template once
@@ -94,6 +122,16 @@ class sglatrack(BaseTracker):
             dim=0) * self.params.search_size / resize_factor).tolist()  # (cx, cy, w, h) [0,1]
         # get the final box result
         self.state = clip_box(self.map_box_back(pred_box, resize_factor), H, W, margin=10)
+
+        # 若該幀預測正確（IoU >= threshold），輸出該幀圖片路徑
+        if info is not None and 'gt_bbox' in info:
+            iou = self._xywh_iou(self.state, info['gt_bbox'])
+            if iou >= self.correct_iou_threshold:
+                frame_path = info.get('frame_path', '<unknown_frame_path>')
+                print(
+                    f"[correct frame] id={self.frame_id} iou={iou:.4f} "
+                    f"path={frame_path}"
+                )
 
         # for debug
         if self.debug:
