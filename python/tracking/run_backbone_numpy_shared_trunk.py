@@ -213,14 +213,14 @@ def write_bi(arr: np.ndarray, base: Path, int_bits: int = 8, frac_bits: int = 8)
     min_int = -(1 << (int_bits - 1)) * scale
     max_int = (1 << (int_bits - 1)) * scale - 1
     base_str = str(base)
-    with open(base_str + ".txt", "w") as f_dec, open(base_str + "_bi.txt", "w") as f_bin:
+    # 僅輸出 *_bi.txt（避免 Weight/ 內混入非 *_bi.txt 的檔案）
+    with open(base_str + "_bi.txt", "w") as f_bin:
         for num in flat:
             fixed = int(num * scale)
             if fixed < min_int:
                 fixed = min_int
             elif fixed > max_int:
                 fixed = max_int
-            f_dec.write(f"{fixed / scale:.{frac_bits}f}\n")
             twos = fixed & ((1 << total_w) - 1)
             f_bin.write(format(twos, f"0{total_w}b") + "\n")
 
@@ -231,8 +231,7 @@ def write_wbi(arr: np.ndarray, name: str, int_bits: int = 8, frac_bits: int = 8)
 
 
 def save_npy(filename: str, arr: np.ndarray) -> None:
-    if _out_dir is not None:
-        np.save(_out_dir / filename, arr)
+    # 為了避免產生任何 *.npy 檔案，這裡只輸出對應的 .txt / *_bi.txt。
     if _bi_act_dir is not None:
         stem = filename[:-4] if filename.endswith(".npy") else filename
         write_bi(arr, _bi_act_dir / stem)
