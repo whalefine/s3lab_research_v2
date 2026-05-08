@@ -26,8 +26,12 @@ Pipeline（對齊 .cursor/rules/python-to-rtl-plan.mdc）：
   的手刻版本，父類別改為 `BaseBackboneFix`，並包含 `qk_mean` / `qk_mean_eps` 的
   pre-reciprocal 量化節點。所有 dump 邏輯都在該 dump 檔案裡；
   `vit_CARE_relu6_fixed_hand.py` 本身完全純淨、可正常 train/test。
-- Head 使用 `CENTER_DUMP` 變體時會自動輸出 head conv / map / bbox dump；
+- Head 使用 `CENTER_DUMP` 或 `CENTER_DUMP_SHARED_TRUNK` 時會自動輸出 head conv / map / bbox dump；
   本腳本另外補存 `box_head_after_forward_head_pred_boxes.npy` 與 manifest 欄位。
+
+允許的 dump backbone：`vit_care_relu6_fixed_dump_base_patch16_224`（768 維）、
+`vit_care_relu6_dim32_fixed_dump_base_patch16_224`（32 維）、
+`vit_care_relu6_dim32_fixed_shared_trunk_dump_base_patch16_224`（32 維，與上者同一 backbone，供 shared-trunk head dump yaml）。
 """
 
 from __future__ import annotations
@@ -52,6 +56,13 @@ from lib.test.tracker.data_utils import Preprocessor
 from lib.test.utils.hann import hann2d
 from lib.train.data.processing_utils import sample_target
 from lib.utils.box_ops import clip_box
+
+# 須為實作 forward_test_from_post_embed 且與下方流程相容的 *_fixed_dump 系 backbone。
+_DUMP_ALLOWED_BACKBONE_TYPES = (
+    "vit_care_relu6_fixed_dump_base_patch16_224",
+    "vit_care_relu6_dim32_fixed_dump_base_patch16_224",
+    "vit_care_relu6_dim32_fixed_shared_trunk_dump_base_patch16_224",
+)
 
 
 def parse_args():
@@ -138,11 +149,13 @@ def main():
     cfg, yaml_path = _load_cfg(args.script, args.config)
 
     backbone_type = cfg.MODEL.BACKBONE.TYPE
-    if backbone_type != "vit_care_relu6_fixed_dump_base_patch16_224":
+    if backbone_type not in _DUMP_ALLOWED_BACKBONE_TYPES:
         raise RuntimeError(
-            f"dump_golden_intermediate.py 需配合 dump-only backbone 使用，"
-            f"但目前 cfg.MODEL.BACKBONE.TYPE = {backbone_type}。"
-            f"請使用 --config vit_coco_uav123_care_relu6_fixed_dump。"
+            "dump_golden_intermediate.py 需配合 *_fixed_dump 系 backbone，"
+            f"目前 cfg.MODEL.BACKBONE.TYPE = {backbone_type}。"
+            f"請使用下列之一於 yaml：{list(_DUMP_ALLOWED_BACKBONE_TYPES)} "
+            "(例：`--config vit_coco_uav123_care_relu6_fixed_dump` 或 "
+            "`vit_coco_uav123_care_relu6_dim32_fixed_dump`)。"
         )
 
     model, missing, unexpected = _load_model(args.script, cfg, args.checkpoint, args.device)
