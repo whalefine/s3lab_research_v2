@@ -1,0 +1,111 @@
+# 同 vit_coco_got10k_distill_mae_teacher_orr_afkd.yaml（ORR + AFKD），
+# SAMPLE_PER_EPOCH=60000、TRAIN.BATCH_SIZE=32（檔名 dim64 僅表示 student embed_dim=64）。
+#
+# Student：vit_CARE_relu6_dim64（embed_dim=64）；Teacher：768-dim base ViT ckpt。
+# TEACHER_BACKBONE_TYPE 僅覆寫 teacher 的 BACKBONE.TYPE；teacher/student embed_dim 不同時
+# 會在 student 上掛 distill_teacher_feat_align（test 載入 ckpt 時略過該前綴鍵）。
+#
+# TEACHER_PRETRAIN_FILE / PRETRAIN_FILE：相對於執行 train 時的 cwd（一般為 python/）。
+DATA:
+  MAX_SAMPLE_INTERVAL: 200
+  MEAN:
+    - 0.485
+    - 0.456
+    - 0.406
+  SEARCH:
+    CENTER_JITTER: 4.5
+    FACTOR: 5.0
+    SCALE_JITTER: 0.5
+    SIZE: 256
+    NUMBER: 1
+  STD:
+    - 0.229
+    - 0.224
+    - 0.225
+  TEMPLATE:
+    CENTER_JITTER: 0
+    FACTOR: 2.0
+    SCALE_JITTER: 0
+    SIZE: 128
+    NUMBER: 1
+
+  TRAIN:
+    DATASETS_NAME:
+      - COCO17
+      - GOT10K_train_full
+    DATASETS_RATIO:
+      - 1
+      - 1
+    SAMPLE_PER_EPOCH: 60000
+
+  VAL:
+    DATASETS_NAME:
+      - GOT10K_votval
+    DATASETS_RATIO:
+      - 1
+    SAMPLE_PER_EPOCH: 10000
+
+MODEL:
+  PRETRAIN_FILE: "vit_tiny_patch16_224.pth"
+  IS_DISTILL: True
+  TEACHER_TYPE: "sglatrack"
+  TEACHER_PRETRAIN_FILE: "output/checkpoints/train/sglatrack/vit_coco_got10k_distill_mae_teacher/sglatrack_ep0050.pth.tar"
+  TEACHER_BACKBONE_TYPE: "vit_base_patch16_224"
+  ORR_ENABLE: True
+  ORR_RANDOM_MASK: False
+  ORR_BLOCK_SZ: 16
+  ORR_MASK_RATIO: 0.3
+  ORR_GAUSSIAN_SIGMA: 64
+  EXTRA_MERGER: False
+  RETURN_INTER: False
+  RETURN_STAGES: []
+  BACKBONE:
+    TYPE: vit_care_relu6_dim64_base_patch16_224
+    STRIDE: 16
+    MID_PE: False
+    SEP_SEG: False
+    CAT_MODE: 'direct'
+    MERGE_LAYER: 0
+    ADD_CLS_TOKEN: False
+    CLS_TOKEN_USE_MODE: 'ignore'
+    CE_LOC: []
+    CE_KEEP_RATIO: []
+    CE_TEMPLATE_RANGE: 'ALL'
+  HEAD:
+    TYPE: CENTER
+    NUM_CHANNELS: 256
+
+TRAIN:
+  BACKBONE_MULTIPLIER: 0.1
+  DROP_PATH_RATE: 0.1
+  BATCH_SIZE: 32
+  EPOCH: 50
+  GIOU_WEIGHT: 2.0
+  L1_WEIGHT: 5.0
+  GRAD_CLIP_NORM: 0.1
+  LR: 5e-5
+  LR_BACKBONE: 5e-6
+  LR_DROP_EPOCH: 40
+  NUM_WORKER: 4
+  OPTIMIZER: ADAMW
+  PRINT_INTERVAL: 50
+  SCHEDULER:
+    TYPE: step
+    DECAY_RATE: 0.1
+  VAL_EPOCH_INTERVAL: 5
+  WEIGHT_DECAY: 0.0001
+  AMP: True
+  CE_START_EPOCH: 20
+  CE_WARM_EPOCH: 80
+  FREEZE_LAYERS: []
+  DISTILL_LOSS_WEIGHT: 0.0002
+  AFKD_TAU0: 10.0
+  AFKD_RHO: 10.0
+  SIM_LOSS_WEIGHT: 0.0002
+
+TEST:
+  EPOCH: 50
+  SEARCH_FACTOR: 5.0
+  SEARCH_SIZE: 256
+  TEMPLATE_FACTOR: 2.0
+  TEMPLATE_SIZE: 128

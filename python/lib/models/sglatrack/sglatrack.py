@@ -2,7 +2,10 @@ import math
 import os
 from typing import List
 
+import cv2
+import numpy as np
 import torch
+import torch.nn.functional as F
 from torch import nn
 from torch.nn.modules.transformer import _get_clones
 
@@ -18,10 +21,22 @@ from lib.models.sglatrack.vit_CARE_relu6 import vit_base_patch16_224 as vit_care
 from lib.models.sglatrack.vit_CARE_relu6_dim32 import (
     vit_tiny32_care_patch16_224 as vit_care_relu6_dim32_base_patch16_224,
 )
+from lib.models.sglatrack.vit_CARE_relu6_fixed_shared_trunk_dim32 import (
+    vit_care_relu6_shared_trunk_dim32_base_patch16_224,
+)
+from lib.models.sglatrack.vit_CARE_relu6_dim64 import (
+    vit_tiny64_care_patch16_224 as vit_care_relu6_dim64_base_patch16_224,
+)
 from lib.models.sglatrack.vit_CARE_relu6_hand import vit_base_patch16_224 as vit_care_relu6_hand_base_patch16_224
 from lib.models.sglatrack.vit_CARE_relu6_fixed import vit_base_patch16_224 as vit_care_relu6_fixed_base_patch16_224
 from lib.models.sglatrack.vit_CARE_relu6_fixed_hand import vit_base_patch16_224 as vit_care_relu6_fixed_hand_base_patch16_224
 from lib.models.sglatrack.vit_CARE_relu6_fixed_dump import vit_base_patch16_224 as vit_care_relu6_fixed_dump_base_patch16_224
+from lib.models.sglatrack.vit_CARE_relu6_dim32_fixed_dump import (
+    vit_tiny32_care_fixed_dump_patch16_224 as vit_care_relu6_dim32_fixed_dump_base_patch16_224,
+)
+from lib.models.sglatrack.vit_CARE_relu6_dim32_fixed_shared_trunk_dump import (
+    vit_tiny32_care_fixed_shared_trunk_dump_patch16_224 as vit_care_relu6_dim32_fixed_shared_trunk_dump_base_patch16_224,
+)
 from lib.models.sglatrack.vit_CARE_relu6_BN import vit_base_patch16_224 as vit_care_relu6_bn_base_patch16_224
 from lib.models.sglatrack.vit_CARE_gelu import vit_base_patch16_224 as vit_care_gelu_base_patch16_224
 from lib.models.sglatrack.vit_MALA import vit_base_patch16_224 as vit_mala_base_patch16_224
@@ -37,11 +52,23 @@ from lib.utils.box_ops import box_xyxy_to_cxcywh
 
 class sglatrack(nn.Module):
 
-    def __init__(self, transformer, box_head, aux_loss=False, head_type="CORNER"):
-        """ Initializes the model.
-        Parameters:
-            transformer: torch module of the transformer architecture.
-            aux_loss: True if auxiliary decoding losses (loss at each decoder layer) are to be used.
+    def __init__(
+        self,
+        transformer,
+        box_head,
+        aux_loss=False,
+        head_type="CORNER",
+        feat_len_t=64,
+        orr_enable=False,
+        orr_random_mask=False,
+        orr_block_sz=16,
+        orr_mask_ratio=0.3,
+        orr_gaussian_sigma=64,
+    ):
+        """Initializes the model.
+
+        orr_*: ORTrack-style optional occlusion / template masking (training only).
+        feat_len_t: number of template tokens (H_t*W_t at stride) for ORR sim_loss alignment.
         """
         super().__init__()
         self.backbone = transformer
@@ -49,25 +76,137 @@ class sglatrack(nn.Module):
 
         self.aux_loss = aux_loss
         self.head_type = head_type
-        if head_type in ("CORNER", "CENTER", "CENTER_HAND", "CENTER_FIXED"):
+        if head_type in ("CORNER", "CENTER", "CENTER_HAND", "CENTER_FIXED", "CENTER_FIXED_SHARED_TRUNK"):
             self.feat_sz_s = int(box_head.feat_sz)
             self.feat_len_s = int(box_head.feat_sz ** 2)
 
+        self.feat_len_t = int(feat_len_t)
+        self.orr_enable = bool(orr_enable)
+        self.orr_random_mask = bool(orr_random_mask)
+        self.orr_block_sz = int(orr_block_sz)
+        self.orr_mask_ratio = float(orr_mask_ratio)
+        self.orr_gaussian_sigma = float(orr_gaussian_sigma)
+        self._orr_intensity = None
+
         if self.aux_loss:
             self.box_head = _get_clones(self.box_head, 6)
+
+    @staticmethod
+    def _merge_template_input(template):
+        if isinstance(template, (list, tuple)):
+            if len(template) == 0:
+                raise ValueError("template list is empty")
+            if len(template) == 1:
+                return template[0]
+            return torch.stack(template, dim=0).mean(dim=0)
+        return template
+
+    def random_masking(self, n, h, w, d, mask_ratio, device):
+        len_keep = int(h * w * (1 - mask_ratio))
+        noise = torch.rand(n, h, w, device=device)
+        noise_vec = torch.reshape(noise, (n, h * w))
+        ids_shuffle = torch.argsort(noise_vec, dim=1)
+        ids_restore = torch.argsort(ids_shuffle, dim=1)
+        mask = torch.ones([n, h, w], device=device)
+        mask_vec = torch.reshape(mask, (n, h * w))
+        mask_vec[:, :len_keep] = 0
+        mask_vec = torch.gather(mask_vec, dim=1, index=ids_restore)
+        mask = torch.reshape(mask_vec, (n, h, w))
+        return mask
+
+    def simulate_inhomogeneous_poisson_process(self, intensity):
+        num_points = np.random.poisson(intensity.max() * np.prod(intensity.shape), 1)[0]
+        x_points = (np.floor(np.random.uniform(0, intensity.shape[1], num_points))).astype(np.int32)
+        y_points = (np.floor(np.random.uniform(0, intensity.shape[0], num_points))).astype(np.int32)
+        accept_prob = intensity[x_points, y_points] / intensity.max()
+        accepted_points = np.random.rand(num_points) < accept_prob
+        x_points = x_points[accepted_points]
+        y_points = y_points[accepted_points]
+        return x_points, y_points
+
+    def random_masking_cox_process(self, intensity, n, h, w, mask_ratio, device):
+        poisson_mean = int(h * w * mask_ratio)
+        poisson_samples = np.random.poisson(poisson_mean, n)
+        masks = []
+        for i in range(n):
+            inh_poisson_intensity = poisson_samples[i] * intensity
+            x_points, y_points = self.simulate_inhomogeneous_poisson_process(inh_poisson_intensity)
+            mask = torch.ones([1, h, w], device=device)
+            mask[:, y_points, x_points] = 0
+            masks.append(mask)
+        return torch.cat(masks, dim=0)
+
+    def masking_cox_process(self, n, intensity, block_sz, mask_ratio, device):
+        h, w = intensity.shape
+        hb = int(h / block_sz)
+        wb = int(w / block_sz)
+        assert h % block_sz == 0 and w % block_sz == 0, 'template size must be divisible by ORR_BLOCK_SZ'
+        intensity = cv2.resize(intensity, dsize=(wb, hb))
+        intensity = intensity / intensity.sum()
+        mask = self.random_masking_cox_process(intensity, n, hb, wb, mask_ratio, device)
+        mask = torch.nn.functional.interpolate(mask.unsqueeze(1), size=(h, w), mode='nearest')
+        return mask
+
+    def masking(self, template, block_sz, mask_ratio, device):
+        n, d, h, w = template.shape
+        hb = h // block_sz
+        wb = w // block_sz
+        assert h % block_sz == 0 and w % block_sz == 0, 'template size must be divisible by ORR_BLOCK_SZ'
+        mask = self.random_masking(n, hb, wb, d, mask_ratio, device)
+        mask = torch.nn.functional.interpolate(mask.unsqueeze(1), size=(h, w), mode='nearest')
+        return mask
 
     def forward(self, template: torch.Tensor,
                 search: torch.Tensor,
                 ce_template_mask=None,
                 ce_keep_rate=None,
                 return_last_attn=False,
+                is_distill=False,
+                **kwargs,
                 ):
+        template = self._merge_template_input(template)
+        mask = None
+        if (not is_distill) and self.training and self.orr_enable:
+            if self.orr_random_mask:
+                mask = self.masking(template, self.orr_block_sz, self.orr_mask_ratio, template.device)
+                mask = mask.repeat(1, template.shape[1], 1, 1)
+            else:
+                if self._orr_intensity is None:
+                    # 僅 ORR + 非 random mask 路徑需要 scipy；其他 yaml 不 import，避免多一層硬依賴。
+                    from scipy.stats import multivariate_normal
+
+                    template_r = int(template.shape[-1] / 2)
+                    sigma = self.orr_gaussian_sigma
+                    gx, gy = np.mgrid[-template_r:template_r:1, -template_r:template_r:1]
+                    pos = np.dstack((gx, gy))
+                    intensity = multivariate_normal(
+                        [0.0, 0.0],
+                        [[sigma * template_r, 0.0], [0.0, sigma * template_r]],
+                    ).pdf(pos)
+                    intensity = intensity / intensity.sum()
+                    self._orr_intensity = intensity
+                intensity = self._orr_intensity
+                mask = self.masking_cox_process(
+                    template.shape[0], intensity, self.orr_block_sz, self.orr_mask_ratio, template.device
+                )
+                mask = mask.repeat(1, template.shape[1], 1, 1)
+
         x, aux_dict = self.backbone(z=template, x=search,
                                     ce_template_mask=ce_template_mask,
                                     ce_keep_rate=ce_keep_rate,
                                     return_last_attn=return_last_attn, )
 
-        # Forward head
+        if self.training and (not is_distill) and mask is not None:
+            x1, _ = self.backbone(z=template * mask, x=search,
+                                  ce_template_mask=ce_template_mask,
+                                  ce_keep_rate=ce_keep_rate,
+                                  return_last_attn=return_last_attn, )
+            sim_loss = F.mse_loss(
+                x[:, :self.feat_len_t], x1[:, :self.feat_len_t].detach()
+            )
+        else:
+            sim_loss = torch.tensor(0.0, device=x.device)
+
         feat_last = x
         if isinstance(x, list):
             feat_last = x[-1]
@@ -75,6 +214,7 @@ class sglatrack(nn.Module):
 
         out.update(aux_dict)
         out['backbone_feat'] = x
+        out['sim_loss'] = sim_loss
         return out
 
     def forward_test(self, template: torch.Tensor,
@@ -85,7 +225,6 @@ class sglatrack(nn.Module):
                 ):
         x, aux_dict = self.backbone.forward_test(z=template, x=search )
 
-        # Forward head
         feat_last = x
         if isinstance(x, list):
             feat_last = x[-1]
@@ -93,6 +232,7 @@ class sglatrack(nn.Module):
 
         out.update(aux_dict)
         out['backbone_feat'] = x
+        out['sim_loss'] = torch.tensor(0.0, device=feat_last.device)
         return out
 
 
@@ -115,7 +255,7 @@ class sglatrack(nn.Module):
             }
             return out
 
-        elif self.head_type in ("CENTER", "CENTER_HAND", "CENTER_FIXED"):
+        elif self.head_type in ("CENTER", "CENTER_HAND", "CENTER_FIXED", "CENTER_FIXED_SHARED_TRUNK"):
             # run the center head
             score_map_ctr, bbox, size_map, offset_map = self.box_head(opt_feat, gt_score_map)
             outputs_coord = bbox
@@ -133,7 +273,9 @@ def build_sglatrack(cfg, training=True):
     current_dir = os.path.dirname(os.path.abspath(__file__))
     pretrained_path = os.path.join(current_dir, '../../../pretrained_models')
 
-    if cfg.MODEL.PRETRAIN_FILE and ('sglatrack' not in cfg.MODEL.PRETRAIN_FILE) and training:
+    _pf = str(cfg.MODEL.PRETRAIN_FILE or '')
+    # MAE / ImageNet weights live under pretrained_models; full training checkpoints are .pth.tar (see below).
+    if _pf and (not _pf.endswith('.pth.tar')) and ('sglatrack' not in _pf) and training:
         pretrained = os.path.join(pretrained_path, cfg.MODEL.PRETRAIN_FILE)
     else:
         pretrained = ''
@@ -178,6 +320,23 @@ def build_sglatrack(cfg, training=True):
         )
         hidden_dim = backbone.embed_dim
         patch_start_index = 1
+    elif cfg.MODEL.BACKBONE.TYPE in (
+        'vit_care_relu6_shared_trunk_dim32_base_patch16_224',
+        'vit_care_relu6_fixed_shared_trunk_dim32_base_patch16_224',
+    ):
+        # embed_dim=32 浮點 CARE ReLU6（無 Q8.8）；預訓練載入同 dim32（Tiny 投影）
+        backbone = vit_care_relu6_shared_trunk_dim32_base_patch16_224(
+            pretrained, drop_path_rate=cfg.TRAIN.DROP_PATH_RATE
+        )
+        hidden_dim = backbone.embed_dim
+        patch_start_index = 1
+    elif cfg.MODEL.BACKBONE.TYPE == 'vit_care_relu6_dim64_base_patch16_224':
+        # embed_dim=64；pretrained 為 vit_tiny_patch16_224.pth（192 維）時由 dim64 模組內投影載入
+        backbone = vit_care_relu6_dim64_base_patch16_224(
+            pretrained, drop_path_rate=cfg.TRAIN.DROP_PATH_RATE
+        )
+        hidden_dim = backbone.embed_dim
+        patch_start_index = 1
     elif cfg.MODEL.BACKBONE.TYPE == 'vit_care_relu6_hand_base_patch16_224':
         backbone = vit_care_relu6_hand_base_patch16_224(pretrained, drop_path_rate=cfg.TRAIN.DROP_PATH_RATE)
         hidden_dim = backbone.embed_dim
@@ -194,6 +353,20 @@ def build_sglatrack(cfg, training=True):
     elif cfg.MODEL.BACKBONE.TYPE == 'vit_care_relu6_fixed_dump_base_patch16_224':
         # Dump-only variant：僅用於產生 RTL golden intermediate .npy，不應用於 training
         backbone = vit_care_relu6_fixed_dump_base_patch16_224(pretrained, drop_path_rate=cfg.TRAIN.DROP_PATH_RATE)
+        hidden_dim = backbone.embed_dim
+        patch_start_index = 1
+    elif cfg.MODEL.BACKBONE.TYPE == 'vit_care_relu6_dim32_fixed_dump_base_patch16_224':
+        # Dump-only dim32（與 vit_CARE_relu6_dim32 student 結構對齊）
+        backbone = vit_care_relu6_dim32_fixed_dump_base_patch16_224(
+            pretrained, drop_path_rate=cfg.TRAIN.DROP_PATH_RATE
+        )
+        hidden_dim = backbone.embed_dim
+        patch_start_index = 1
+    elif cfg.MODEL.BACKBONE.TYPE == 'vit_care_relu6_dim32_fixed_shared_trunk_dump_base_patch16_224':
+        # 與 dim32_fixed_dump 同一 backbone；鍵名供 shared-trunk head dump yaml
+        backbone = vit_care_relu6_dim32_fixed_shared_trunk_dump_base_patch16_224(
+            pretrained, drop_path_rate=cfg.TRAIN.DROP_PATH_RATE
+        )
         hidden_dim = backbone.embed_dim
         patch_start_index = 1
     elif cfg.MODEL.BACKBONE.TYPE == 'vit_care_relu6_bn_base_patch16_224':
@@ -255,19 +428,36 @@ def build_sglatrack(cfg, training=True):
     box_head_builder = build_box_head_hand if cfg.MODEL.HEAD.TYPE == "CENTER_HAND" else build_box_head
     box_head = box_head_builder(cfg, hidden_dim)
 
-    # CENTER_DUMP / CENTER_FIXED 在 sglatrack 層級行為都與 CENTER 相同
+    # CENTER_DUMP / CENTER_FIXED / CENTER_FIXED_SHARED_TRUNK 在 sglatrack 層級行為都與 CENTER 相同
     head_type_for_sglatrack = (
-        "CENTER" if cfg.MODEL.HEAD.TYPE in ("CENTER_DUMP", "CENTER_FIXED") else cfg.MODEL.HEAD.TYPE
+        "CENTER"
+        if cfg.MODEL.HEAD.TYPE in (
+            "CENTER_DUMP",
+            "CENTER_FIXED",
+            "CENTER_FIXED_SHARED_TRUNK",
+            "CENTER_DUMP_SHARED_TRUNK",
+        )
+        else cfg.MODEL.HEAD.TYPE
     )
+
+    tpl = int(cfg.DATA.TEMPLATE.SIZE)
+    stride = int(cfg.MODEL.BACKBONE.STRIDE)
+    feat_len_t = (tpl // stride) ** 2
 
     model = sglatrack(
         backbone,
         box_head,
         aux_loss=False,
         head_type=head_type_for_sglatrack,
+        feat_len_t=feat_len_t,
+        orr_enable=bool(getattr(cfg.MODEL, "ORR_ENABLE", False)),
+        orr_random_mask=bool(getattr(cfg.MODEL, "ORR_RANDOM_MASK", False)),
+        orr_block_sz=int(getattr(cfg.MODEL, "ORR_BLOCK_SZ", 16)),
+        orr_mask_ratio=float(getattr(cfg.MODEL, "ORR_MASK_RATIO", 0.3)),
+        orr_gaussian_sigma=float(getattr(cfg.MODEL, "ORR_GAUSSIAN_SIGMA", 64)),
     )
 
-    if 'sglatrack' in cfg.MODEL.PRETRAIN_FILE and training:
+    if training and (_pf.endswith('.pth.tar') or ('sglatrack' in _pf)):
         checkpoint = torch.load(cfg.MODEL.PRETRAIN_FILE, map_location="cpu")
         checkpoint_model = checkpoint["net"]
 

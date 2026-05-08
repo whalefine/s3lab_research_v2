@@ -15,7 +15,26 @@ cfg.MODEL.NUM_OBJECT_QUERIES = 1
 cfg.MODEL.POSITION_EMBEDDING = "sine"
 cfg.MODEL.BACKBONE_MULTIPLIER = 0.1
 cfg.MODEL.PRETRAIN_FILE = "mae_pretrain_vit_base.pth"
+# Feature distillation (optional; default off — existing yamls unchanged)
+cfg.MODEL.IS_DISTILL = False
+cfg.MODEL.TEACHER_TYPE = "sglatrack"
+cfg.MODEL.TEACHER_PRETRAIN_FILE = ""
+cfg.MODEL.TEACHER_CNN_NAME = "regnety_160"
+cfg.MODEL.TEACHER_CNN_PRETRAINED = True
+# 若為空字串：teacher 與 student 共用 MODEL.BACKBONE.TYPE（舊行為）。
+# 若設為例如 vit_base_patch16_224：僅 teacher 用該 backbone 載入 TEACHER_PRETRAIN_FILE（與 student 不同架構時使用）。
+cfg.MODEL.TEACHER_BACKBONE_TYPE = ""
 cfg.MODEL.EXTRA_MERGER = False
+
+cfg.MODEL.AQA_QUERY = edict()
+cfg.MODEL.AQA_QUERY.ENABLE = False
+
+# ORTrack-style template masking + sim_loss (training only; default off)
+cfg.MODEL.ORR_ENABLE = False
+cfg.MODEL.ORR_RANDOM_MASK = False
+cfg.MODEL.ORR_BLOCK_SZ = 16
+cfg.MODEL.ORR_MASK_RATIO = 0.3
+cfg.MODEL.ORR_GAUSSIAN_SIGMA = 64
 
 cfg.MODEL.RETURN_INTER = False
 cfg.MODEL.RETURN_STAGES = []
@@ -75,6 +94,12 @@ cfg.TRAIN.AMP = False
 cfg.TRAIN.CE_START_EPOCH = 20  # candidate elimination start epoch
 cfg.TRAIN.CE_WARM_EPOCH = 80  # candidate elimination warm up epoch
 cfg.TRAIN.DROP_PATH_RATE = 0.1  # drop path rate for ViT backbone
+cfg.TRAIN.DISTILL = False
+cfg.TRAIN.DISTILL_LOSS_TYPE = "KL"
+cfg.TRAIN.DISTILL_LOSS_WEIGHT = 0.0
+cfg.TRAIN.SIM_LOSS_WEIGHT = 0.0
+cfg.TRAIN.AFKD_TAU0 = 1.0
+cfg.TRAIN.AFKD_RHO = 0.0
 
 # TRAIN.SCHEDULER
 cfg.TRAIN.SCHEDULER = edict()
