@@ -55,9 +55,9 @@ module layer_norm #(
 
 // FSM state encoding
 parameter S_IDLE    = 3'd0;
-parameter S_LOAD    = 3'd1;  // load x into buf, accumulate sum
+parameter S_LOAD    = 3'd1;  // load x into feat_buf, accumulate sum
 parameter S_MEAN    = 3'd2;  // compute mean (1 cycle)
-parameter S_CENTER  = 3'd3;  // centered = buf[i]-mean; accumulate sum_sq
+parameter S_CENTER  = 3'd3;  // centered = feat_buf[i]-mean; accumulate sum_sq
 parameter S_VAR     = 3'd4;  // compute var (1 cycle)
 parameter S_INV     = 3'd5;  // wait for inv_sqrt_nr
 parameter S_NORM    = 3'd6;  // output normalized values
@@ -68,7 +68,7 @@ reg [2:0] state, next_state;
 reg [9:0] addr;               // feature index counter
 
 // Feature buffer: 768 × 16 bit
-reg signed [15:0] buf [0:FEAT_DIM-1];
+reg signed [15:0] feat_buf [0:FEAT_DIM-1];
 
 // Accumulators
 reg signed [31:0] sum_acc;    // 32-bit: sum of Q8.8 integers (max 768×32767≈25M < 2^25)
@@ -82,7 +82,7 @@ wire inv_busy, inv_done;
 wire signed [15:0] inv_std;
 
 // Current centered value
-wire signed [15:0] centered = $signed(buf[addr]) - mean_q88;
+wire signed [15:0] centered = $signed(feat_buf[addr]) - mean_q88;
 
 // Variance from sum_sq_acc: var_int = (sum_sq × 85) >> 24
 // sum_sq_acc is sum of (centered_int)², each centered_int is Q8.8 integer
@@ -97,7 +97,7 @@ wire signed [15:0] var_eps = var_q88_comb + 16'sd1;
 
 // NR current neuron output normalization
 // y[i] = w[i] × (centered × inv_std) + b[i]   all Q8.8
-wire [31:0] ci_std_raw   = $signed(buf[addr]) * $signed(inv_std);  // centered × inv_std, Q16.16
+wire [31:0] ci_std_raw   = $signed(feat_buf[addr]) * $signed(inv_std);  // centered × inv_std, Q16.16
 wire signed [15:0] ci_std = ci_std_raw[23:8];                       // Q8.8
 wire [31:0] wci_raw       = $signed(w_i) * ci_std;                  // w × (c×inv_std), Q16.16
 wire signed [15:0] wci    = wci_raw[23:8];                          // Q8.8
@@ -168,7 +168,7 @@ always @(posedge clk) begin
 
             S_LOAD: begin
                 if (x_valid) begin
-                    buf[addr] <= x_i;
+                    feat_buf[addr] <= x_i;
                     sum_acc   <= sum_acc + $signed(x_i);
                     addr      <= addr + 10'd1;
                 end
@@ -182,8 +182,8 @@ always @(posedge clk) begin
             end
 
             S_CENTER: begin
-                // centered = buf[addr] - mean; store back; accumulate squared
-                buf[addr]  <= centered;
+                // centered = feat_buf[addr] - mean; store back; accumulate squared
+                feat_buf[addr]  <= centered;
                 sum_sq_acc <= sum_sq_acc + {16'd0, csq};
                 addr       <= addr + 10'd1;
             end
@@ -199,7 +199,7 @@ always @(posedge clk) begin
             end
 
             S_NORM: begin
-                // buf[addr] now holds centered value (written during S_CENTER)
+                // feat_buf[addr] now holds centered value (written during S_CENTER)
                 y_o     <= y_sat;
                 y_valid <= 1'b1;
                 addr    <= addr + 10'd1;

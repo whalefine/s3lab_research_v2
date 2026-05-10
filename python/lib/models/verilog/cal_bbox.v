@@ -80,6 +80,14 @@ reg [15:0] off1_buf   [0:FEAT_LEN-1];
 reg [7:0]  max_score;
 reg [7:0]  argmax_idx;
 
+// S_CALC temporaries (blocking assigns; must be module-level for Verilog-2001)
+reg [3:0]  calc_idx_x;
+reg [3:0]  calc_idx_y;
+reg [15:0] calc_offset_x;
+reg [15:0] calc_offset_y;
+reg [19:0] calc_cx_raw;
+reg [19:0] calc_cy_raw;
+
 // Address load stage
 reg [1:0] load_phase;  // 0=score, 1=size0, 2=size1, 3=offset(0+1)
 
@@ -155,29 +163,19 @@ always @(posedge clk) begin
                 // Compute bbox coordinates using RTL integer shifts
                 // idx_x = argmax_idx % FEAT_SZ = argmax_idx[3:0]
                 // idx_y = argmax_idx / FEAT_SZ = argmax_idx[7:4]
-                // cx = (idx_x × 256 + offset_x_int) >> 4 (Q8.8 integer)
-                // offset_x_int = round(off0_buf[argmax_idx] * 256) = off0_buf (already Q8.8 int)
-                begin
-                    reg [3:0]  idx_x;
-                    reg [3:0]  idx_y;
-                    reg [15:0] offset_x;
-                    reg [15:0] offset_y;
-                    reg [19:0] cx_raw, cy_raw;
+                // cx = (idx_x × 256 + offset_x_int) >> SHIFT (Q8.8 integer)
+                calc_idx_x    = argmax_idx[3:0];
+                calc_idx_y    = argmax_idx[7:4];
+                calc_offset_x = off0_buf[argmax_idx];
+                calc_offset_y = off1_buf[argmax_idx];
 
-                    idx_x    = argmax_idx[3:0];
-                    idx_y    = argmax_idx[7:4];
-                    offset_x = off0_buf[argmax_idx];
-                    offset_y = off1_buf[argmax_idx];
+                calc_cx_raw = ({calc_idx_x, 8'd0} + calc_offset_x);
+                calc_cy_raw = ({calc_idx_y, 8'd0} + calc_offset_y);
 
-                    // cx = (idx_x × 256 + offset_x) >> SHIFT
-                    cx_raw = ({idx_x, 8'd0} + offset_x);  // idx_x in Q8.8 = idx_x × 256
-                    cy_raw = ({idx_y, 8'd0} + offset_y);
-
-                    cx_o <= cx_raw[19:SHIFT];
-                    cy_o <= cy_raw[19:SHIFT];
-                    w_o  <= size0_buf[argmax_idx];
-                    h_o  <= size1_buf[argmax_idx];
-                end
+                cx_o <= calc_cx_raw[19:SHIFT];
+                cy_o <= calc_cy_raw[19:SHIFT];
+                w_o  <= size0_buf[argmax_idx];
+                h_o  <= size1_buf[argmax_idx];
             end
 
             S_DONE: begin
