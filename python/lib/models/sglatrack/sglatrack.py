@@ -29,6 +29,23 @@ from lib.models.sglatrack.vit_CARE_relu6_dim64 import (
 )
 from lib.models.sglatrack.vit_CARE_relu6_hand import vit_base_patch16_224 as vit_care_relu6_hand_base_patch16_224
 from lib.models.sglatrack.vit_CARE_relu6_fixed import vit_base_patch16_224 as vit_care_relu6_fixed_base_patch16_224
+from lib.models.sglatrack.vit_CARE_relu6_fixed_q48 import vit_base_patch16_224 as vit_care_relu6_fixed_q48_base_patch16_224
+from lib.models.sglatrack.vit_CARE_relu6_fixed_q58 import vit_base_patch16_224 as vit_care_relu6_fixed_q58_base_patch16_224
+from lib.models.sglatrack.vit_CARE_relu6_fixed_q68 import vit_base_patch16_224 as vit_care_relu6_fixed_q68_base_patch16_224
+from lib.models.sglatrack.vit_CARE_relu6_fixed_q78 import vit_base_patch16_224 as vit_care_relu6_fixed_q78_base_patch16_224
+from lib.models.sglatrack.vit_CARE_relu6_fixed_q84 import vit_base_patch16_224 as vit_care_relu6_fixed_q84_base_patch16_224
+from lib.models.sglatrack.vit_CARE_relu6_fixed_q85 import vit_base_patch16_224 as vit_care_relu6_fixed_q85_base_patch16_224
+from lib.models.sglatrack.vit_CARE_relu6_fixed_q86 import vit_base_patch16_224 as vit_care_relu6_fixed_q86_base_patch16_224
+from lib.models.sglatrack.vit_CARE_relu6_fixed_q87 import vit_base_patch16_224 as vit_care_relu6_fixed_q87_base_patch16_224
+from lib.models.sglatrack.vit_CARE_relu6_fixed_q88 import vit_base_patch16_224 as vit_care_relu6_fixed_q88_base_patch16_224
+from lib.models.sglatrack.vit_CARE_relu6_fixed_q89 import vit_base_patch16_224 as vit_care_relu6_fixed_q89_base_patch16_224
+from lib.models.sglatrack.vit_CARE_relu6_fixed_q98 import vit_base_patch16_224 as vit_care_relu6_fixed_q98_base_patch16_224
+from lib.models.sglatrack.vit_CARE_relu6_fixed_q108 import vit_base_patch16_224 as vit_care_relu6_fixed_q108_base_patch16_224
+from lib.models.sglatrack.vit_CARE_relu6_fixed_q118 import vit_base_patch16_224 as vit_care_relu6_fixed_q118_base_patch16_224
+from lib.models.sglatrack.vit_CARE_relu6_fixed_q128 import vit_base_patch16_224 as vit_care_relu6_fixed_q128_base_patch16_224
+from lib.models.sglatrack.vit_CARE_relu6_fixed_q810 import vit_base_patch16_224 as vit_care_relu6_fixed_q810_base_patch16_224
+from lib.models.sglatrack.vit_CARE_relu6_fixed_q811 import vit_base_patch16_224 as vit_care_relu6_fixed_q811_base_patch16_224
+from lib.models.sglatrack.vit_CARE_relu6_fixed_q812 import vit_base_patch16_224 as vit_care_relu6_fixed_q812_base_patch16_224
 from lib.models.sglatrack.vit_CARE_relu6_fixed_hand import vit_base_patch16_224 as vit_care_relu6_fixed_hand_base_patch16_224
 from lib.models.sglatrack.vit_CARE_relu6_fixed_dump import vit_base_patch16_224 as vit_care_relu6_fixed_dump_base_patch16_224
 from lib.models.sglatrack.vit_CARE_relu6_dim32_fixed_dump import (
@@ -48,6 +65,27 @@ from lib.models.sglatrack.vit_MALA_relu_eps import vit_base_patch16_224 as vit_m
 from lib.models.sglatrack.deit import deit_tiny_distilled_patch16_224
 from lib.models.sglatrack.deit_MALA_relu import deit_tiny_distilled_mala_relu_patch16_224
 from lib.utils.box_ops import box_xyxy_to_cxcywh
+
+# vit_coco_uav123_care_relu6_fixed_q*.yaml：BACKBONE.TYPE → factory（各檔內 to_fixed_point 位寬已寫死）
+_VIT_CARE_RELU6_FIXED_Q_BACKBONE_FACTORIES = {
+    "vit_care_relu6_fixed_q48_base_patch16_224": vit_care_relu6_fixed_q48_base_patch16_224,
+    "vit_care_relu6_fixed_q58_base_patch16_224": vit_care_relu6_fixed_q58_base_patch16_224,
+    "vit_care_relu6_fixed_q68_base_patch16_224": vit_care_relu6_fixed_q68_base_patch16_224,
+    "vit_care_relu6_fixed_q78_base_patch16_224": vit_care_relu6_fixed_q78_base_patch16_224,
+    "vit_care_relu6_fixed_q84_base_patch16_224": vit_care_relu6_fixed_q84_base_patch16_224,
+    "vit_care_relu6_fixed_q85_base_patch16_224": vit_care_relu6_fixed_q85_base_patch16_224,
+    "vit_care_relu6_fixed_q86_base_patch16_224": vit_care_relu6_fixed_q86_base_patch16_224,
+    "vit_care_relu6_fixed_q87_base_patch16_224": vit_care_relu6_fixed_q87_base_patch16_224,
+    "vit_care_relu6_fixed_q88_base_patch16_224": vit_care_relu6_fixed_q88_base_patch16_224,
+    "vit_care_relu6_fixed_q89_base_patch16_224": vit_care_relu6_fixed_q89_base_patch16_224,
+    "vit_care_relu6_fixed_q98_base_patch16_224": vit_care_relu6_fixed_q98_base_patch16_224,
+    "vit_care_relu6_fixed_q108_base_patch16_224": vit_care_relu6_fixed_q108_base_patch16_224,
+    "vit_care_relu6_fixed_q118_base_patch16_224": vit_care_relu6_fixed_q118_base_patch16_224,
+    "vit_care_relu6_fixed_q128_base_patch16_224": vit_care_relu6_fixed_q128_base_patch16_224,
+    "vit_care_relu6_fixed_q810_base_patch16_224": vit_care_relu6_fixed_q810_base_patch16_224,
+    "vit_care_relu6_fixed_q811_base_patch16_224": vit_care_relu6_fixed_q811_base_patch16_224,
+    "vit_care_relu6_fixed_q812_base_patch16_224": vit_care_relu6_fixed_q812_base_patch16_224,
+}
 
 
 class sglatrack(nn.Module):
@@ -345,6 +383,11 @@ def build_sglatrack(cfg, training=True):
         backbone = vit_care_relu6_fixed_base_patch16_224(pretrained, drop_path_rate=cfg.TRAIN.DROP_PATH_RATE)
         hidden_dim = backbone.embed_dim
         patch_start_index = 1
+    elif cfg.MODEL.BACKBONE.TYPE in _VIT_CARE_RELU6_FIXED_Q_BACKBONE_FACTORIES:
+        _fac = _VIT_CARE_RELU6_FIXED_Q_BACKBONE_FACTORIES[cfg.MODEL.BACKBONE.TYPE]
+        backbone = _fac(pretrained, drop_path_rate=cfg.TRAIN.DROP_PATH_RATE)
+        hidden_dim = backbone.embed_dim
+        patch_start_index = 1
     elif cfg.MODEL.BACKBONE.TYPE == 'vit_care_relu6_fixed_hand_base_patch16_224':
         # Hand-coded inference-friendly variant: keeps architecture/key names but uses explicit module dataflow.
         backbone = vit_care_relu6_fixed_hand_base_patch16_224(pretrained, drop_path_rate=cfg.TRAIN.DROP_PATH_RATE)
@@ -423,6 +466,13 @@ def build_sglatrack(cfg, training=True):
         raise NotImplementedError
 
     backbone.finetune_track(cfg=cfg, patch_start_index=patch_start_index)
+
+    _bt = str(cfg.MODEL.BACKBONE.TYPE)
+    if _bt in _VIT_CARE_RELU6_FIXED_Q_BACKBONE_FACTORIES and cfg.MODEL.HEAD.TYPE != "CENTER_FIXED":
+        raise ValueError(
+            f"BACKBONE.TYPE={_bt!r} 必須搭配 MODEL.HEAD.TYPE=CENTER_FIXED（CenterPredictorFixed），"
+            f"目前為 {cfg.MODEL.HEAD.TYPE!r}。"
+        )
 
     # The hand-coded backbone variant expects the hand head implementation as well.
     box_head_builder = build_box_head_hand if cfg.MODEL.HEAD.TYPE == "CENTER_HAND" else build_box_head
