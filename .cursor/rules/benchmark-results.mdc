@@ -8,6 +8,30 @@ alwaysApply: true
 Pre-train: MAE ViT-Base (mae_pretrain_vit_base.pth)
 Training: COCO17 + GOT10K_train_full, Epoch 50, Batch 32, LR 5e-5
 
+## COCO+GOT10K（Epoch 50）彙整表
+
+（AUC / Prec 皆為 %；Avg. 為五個資料集 AUC 平均）
+
+| Model | UAV123 AUC | UAV123 P | UAV123_10fps AUC | UAV123_10fps P | UAVTrack112 AUC | UAVTrack112 P | UAVTrack112L AUC | UAVTrack112L P | DTB70 AUC | DTB70 P | Avg. AUC |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| 論文寫的 vit | 66.10 | 83.90 | 64.50 | 82.20 | 66.90 | 81.30 | 64.70 | 81.70 | 63.80 | 83.50 | 64.70 |
+| vit.py（原架構） | 63.79 | 83.07 | 63.30 | 82.40 | 64.10 | 82.50 | 60.60 | 80.10 | 58.90 | 77.40 | 62.10 |
+| vit_sima.py（原） | 59.21 | 77.62 | 58.62 | 77.02 | 57.28 | 75.40 | 53.73 | 73.51 | 52.69 | 71.24 | 56.31 |
+| vit_CARE.py（attention=elu()+1） | 55.80 | 73.77 | 57.14 | 75.79 | 53.57 | 71.88 | 49.98 | 64.38 | 51.76 | 69.31 | 52.65 |
+| vit_CARE_relu.py（attention=relu()） | 62.59 | 81.67 | 62.33 | 81.02 | 59.97 | 77.95 | 55.97 | 75.64 | 54.82 | 72.94 | 59.14 |
+| vit_CARE_relu6.py（attention=relu6(), MLP=GELU） | 62.59 | 81.67 | 62.33 | 81.02 | 59.97 | 77.95 | 55.97 | 75.64 | 54.82 | 72.94 | 59.14 |
+| vit_CARE_relu6.py（attention=relu6(), MLP=ReLU） | 60.88 | 79.31 | 61.44 | 79.96 | 60.62 | 79.17 | 56.52 | 76.36 | 53.84 | 71.45 | 58.66 |
+| vit_CARE_relu6_fixed.py（relu6(), fixed-point, MLP=ReLU） | 60.65 | 78.83 | 61.49 | 80.07 | 60.16 | 78.56 | 56.45 | 76.56 | 53.37 | 71.05 | 58.43 |
+| vit_CARE_relu6_fixed.py（fixed-point 自訓/自測） | 34.30 | 44.83 | 34.80 | 45.20 | 29.87 | 37.70 | 17.39 | 22.22 | 33.65 | 44.09 | 30.00 |
+| vit_CARE_relu_BN.py | 58.85 | 77.08 | 58.94 | 77.16 | 58.87 | 77.85 | 54.12 | 75.07 | 52.66 | 70.49 | 56.69 |
+| vit_CARE_relu6_BN.py | 59.10 | 77.49 | 58.44 | 76.48 | 56.99 | 74.56 | 54.82 | 74.18 | 54.51 | 73.39 | 56.77 |
+| vit_CARE_gelu.py | 55.40 | 74.20 | 55.00 | 73.50 | 52.10 | 70.00 | 45.00 | 64.70 | 50.90 | 68.70 | 51.70 |
+| vit_MALA.py（原） | 61.51 | 79.88 | 62.63 | 81.68 | 61.53 | 79.49 | 57.40 | 76.44 | 55.74 | 74.18 | 59.76 |
+| vit_MALA_relu.py（attention=relu()） | 61.66 | 80.44 | 62.60 | 81.70 | 60.30 | 78.90 | 57.30 | 77.70 | 55.90 | 74.50 | 59.60 |
+| vit_MALA_relu6.py（attention=relu6()） | 62.08 | 80.90 | 61.75 | 80.02 | 61.55 | 80.04 | 58.08 | 78.21 | 55.45 | 74.12 | 59.78 |
+| vit_MALA_relu6_BN.py | 57.65 | 75.63 | 58.10 | 76.85 | 58.72 | 76.74 | 55.21 | 75.17 | 53.66 | 73.19 | 56.67 |
+| vit_square.py（原） | 58.64 | 77.24 | 58.80 | 77.50 | 56.60 | 74.20 | 52.20 | 70.40 | 56.10 | 74.30 | 56.50 |
+
 ## 論文 vit (reported)
 - UAV123: AUC=66.1, Prec=83.9
 - UAV123_10fps: AUC=64.5, Prec=82.2
@@ -79,6 +103,22 @@ Training: COCO17 + GOT10K_train_full, Epoch 50, Batch 32, LR 5e-5
 - UAVTrack112L: AUC=54.12, Prec=75.07
 - DTB70: AUC=52.66, Prec=70.49
 - Avg AUC=56.69, FPS=149.69
+
+## vit_CARE_relu6_BN.py
+- UAV123: AUC=59.10, Prec=77.49
+- UAV123_10fps: AUC=58.44, Prec=76.48
+- UAVTrack112: AUC=56.99, Prec=74.56
+- UAVTrack112L: AUC=54.82, Prec=74.18
+- DTB70: AUC=54.51, Prec=73.39
+- Avg AUC=56.77
+
+## vit_CARE_relu6_fixed.py（fixed-point 自訓/自測）
+- UAV123: AUC=34.30, Prec=44.83
+- UAV123_10fps: AUC=34.80, Prec=45.20
+- UAVTrack112: AUC=29.87, Prec=37.70
+- UAVTrack112L: AUC=17.39, Prec=22.22
+- DTB70: AUC=33.65, Prec=44.09
+- Avg AUC=30.00
 
 ## vit_CARE_gelu.py
 - UAV123: AUC=55.4, Prec=74.2
