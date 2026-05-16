@@ -172,9 +172,9 @@ always @(negedge clk) begin
 
         $display("\n  Golden bbox  (box_head_after_cal_bbox_bbox_bi.txt):");
         $display("    cx = 0x007F  (0.496094)");
-        $display("    cy = 0x007E  (0.492188)");
-        $display("    w  = 0x0023  (0.136719)");
-        $display("    h  = 0x0054  (0.328125)");
+        $display("    cy = 0x007E  (0.496094)");
+        $display("    w  = 0x0023  (0.140625)");
+        $display("    h  = 0x0054  (0.335938)");
 
 `ifdef DUMP_TB_ARGMAX
         begin : argmax_golden_check
