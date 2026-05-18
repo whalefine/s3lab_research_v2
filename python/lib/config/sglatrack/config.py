@@ -71,6 +71,9 @@ cfg.MODEL.BACKBONE.CE_TEMPLATE_RANGE = 'ALL'  # choose between ALL, CTR_POINT, C
 cfg.MODEL.HEAD = edict()
 cfg.MODEL.HEAD.TYPE = "CENTER"
 cfg.MODEL.HEAD.NUM_CHANNELS = 256
+# CenterPredictorFixed（head_fixed / head_hand）：預設與 Q8.8 一致；實驗 yaml 可覆寫（供 _update_config 白名單合併）
+cfg.MODEL.HEAD.FIXED_INT_BITS = 8
+cfg.MODEL.HEAD.FIXED_FRAC_BITS = 8
 
 # TRAIN
 cfg.TRAIN = edict()
