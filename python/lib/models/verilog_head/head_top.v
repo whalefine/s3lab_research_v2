@@ -23,58 +23,6 @@
 // SRAM/ROM 皆採 CLK=~clk（falling-edge）。
 // mac_dv：0=SRAM 位址相、1=資料相；每個乘加後必須 mac_dv<=0 再進下一 tap（勿連續 mac_dv=1）。
 //
-// Simulation（僅供除錯，不可合成）：
-//   +define+DUMP_HEAD_FSM
-//       在 state=S_BBOX(7) 時每個 posedge 遞增 dbg_sbbox_hb，並每 16 clocks 印 heartbeat
-//       （證明模擬未凍結、仍停在 state=7 時也在「跑時脈」）。
-//   +define+DUMP_HEAD_S_BBOX_EACH_CLK（須一併開 DUMP_HEAD_FSM）
-//       在 S_BBOX 內每個 posedge 都印一行（最嚴格；量很大）。
-//   +define+DUMP_HEAD_BBOX_STREAM
-//       在 S_BBOX 且 bbox_dv 採樣時，每 64 筆印 bcnt、三條 SRAM 位址、Q 與餵給 cal 的 phase valid（除錯 w/h=X、cy 爆量）。
-//   +define+DUMP_HEAD_BBOX_STROBE（建議與 DUMP_HEAD_BBOX_STREAM 併用）
-//       同上條件下 $strobe 印本拍 NBA 後 bbox_cal_* 與各 valid（與 score_q 對齊）。
-//   +define+DUMP_HEAD_BBOX_SRAM_NEGEDGE
-//       同上條件但在 negedge clk 印 sc/sz/of 位址與 Q（對齊 SRAM CLK=~clk，避免 posedge 上 A 已換 Q 仍舊的錯覺）。
-//   +define+DUMP_HEAD_CTR_WRITE
-//       在 S_CTR 寫 score SRAM 當拍（mac_bp&&mac_dv）每 16 格印 cur_oh/ow、mac_sig、score_sram_a（查是否每格皆 0001）。
-//   +define+DUMP_HEAD_SIZE_SAT
-//       在 S_SIZE 寫 size SRAM 當拍（mac_bp&&mac_dv）依線性索引每 N 格印一次：
-//       oh, ow, cur_oc, mac_cl（sigmoid 前 Q8.8）, sig_out（LUT 8b）, size_sram_a。
-//       間距 N 預設 16，編譯前可 +define+HEAD_SIZE_DUMP_STRIDE=32 覆寫（須為常數）。
-//   +define+DUMP_HEAD_SCORE_CHECK
-//       目的：argmax 與 golden 差 1 格或 score 偏弱時，對拍 score map 錨點與上游 sh2。
-//       Golden: box_head_after_forward_head_score_map_bi.txt（flatten index = oh*16+ow）。
-//       在 S_CONV2 寫 sh2（僅 oc=0 與 oc=47）、S_CTR 寫 score、S_BBOX 餵 cal_bbox 時，
-//       僅印 flat_idx ∈ {3,135,136}。
-//   +define+DUMP_HEAD_SCORE_DEEP（建議與 DUMP_HEAD_SCORE_CHECK 併用）
-//       目的：S_CTR 的 mac_cl 與 golden 對拍，找出 sigmoid 前就已錯的節點。
-//   +define+DUMP_HEAD_FEAT_TAP（與 SCORE_DEEP 併用）
-//       S_CTR bias 當拍於 idx 3/135/136 印 opt_rd、feat_raw、feat_q、rom_q、mac_prod（查 MAC 輸入）。
-//   [HEAD_BIAS_WR] / [HEAD_MAC_DBG]（SCORE_DEEP）：印 rom_q vs bias_lat、c12b_a、mac_sh、mac_bi48。
-//       讀取 TXT_File/Activation/box_head_shared_after_conv2_out_bi.txt（flatten oc*256+oh*16+ow）
-//       與 box_head_tail_ctr_after_conv_out_bi.txt（flatten oh*16+ow），
-//       在 S_CONV2（oc0/47）/ S_CTR 錨點印 [HEAD_GOLDEN_CMP] PASS/FAIL（預設 ±2 LSB）。
-//   +define+DUMP_TB_ARGMAX / +define+DUMP_TB_SCORE_DEEP（TEST_head.v）
-//       TB 載入 score / conv2 / raw_ctr golden，結束時印錨點與 backbone 抽樣。
-// =============================================================================
-
-`ifndef HEAD_SIZE_DUMP_STRIDE
-`define HEAD_SIZE_DUMP_STRIDE 16
-`endif
-
-`ifdef DUMP_HEAD_SCORE_CHECK
-// flat index = oh*FEAT_W + ow（與 score_sram_a={oh,ow}、numpy C-order flatten 一致）
-`define HEAD_SCORE_ANCHOR_IDX(idx) \
-    ((idx) == 8'd3 || (idx) == 8'd135 || (idx) == 8'd136)
-// conv2 預設僅 oc=0/47；idx=136 另印全部 oc（tail 1x1 加總用）
-`define HEAD_SCORE_CONV2_DUMP_OC(cur_oc, oc_last, idx_flat) \
-    ((cur_oc) == 7'd0 || (cur_oc) == (oc_last) || ((idx_flat) == 8'd136))
-`endif
-
-`ifndef HEAD_GOLDEN_TOL_LSB
-`define HEAD_GOLDEN_TOL_LSB 2
-`endif
-
 module head_top #(
     parameter IN_CH    = 32,
     parameter C_SH1    = 96,
@@ -117,21 +65,6 @@ localparam BBOX_N_SCORE  = FEAT_SZ;              // 256
 localparam BBOX_N_SIZE   = 2 * FEAT_SZ;         // 512
 localparam BBOX_N_OFF    = 2 * FEAT_SZ;         // 512
 localparam BBOX_STREAM_LAST = BBOX_N_SCORE + BBOX_N_SIZE + BBOX_N_OFF - 1; // 1279
-
-`ifdef DUMP_HEAD_SCORE_DEEP
-reg [2:0] dbg_opt_in_logged;
-// Golden: box_head_head_input — [C,H,W] → ic*256 + oh*16 + ow
-localparam OPT_GOLDEN_LEN   = IN_CH * FEAT_SZ;
-reg [15:0] opt_golden_mem [0:OPT_GOLDEN_LEN-1];
-// Golden: box_head_shared_after_conv1_out — [C,H,W] → oc*256 + oh*16 + ow
-localparam CONV1_GOLDEN_LEN = C_SH1 * FEAT_SZ;
-reg [15:0] conv1_golden_mem [0:CONV1_GOLDEN_LEN-1];
-// Golden: box_head_shared_after_conv2_out
-localparam CONV2_GOLDEN_LEN = C_SH2 * FEAT_SZ;
-reg [15:0] conv2_golden_mem [0:CONV2_GOLDEN_LEN-1];
-// Golden: box_head_tail_ctr_after_conv_out — oh*16 + ow
-reg [15:0] raw_ctr_golden_mem [0:FEAT_SZ-1];
-`endif
 
 // conv1 weight total = C_SH1*IN_CH*9 = 96*32*9 = 27648
 // conv2 weight total = C_SH2*C_SH1*9 = 48*96*9 = 41472
@@ -647,9 +580,6 @@ always @(posedge clk) begin
     if (reset) begin
         opt_fill_a_r <= 13'd0;
         opt_fill_d_r <= 16'sd0;
-`ifdef DUMP_HEAD_SCORE_DEEP
-        dbg_opt_in_logged <= 3'b0;
-`endif
         fill_cnt <= 14'd0;
         cur_oc   <= 7'd0;  cur_oh  <= 4'd0;  cur_ow  <= 4'd0;
         mac_ic   <= 7'd0;  mac_kh  <= 2'd0;  mac_kw  <= 2'd0;
@@ -701,44 +631,7 @@ always @(posedge clk) begin
         S_CONV1: begin
             if (!mac_bp) begin
                 if (mac_dv) begin
-`ifdef DUMP_HEAD_SCORE_DEEP
-                    // 每錨點僅在 cur_oc==0 列印一次（避免 96 個 output channel 重複洗版）
-                    if ((cur_oc == 7'd0) &&
-                        (mac_ic == 7'd0) && (mac_kh == 2'd1) && (mac_kw == 2'd1) &&
-                        (({cur_oh, cur_ow} == 8'd3   && !dbg_opt_in_logged[0]) ||
-                         ({cur_oh, cur_ow} == 8'd135 && !dbg_opt_in_logged[1]) ||
-                         ({cur_oh, cur_ow} == 8'd136 && !dbg_opt_in_logged[2]))) begin
-                        begin : opt_in_golden_cmp
-                            reg [15:0] g_opt;
-                            integer  d_opt;
-                            if ({cur_oh, cur_ow} == 8'd3)   dbg_opt_in_logged[0] <= 1'b1;
-                            if ({cur_oh, cur_ow} == 8'd135) dbg_opt_in_logged[1] <= 1'b1;
-                            if ({cur_oh, cur_ow} == 8'd136) dbg_opt_in_logged[2] <= 1'b1;
-                            g_opt = opt_golden_mem[{mac_ic[4:0], ph[3:0], pw[3:0]}];
-                            d_opt = $signed(feat_mac) - $signed(g_opt);
-                            if ((d_opt > `HEAD_GOLDEN_TOL_LSB) ||
-                                (d_opt < -`HEAD_GOLDEN_TOL_LSB))
-                                $display(
-                                    "[HEAD_GOLDEN_CMP] opt_in [FAIL] idx=%0d opt_a=%h rtl=%h golden=%h delta=%0d",
-                                    {ph[3:0], pw[3:0]}, opt_rd, feat_mac, g_opt, d_opt);
-                            else
-                                $display(
-                                    "[HEAD_GOLDEN_CMP] opt_in [PASS] idx=%0d opt_a=%h rtl=%h golden=%h",
-                                    {ph[3:0], pw[3:0]}, opt_rd, feat_mac, g_opt);
-                        end
-                    end
-`endif
                     mac_acc <= mac_acc + {{16{mac_prod[31]}}, mac_prod};
-`ifdef DUMP_HEAD_FEAT_TAP
-                    if ((cur_oc == 7'd0) && (mac_ic == 7'd0) &&
-                        (mac_kh == 2'd1) && (mac_kw == 2'd1) &&
-                        (({cur_oh, cur_ow} == 8'd3) ||
-                         ({cur_oh, cur_ow} == 8'd135) ||
-                         ({cur_oh, cur_ow} == 8'd136)))
-                        $display(
-                            "[HEAD_FEAT_TAP] S_CONV1 mac_dv=1 opt_rd=%h feat_raw=%h feat_q=%h rom_q=%h mac_prod=%h",
-                            opt_rd, feat_raw, feat_q, rom_q, mac_prod[15:0]);
-`endif
                     if (mac_end_3x3) begin
                         mac_bp <= 1'b1;
                         mac_dv <= 1'b0;
@@ -756,38 +649,6 @@ always @(posedge clk) begin
             end else begin
                 // Bias phase: mac_dv=0→wait ROM, mac_dv=1→apply+write+advance
                 if (mac_dv) begin
-`ifdef DUMP_HEAD_SCORE_CHECK
-                    if (`HEAD_SCORE_ANCHOR_IDX({cur_oh, cur_ow}) && (cur_oc == 7'd0)) begin
-                        $display(
-                            "[HEAD_SCORE_CHK] S_CONV1 wr sh1 oc=%0d oh=%0d ow=%0d idx=%0d mac_relu=%h",
-                            cur_oc, cur_oh, cur_ow, {cur_oh, cur_ow}, mac_relu);
-`ifdef DUMP_HEAD_SCORE_DEEP
-                        begin : conv1_golden_cmp
-                            reg [15:0] g_c1;
-                            integer  d_c1;
-                            g_c1 = conv1_golden_mem[{cur_oc, cur_oh, cur_ow}];
-                            d_c1 = $signed(sram_wdata_r) - $signed(g_c1);
-                            if ((d_c1 > `HEAD_GOLDEN_TOL_LSB) ||
-                                (d_c1 < -`HEAD_GOLDEN_TOL_LSB))
-                                $display(
-                                    "[HEAD_GOLDEN_CMP] S_CONV1 [FAIL] oc=%0d idx=%0d rtl_wr=%h golden=%h delta=%0d",
-                                    cur_oc, {cur_oh, cur_ow}, sram_wdata_r, g_c1, d_c1);
-                            else
-                                $display(
-                                    "[HEAD_GOLDEN_CMP] S_CONV1 [PASS] oc=%0d idx=%0d rtl_wr=%h golden=%h",
-                                    cur_oc, {cur_oh, cur_ow}, sram_wdata_r, g_c1);
-                        end
-                        $display(
-                            "[HEAD_MAC_DBG] S_CONV1 bias oc=%0d idx=%0d mac_acc=%h mac_sh=%h c12b_a=%h rom_q=%h bias_lat=%h mac_bi48=%h mac_cl=%h comb_relu=%h sram_wdata=%h golden=%h",
-                            cur_oc, {cur_oh, cur_ow}, mac_acc, mac_sh[15:0], c12b_a,
-                            rom_q, bias_q_lat, mac_bi_s, mac_cl, mac_relu, sram_wdata_r,
-                            conv1_golden_mem[{cur_oc, cur_oh, cur_ow}]);
-                        $display(
-                            "[HEAD_BIAS_WR] S_CONV1 idx=%0d comb_relu=%h sram_wdata=%h",
-                            {cur_oh, cur_ow}, mac_relu, sram_wdata_r);
-`endif
-                    end
-`endif
                     // sh1 SRAM write occurs via web_sh1/sh1_sram_a wires
                     mac_acc <= 48'sd0;
                     mac_bp  <= 1'b0;
@@ -826,31 +687,6 @@ always @(posedge clk) begin
                 end else mac_dv <= 1'b1;
             end else begin
                 if (mac_dv) begin
-`ifdef DUMP_HEAD_SCORE_CHECK
-                    if (`HEAD_SCORE_ANCHOR_IDX({cur_oh, cur_ow}) &&
-                        `HEAD_SCORE_CONV2_DUMP_OC(cur_oc, C_SH2_M1, {cur_oh, cur_ow})) begin
-                        $display(
-                            "[HEAD_SCORE_CHK] S_CONV2 wr sh2 oc=%0d oh=%0d ow=%0d idx=%0d mac_relu=%h sh2_a=%h",
-                            cur_oc, cur_oh, cur_ow, {cur_oh, cur_ow}, mac_relu, sh2_sram_a);
-`ifdef DUMP_HEAD_SCORE_DEEP
-                        begin : conv2_golden_cmp
-                            reg [15:0] g_c2;
-                            integer  d_c2;
-                            g_c2 = conv2_golden_mem[{cur_oc, cur_oh, cur_ow}];
-                            d_c2 = $signed(sram_wdata_r) - $signed(g_c2);
-                            if ((d_c2 > `HEAD_GOLDEN_TOL_LSB) ||
-                                (d_c2 < -`HEAD_GOLDEN_TOL_LSB))
-                                $display(
-                                    "[HEAD_GOLDEN_CMP] S_CONV2 [FAIL] oc=%0d idx=%0d rtl_wr=%h golden=%h delta=%0d",
-                                    cur_oc, {cur_oh, cur_ow}, sram_wdata_r, g_c2, d_c2);
-                            else
-                                $display(
-                                    "[HEAD_GOLDEN_CMP] S_CONV2 [PASS] oc=%0d idx=%0d rtl_wr=%h golden=%h",
-                                    cur_oc, {cur_oh, cur_ow}, sram_wdata_r, g_c2);
-                        end
-`endif
-                    end
-`endif
                     mac_acc <= 48'sd0;
                     mac_bp  <= 1'b0;
                     mac_dv  <= 1'b0;
@@ -882,48 +718,6 @@ always @(posedge clk) begin
                 end else mac_dv <= 1'b1;
             end else begin
                 if (mac_dv) begin
-`ifdef DUMP_HEAD_SCORE_CHECK
-                    if (`HEAD_SCORE_ANCHOR_IDX({cur_oh, cur_ow})) begin
-                        $display(
-                            "[HEAD_SCORE_CHK] S_CTR wr score oh=%0d ow=%0d idx=%0d sc_a=%h | mac_sh=%h mac_cl=%h sig=%02h mac_sig=%h | feat_sh2=%h",
-                            cur_oh, cur_ow, {cur_oh, cur_ow}, score_sram_a[7:0],
-                            mac_sh[15:0], mac_cl, sig_out, mac_sig, feat_q);
-`ifdef DUMP_HEAD_SCORE_DEEP
-                        begin : ctr_raw_golden_cmp
-                            reg [15:0] g_raw;
-                            integer  d_raw;
-                            g_raw = raw_ctr_golden_mem[{cur_oh, cur_ow}];
-                            d_raw = $signed(mac_cl) - $signed(g_raw);
-                            if ((d_raw > `HEAD_GOLDEN_TOL_LSB) ||
-                                (d_raw < -`HEAD_GOLDEN_TOL_LSB))
-                                $display(
-                                    "[HEAD_GOLDEN_CMP] S_CTR raw [FAIL] idx=%0d rtl_mac_cl=%h golden=%h delta=%0d (sigmoid前)",
-                                    {cur_oh, cur_ow}, mac_cl, g_raw, d_raw);
-                            else
-                                $display(
-                                    "[HEAD_GOLDEN_CMP] S_CTR raw [PASS] idx=%0d rtl_mac_cl=%h golden=%h",
-                                    {cur_oh, cur_ow}, mac_cl, g_raw);
-                            $display(
-                                "[HEAD_MAC_DBG] S_CTR bias idx=%0d mac_acc=%h mac_sh=%h csob_a=%h rom_q=%h bias_lat=%h mac_bi48=%h mac_cl=%h sig=%02h comb_sig=%h sram_wdata=%h golden_raw=%h",
-                                {cur_oh, cur_ow}, mac_acc, mac_sh[15:0], csob_a, rom_q,
-                                bias_q_lat, mac_bi_s, mac_cl, sig_out, mac_sig, sram_wdata_r,
-                                raw_ctr_golden_mem[{cur_oh, cur_ow}]);
-                            $display(
-                                "[HEAD_BIAS_WR] S_CTR idx=%0d comb_sig=%h sram_wdata=%h feat_sh2=%h",
-                                {cur_oh, cur_ow}, mac_sig, sram_wdata_r, feat_q);
-`ifdef DUMP_HEAD_FEAT_TAP
-                            if ((mac_ic == 7'd0) && (mac_kh == 2'd1) && (mac_kw == 2'd1) &&
-                                (({cur_oh, cur_ow} == 8'd3) ||
-                                 ({cur_oh, cur_ow} == 8'd135) ||
-                                 ({cur_oh, cur_ow} == 8'd136)))
-                                $display(
-                                    "[HEAD_FEAT_TAP] S_CTR mac_dv=1 opt_rd=%h feat_raw=%h feat_q=%h rom_q=%h mac_prod=%h",
-                                    opt_rd, feat_raw, feat_q, rom_q, mac_prod[15:0]);
-`endif
-                        end
-`endif
-                    end
-`endif
                     // score SRAM write via web_score/score_sram_a wires
                     mac_acc <= 48'sd0;
                     mac_bp  <= 1'b0;
@@ -953,14 +747,6 @@ always @(posedge clk) begin
                 end else mac_dv <= 1'b1;
             end else begin
                 if (mac_dv) begin
-`ifdef DUMP_HEAD_SIZE_SAT
-                    // 線性序 oc*256+oh*16+ow，與 size_sram_a 展開一致（僅除錯）
-                    if (({1'b0, cur_oc[0], cur_oh, cur_ow} % (`HEAD_SIZE_DUMP_STRIDE)) == 9'd0)
-                        $display(
-                            "[HEAD_SIZE_SAT] t=%0t oh=%0d ow=%0d cur_oc=%0d mac_cl=%h sig_out=%02h sz_a=%h",
-                            $time, cur_oh, cur_ow, cur_oc,
-                            mac_cl, sig_out, size_sram_a);
-`endif
                     mac_acc <= 48'sd0;
                     mac_bp  <= 1'b0;
                     mac_dv  <= 1'b0;
@@ -1012,17 +798,10 @@ always @(posedge clk) begin
         // Stream score/size/off SRAM to cal_bbox (1-cycle read latency)
         S_BBOX: begin
             // bbox_start 僅在 S_OFF→S_BBOX 轉換時脈衝一次（見下方 next_state 區塊）。
-            // 不可每拍 !bbox_busy 再 start：cal_bbox 完成回 IDLE 後會二次 start，
-            // 清掉 argmax_idx_snap，TB 在 top done 讀到 0／0x8000。
+            // 不可每拍 !bbox_busy 再 start：cal_bbox 完成回 IDLE 後會二次 start。
             if (bbox_busy) begin
                 bbox_dv <= 1'b1;
                 if (bbox_dv) begin
-`ifdef DUMP_HEAD_SCORE_CHECK
-                    if (`HEAD_SCORE_ANCHOR_IDX(bcnt[7:0]))
-                        $display(
-                            "[HEAD_SCORE_CHK] S_BBOX bcnt=%0d idx=%0d sc_a=%h sc_q=%h (feed cal_bbox)",
-                            bcnt, bcnt[7:0], score_sram_a[7:0], score_q);
-`endif
                     // 採樣的 *_q 對應上一 negedge 依目前 bcnt 讀出的資料（見模組頭註解）
                     bbox_cal_sc <= score_q;
                     bbox_cal_sz <= size_q;
@@ -1075,117 +854,6 @@ always @(posedge clk) begin
         end
     end
 end
-
-`ifdef DUMP_HEAD_FSM
-// ---------------------------------------------------------------------------
-// S_BBOX (state=7) heartbeat：只要 clk 在跑且 state 仍為 7，hb 每拍 +1 並定期 $display
-// ---------------------------------------------------------------------------
-reg [31:0] dbg_sbbox_hb;
-
-always @(posedge clk) begin
-    if (reset || (state != S_BBOX))
-        dbg_sbbox_hb <= 32'd0;
-    else
-        dbg_sbbox_hb <= dbg_sbbox_hb + 32'd1;
-end
-
-always @(posedge clk) begin
-    if (!reset) begin
-        if (state == S_OFF && next_state == S_BBOX)
-            $display("[HEAD] -> enter S_BBOX(state=7) BBOX_STREAM_LAST=%0d", BBOX_STREAM_LAST);
-`ifdef DUMP_HEAD_S_BBOX_EACH_CLK
-        if (state == S_BBOX)
-            $display("[HEAD] S_BBOX hb=%0d t=%0t bcnt=%0d bbox_dv=%0b busy=%0b done=%0b u_st=%0d",
-                     dbg_sbbox_hb, $time, bcnt, bbox_dv, bbox_busy, bbox_done, u_bbox.state);
-`else
-        if (state == S_BBOX && (dbg_sbbox_hb[3:0] == 4'd0))
-            $display("[HEAD] S_BBOX hb=%0d t=%0t bcnt=%0d bbox_dv=%0b busy=%0b done=%0b u_st=%0d",
-                     dbg_sbbox_hb, $time, bcnt, bbox_dv, bbox_busy, bbox_done, u_bbox.state);
-`endif
-        if (state == S_BBOX && next_state == S_DONE)
-            $display("[HEAD] <- leave S_BBOX(state=7) bbox_done=%0b bcnt=%0d hb=%0d",
-                     bbox_done, bcnt, dbg_sbbox_hb);
-    end
-end
-`endif
-
-`ifdef DUMP_HEAD_BBOX_STREAM
-// ---------------------------------------------------------------------------
-// S_BBOX 串流採樣：bcnt 為「本拍餵給 cal 的索引」（與 score/size/off_sram_a 對齊）
-// ---------------------------------------------------------------------------
-always @(posedge clk) begin
-    if (!reset && (state == S_BBOX) && bbox_busy && bbox_dv) begin
-        if ((bcnt[5:0] == 6'd0) || (bcnt == BBOX_N_SCORE) ||
-            (bcnt == (BBOX_N_SCORE + BBOX_N_SIZE)) || (bcnt == BBOX_STREAM_LAST)) begin
-            $display(
-                "[HEAD_BBOX] t=%0t bcnt=%0d sc_a=%h sz_a=%h of_a=%h | sc_q=%h sz_q=%h of_q=%h | ph(sc,sz,of)=(%b,%b,%b) u_st=%0d",
-                $time, bcnt, score_sram_a, size_sram_a, off_sram_a,
-                score_q, size_q, off_q,
-                (bcnt < BBOX_N_SCORE),
-                (bcnt >= BBOX_N_SCORE) && (bcnt < (BBOX_N_SCORE + BBOX_N_SIZE)),
-                (bcnt >= (BBOX_N_SCORE + BBOX_N_SIZE)) && (bcnt <= BBOX_STREAM_LAST),
-                u_bbox.state);
-            `ifdef DUMP_HEAD_BBOX_STROBE
-            // NBA 後：本拍寫入 bbox_cal_*、valid 與 score_q 對齊
-            $strobe(
-                "[HEAD_BBOX_strobe] t=%0t bcnt=%0d sc_q=%h | cal_sc=%h cal_sz=%h cal_of=%h | v_sc=%b v_sz=%b v_of=%b",
-                $time, bcnt, score_q,
-                bbox_cal_sc, bbox_cal_sz, bbox_cal_of,
-                bbox_sc_valid, bbox_sz_valid, bbox_of_valid);
-            `endif
-        end
-    end
-end
-`endif
-
-`ifdef DUMP_HEAD_BBOX_SRAM_NEGEDGE
-// ---------------------------------------------------------------------------
-// negedge：SRAM macro CLK=~clk，此時點位址與 Q 較一致（對照 posedge 的 [HEAD_BBOX]）
-// ---------------------------------------------------------------------------
-always @(negedge clk) begin
-    if (!reset && (state == S_BBOX) && bbox_busy && bbox_dv) begin
-        if ((bcnt[5:0] == 6'd0) || (bcnt == BBOX_N_SCORE) ||
-            (bcnt == (BBOX_N_SCORE + BBOX_N_SIZE)) || (bcnt == BBOX_STREAM_LAST)) begin
-            $display(
-                "[HEAD_BBOX_n] t=%0t bcnt=%0d sc_a=%h sz_a=%h of_a=%h | sc_q=%h sz_q=%h of_q=%h",
-                $time, bcnt, score_sram_a[7:0], size_sram_a[8:0], off_sram_a[8:0],
-                score_q, size_q, off_q);
-        end
-    end
-end
-`endif
-
-`ifdef DUMP_HEAD_CTR_WRITE
-// ---------------------------------------------------------------------------
-// S_CTR 寫入 score SRAM 當拍：確認 mac_sig 是否每格皆 sigmoid 下限等
-// ---------------------------------------------------------------------------
-always @(posedge clk) begin
-    if (!reset && (state == S_CTR) && mac_bp && mac_dv) begin
-        if (({cur_oh, cur_ow} & 6'h3f) == 6'd0)
-            $display(
-                "[HEAD_CTR_W] t=%0t oh=%0d ow=%0d sc_a=%h mac_sig=%h mac_cl=%h",
-                $time, cur_oh, cur_ow, score_sram_a[7:0], mac_sig, mac_cl);
-    end
-end
-`endif
-
-`ifdef DUMP_HEAD_SCORE_DEEP
-// ---------------------------------------------------------------------------
-// 載入 conv2 / tail_ctr 線性輸出 golden（僅 simulation）
-// ---------------------------------------------------------------------------
-initial begin
-    $readmemb("./TXT_File/Activation/box_head_head_input_bi.txt",
-              opt_golden_mem);
-    $readmemb("./TXT_File/Activation/box_head_shared_after_conv1_out_bi.txt",
-              conv1_golden_mem);
-    $readmemb("./TXT_File/Activation/box_head_shared_after_conv2_out_bi.txt",
-              conv2_golden_mem);
-    $readmemb("./TXT_File/Activation/box_head_tail_ctr_after_conv_out_bi.txt",
-              raw_ctr_golden_mem);
-    $display("[HEAD_GOLDEN_CMP] Loaded opt(%0d) conv1(%0d) conv2(%0d) raw_ctr(%0d)",
-             OPT_GOLDEN_LEN, CONV1_GOLDEN_LEN, CONV2_GOLDEN_LEN, FEAT_SZ);
-end
-`endif
 
 assign busy = (state != S_IDLE);
 

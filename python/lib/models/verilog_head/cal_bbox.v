@@ -24,18 +24,7 @@
 //
 // 所有輸入在 start 後以 stream 方式送入（FEAT_LEN cycles）；
 // done 拉高時輸出 bbox 有效。
-//
-// Simulation（僅模擬，不可合成）：
-//   +define+DUMP_CAL_BBOX_ARGMAX
-//     目的：與 numpy `idx = argmax(score_map_ctr.reshape(1,-1))` 對照 RTL 贏格 index。
-//     在 S_CALC 印 argmax_idx、idx_x=idx[3:0]、idx_y=idx[7:4]、max_score_q（Q8.8 signed）。
-//     取樣：state==S_CALC 當拍。Golden 檔：
-//       vit_care_relu6_numpy_trunk_dim32_out/Activation/box_head_after_forward_head_score_map_bi.txt
-//     展平：C-order，index = idx_y*FEAT_SZ + idx_x（與 head score_sram 位址 {oh,ow} 一致）。
-//     每輪推論僅印 S_CALC／S_DONE 各一行（非逐格 256 行）；TB 請讀 argmax_idx_snap（S_IDLE 會清 argmax_idx）。
-//   +define+DUMP_CAL_BBOX
-//     進入 S_CALC 時另印 size/off buffer 與 cx/cy 中間和（較冗長）。
-//   offset 為 Q8.8 有號；與 numpy 一致須做 $signed 相加再算術右移 >>>SHIFT，不可當無號加後再切片。
+// offset 為 Q8.8 有號；與 numpy 一致須做 $signed 相加再算術右移 >>>SHIFT。
 // =============================================================================
 
 module cal_bbox #(
@@ -94,10 +83,6 @@ reg [15:0] off1_buf   [0:FEAT_LEN-1];
 reg signed [15:0] max_score_q;
 reg [7:0]  argmax_idx;
 
-// S_CALC 後下一拍即 S_IDLE 會清 argmax_idx／max_score_q；快照供 TB／階層讀取至下次 start
-reg [7:0]         argmax_idx_snap;
-reg signed [15:0] max_score_snap;
-
 // S_CALC temporaries (blocking assigns; must be module-level for Verilog-2001)
 reg [3:0]  calc_idx_x;
 reg [3:0]  calc_idx_y;
@@ -105,9 +90,6 @@ reg [15:0] calc_offset_x;
 reg [15:0] calc_offset_y;
 reg signed [19:0] calc_sum_cx, calc_sum_cy;
 reg signed [19:0] calc_sh_cx, calc_sh_cy;
-
-// Address load stage
-reg [1:0] load_phase;  // 0=score, 1=size0, 2=size1, 3=offset(0+1)
 
 // FSM segment 1: state register
 always @(posedge clk) begin
@@ -127,7 +109,6 @@ always @(*) begin
         S_OFFSET: next_state = (cnt == 2*FEAT_LEN)     ? S_CALC   : S_OFFSET;
         S_CALC:   next_state = S_DONE;
         S_DONE:   next_state = S_IDLE;
-        default:  next_state = S_IDLE;
     endcase
 end
 
@@ -139,8 +120,6 @@ always @(posedge clk) begin
         cnt             <= 10'd0;
         max_score_q     <= 16'sh8000;
         argmax_idx      <= 8'd0;
-        argmax_idx_snap <= 8'd0;
-        max_score_snap  <= 16'sh8000;
         for (buf_i = 0; buf_i < FEAT_LEN; buf_i = buf_i + 1) begin
             score_buf[buf_i] <= 16'sd0;
             size0_buf[buf_i] <= 16'sd0;
@@ -175,15 +154,6 @@ always @(posedge clk) begin
                         size0_buf[cnt[7:0]]          <= size_i;
                     else
                         size1_buf[cnt - FEAT_LEN]    <= size_i;
-`ifdef DUMP_CAL_BBOX
-                    if ((cnt < FEAT_LEN && (cnt[7:0] == 8'd120 || cnt[7:0] == 8'd136)) ||
-                        (cnt >= FEAT_LEN && ((cnt - FEAT_LEN) == 9'd120 ||
-                                             (cnt - FEAT_LEN) == 9'd136)))
-                        $display(
-                            "[CAL_BBOX] S_SIZE wr cnt=%0d ch=%0d idx=%0d size_i=%h",
-                            cnt, (cnt < FEAT_LEN) ? 0 : 1,
-                            (cnt < FEAT_LEN) ? cnt[7:0] : (cnt - FEAT_LEN), size_i);
-`endif
                     cnt <= cnt + 10'd1;
                 end
             end
@@ -194,15 +164,6 @@ always @(posedge clk) begin
                         off0_buf[cnt[7:0]]       <= offset_i;
                     else
                         off1_buf[cnt - FEAT_LEN] <= offset_i;
-`ifdef DUMP_CAL_BBOX
-                    if ((cnt < FEAT_LEN && (cnt[7:0] == 8'd120 || cnt[7:0] == 8'd136)) ||
-                        (cnt >= FEAT_LEN && ((cnt - FEAT_LEN) == 9'd120 ||
-                                             (cnt - FEAT_LEN) == 9'd136)))
-                        $display(
-                            "[CAL_BBOX] S_OFFSET wr cnt=%0d ch=%0d idx=%0d off_i=%h",
-                            cnt, (cnt < FEAT_LEN) ? 0 : 1,
-                            (cnt < FEAT_LEN) ? cnt[7:0] : (cnt - FEAT_LEN), offset_i);
-`endif
                     cnt <= cnt + 10'd1;
                 end
             end
@@ -228,34 +189,11 @@ always @(posedge clk) begin
                 cy_o <= calc_sh_cy[15:0];
                 w_o  <= size0_buf[argmax_idx];
                 h_o  <= size1_buf[argmax_idx];
-                argmax_idx_snap <= argmax_idx;
-                max_score_snap  <= max_score_q;
-`ifdef DUMP_CAL_BBOX_ARGMAX
-                $display(
-                    "[CAL_BBOX_ARGMAX] S_CALC rtl_idx=%0d idx_x=%0d idx_y=%0d max_sc=%h (signed Q8.8)",
-                    argmax_idx, calc_idx_x, calc_idx_y, max_score_q);
-`endif
-`ifdef DUMP_CAL_BBOX
-                $display(
-                    "[CAL_BBOX] S_CALC argmax_idx=%0d max_sc=%h | s0=%h s1=%h o0=%h o1=%h | sum_cx=%0d sum_cy=%0d sh_cx=%0d sh_cy=%0d",
-                    argmax_idx, max_score_q,
-                    size0_buf[argmax_idx], size1_buf[argmax_idx],
-                    off0_buf[argmax_idx], off1_buf[argmax_idx],
-                    calc_sum_cx, calc_sum_cy, calc_sh_cx, calc_sh_cy);
-`endif
             end
 
             S_DONE: begin
                 done <= 1'b1;
                 cnt  <= 10'd0;
-                argmax_idx_snap <= argmax_idx;
-                max_score_snap  <= max_score_q;
-`ifdef DUMP_CAL_BBOX_ARGMAX
-                $display(
-                    "[CAL_BBOX_ARGMAX] S_DONE rtl_idx=%0d idx_x=%0d idx_y=%0d snap=%0d max_sc=%h",
-                    argmax_idx, argmax_idx[3:0], argmax_idx[7:4],
-                    argmax_idx_snap, max_score_snap);
-`endif
             end
 
             default: ;

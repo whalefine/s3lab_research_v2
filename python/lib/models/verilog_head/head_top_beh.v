@@ -33,30 +33,8 @@
 //     conv2_w[oc*96*9 + ic*9 + kh*3 + kw]
 //     tail_*_w[oc*48 + ic]
 //
-// Simulation debug：
-//   +define+DUMP_BEH_GOLDEN       對拍 head_input / conv1 / conv2 / raw_ctr 錨點
-//   +define+DUMP_BEH_TAP          第一個 MAC tap 印 feat/rom/prod
-//   +define+DUMP_BEH_FSM          每 1M cycles 印 state（查卡住位置）
-//   +define+DUMP_BEH_BBOX_DEBUG   S_OFF→S_BBOX 印 score/size/off 錨點與 RTL argmax
-//   +define+DUMP_BEH_TAIL_WR      S_SIZE/S_OFF 寫入時印 sz_wa/of_wa/rom/mac（查 ch1=X）
-//   +define+DUMP_BEH_STAGE_CMP    conv1/conv2/sh2 與 golden 錨點比對；S_CTR 累加 partial acc
-//   +define+DUMP_BEH_CONV1_PATCH  S_CONV1 idx120/136 印 3x3 opt 與 mac_acc（查 conv1 偏差）
-//   +define+DUMP_CAL_BBOX         cal_bbox S_CALC 印 s0/s1/o0/o1/sum_cx/cy
-//   TB：+define+USE_BEH_HEAD，timeout 建議 >= 25M cycles
-// =============================================================================
-
-`timescale 1ns/10ps
-
-`ifndef HEAD_GOLDEN_TOL_LSB
-`define HEAD_GOLDEN_TOL_LSB 2
-`endif
-
 `ifndef BEH_WEIGHT_DIR
 `define BEH_WEIGHT_DIR "./TXT_File/Weight"
-`endif
-
-`ifndef BEH_ACT_DIR
-`define BEH_ACT_DIR "./TXT_File/Activation"
 `endif
 
 module head_top_beh #(
@@ -134,86 +112,9 @@ reg [3:0] state;
 reg signed [15:0] opt_mem   [0:OPT_LEN-1];
 reg signed [15:0] sh1_mem   [0:SH1_LEN-1];
 reg signed [15:0] sh2_mem   [0:SH2_LEN-1];
-// Golden: box_head_after_forward_head_score_map_bi.txt — flatten oh*16+ow
 reg signed [15:0] score_mem [0:FEAT_SZ-1];
-// Golden: box_head_after_forward_head_size_map_bi.txt — ch*256 + oh*16+ow
 reg signed [15:0] size_mem  [0:2*FEAT_SZ-1];
-// Golden: box_head_after_forward_head_offset_map_bi.txt — ch*256 + oh*16+ow
 reg signed [15:0] off_mem   [0:2*FEAT_SZ-1];
-
-`ifdef DUMP_BEH_BBOX_DEBUG
-// golden 對照（僅模擬；須在 module 內，Verilog-2001）
-reg [15:0] dbg_score_golden [0:FEAT_SZ-1];
-reg [15:0] dbg_size_golden  [0:2*FEAT_SZ-1];
-reg [15:0] dbg_off_golden   [0:2*FEAT_SZ-1];
-reg        dbg_tail_dumped;
-integer    dbg_gi;
-integer    dbg_ai;
-reg signed [15:0] dbg_rtl_max;
-reg [7:0]         dbg_rtl_argmax;
-reg [7:0]         dbg_g_argmax;
-reg signed [15:0] dbg_g_max;
-reg [7:0]         dbg_anchor_idx;
-
-initial begin
-    $readmemb({`BEH_ACT_DIR, "/box_head_after_forward_head_score_map_bi.txt"},
-              dbg_score_golden);
-    $readmemb({`BEH_ACT_DIR, "/box_head_after_forward_head_size_map_bi.txt"},
-              dbg_size_golden);
-    $readmemb({`BEH_ACT_DIR, "/box_head_after_forward_head_offset_map_bi.txt"},
-              dbg_off_golden);
-    dbg_tail_dumped = 1'b0;
-end
-`endif
-
-`ifdef DUMP_BEH_STAGE_CMP
-// Simulation only: compare conv1/conv2/ctr vs numpy trunk Activation golden.
-// Phenomenon: argmax idx 120 vs golden 136 — score@136 too low (rtl 007d vs g 0087).
-// Golden: box_head_shared_after_conv1_out_bi.txt, conv2, tail_ctr_after_conv_out_bi.txt
-reg [15:0] dbg_sh1_golden [0:SH1_LEN-1];
-reg [15:0] dbg_sh2_golden [0:SH2_LEN-1];
-reg [15:0] dbg_raw_ctr_golden [0:FEAT_SZ-1];
-reg [15:0] dbg_score_golden_stg [0:FEAT_SZ-1];
-reg [15:0] dbg_opt_golden    [0:OPT_LEN-1];
-
-function integer beh_abs_delta;
-    input signed [31:0] a;
-    input signed [31:0] b;
-    reg signed [31:0] d;
-    begin
-        d = a - b;
-        if (d < 0) d = -d;
-        beh_abs_delta = d;
-    end
-endfunction
-
-// Q8.8 saturate：對 48-bit 累加後 (acc>>>8)+bias 再取 16-bit（對齊 numpy fp）
-function signed [15:0] beh_sat_q88;
-    input signed [47:0] v;
-    begin
-        if (v > $signed(48'sd32767))
-            beh_sat_q88 = 16'sh7FFF;
-        else if (v < $signed(-48'sd32768))
-            beh_sat_q88 = -16'sh8000;
-        else
-            beh_sat_q88 = v[15:0];
-    end
-endfunction
-
-initial begin
-    $readmemb({`BEH_ACT_DIR, "/box_head_shared_after_conv1_out_bi.txt"},
-              dbg_sh1_golden);
-    $readmemb({`BEH_ACT_DIR, "/box_head_shared_after_conv2_out_bi.txt"},
-              dbg_sh2_golden);
-    $readmemb({`BEH_ACT_DIR, "/box_head_tail_ctr_after_conv_out_bi.txt"},
-              dbg_raw_ctr_golden);
-    $readmemb({`BEH_ACT_DIR, "/box_head_after_forward_head_score_map_bi.txt"},
-              dbg_score_golden_stg);
-    $readmemb({`BEH_ACT_DIR, "/box_head_head_input_bi.txt"},
-              dbg_opt_golden);
-    $display("[BEH] DUMP_BEH_STAGE_CMP on: opt/conv golden loaded from %s/", `BEH_ACT_DIR);
-end
-`endif
 
 // ---------------------------------------------------------------------------
 // Weights（initial $readmemb 載入；對齊 numpy flatten 順序）
@@ -230,10 +131,7 @@ reg signed [15:0] of_w   [0:2*TAIL_W_CH-1];
 reg signed [15:0] of_b   [0:1];
 
 initial begin : beh_load_weights
-    integer zi, zcnt;
-    reg [1023:0] wpath;
-    wpath = {`BEH_WEIGHT_DIR, "/box_head_shared_conv1_folded_weight_bi.txt"};
-    $readmemb(wpath, c1_w);
+    $readmemb({`BEH_WEIGHT_DIR, "/box_head_shared_conv1_folded_weight_bi.txt"}, c1_w);
     $readmemb({`BEH_WEIGHT_DIR, "/box_head_shared_conv1_folded_bias_bi.txt"},   c1_b);
     $readmemb({`BEH_WEIGHT_DIR, "/box_head_shared_conv2_folded_weight_bi.txt"}, c2_w);
     $readmemb({`BEH_WEIGHT_DIR, "/box_head_shared_conv2_folded_bias_bi.txt"},   c2_b);
@@ -243,21 +141,20 @@ initial begin : beh_load_weights
     $readmemb({`BEH_WEIGHT_DIR, "/box_head_tail_size_bias_bi.txt"},             sz_b);
     $readmemb({`BEH_WEIGHT_DIR, "/box_head_tail_offset_weight_bi.txt"},         of_w);
     $readmemb({`BEH_WEIGHT_DIR, "/box_head_tail_offset_bias_bi.txt"},           of_b);
-    $display("[BEH] Weights loaded from %s/", `BEH_WEIGHT_DIR);
-    $display("[BEH_WEIGHT_SANITY] c1_w[0]=%h c1_w[288]=%h c1_b[0]=%h c2_w[0]=%h ctr_w[0]=%h",
-             c1_w[0], c1_w[288], c1_b[0], c2_w[0], ctr_w[0]);
-    zcnt = 0;
-    for (zi = 0; zi < 256; zi = zi + 1)
-        if (c1_w[zi] === 16'sd0)
-            zcnt = zcnt + 1;
-    if (zcnt > 200)
-        $display("[BEH_FATAL_HINT] c1_w[0:255] mostly ZERO (%0d/256); check CWD, file=%s",
-                 zcnt, wpath);
-    if ((c1_w[0] === 16'sd0) && (c1_w[1] === 16'sd0) && (c1_w[2] === 16'sd0))
-        $display("[BEH_FATAL_HINT] c1_w[0..2] all zero; $readmemb failed? CWD must have TXT_File/Weight");
-    if (^c1_w[0] === 1'bx)
-        $display("[BEH_FATAL_HINT] c1_w[0] is X; weight file not loaded");
 end
+
+// Q8.8 saturate：對 48-bit 累加後 (acc>>>8)+bias 再取 16-bit（對齊 numpy fp）
+function signed [15:0] beh_sat_q88;
+    input signed [47:0] v;
+    begin
+        if (v > $signed(48'sd32767))
+            beh_sat_q88 = 16'sh7FFF;
+        else if (v < $signed(-48'sd32768))
+            beh_sat_q88 = -16'sh8000;
+        else
+            beh_sat_q88 = v[15:0];
+    end
+endfunction
 
 // ---------------------------------------------------------------------------
 // Fill counters：S_FILL 接收 backbone stream（10240 筆），僅 search 段寫 opt
@@ -511,30 +408,6 @@ always @(posedge clk) begin
         S_CONV1: begin
             if (!mac_bp) begin
                 mac_acc <= mac_acc + {{16{mac_prod[31]}}, mac_prod};
-`ifdef DUMP_BEH_TAP
-                if (cur_oc == 7'd0 && mac_ic == 7'd0 && mac_kh == 2'd1 && mac_kw == 2'd1 &&
-                    ({cur_oh, cur_ow} == 8'd3 || {cur_oh, cur_ow} == 8'd135 ||
-                     {cur_oh, cur_ow} == 8'd136))
-                    $display("[BEH_TAP] S_CONV1 idx=%0d ic=%0d kh=%0d kw=%0d ph=%0d pw=%0d pad=%b feat=%h rom=%h prod=%h acc=%h",
-                             {cur_oh, cur_ow}, mac_ic, mac_kh, mac_kw, ph, pw,
-                             pad_at_addr, feat_q, rom_q, mac_prod[31:0], mac_acc);
-`endif
-`ifdef DUMP_BEH_STAGE_CMP
-                // 第一個 MAC tap（kh=kw=0）也印，避免只盯 kh=1,kw=1 漏 log
-                if ((cur_oc == 7'd0) && (mac_ic == 7'd0) &&
-                    (mac_kh == 2'd0) && (mac_kw == 2'd0) &&
-                    (({cur_oh, cur_ow} == 8'd120) || ({cur_oh, cur_ow} == 8'd136)))
-                    $display(
-                        "[BEH_OPT_CMP] conv1 tap0 idx=%0d opt_rtl=%h opt_g=%h pad=%b rom=%h prod=%h",
-                        {cur_oh, cur_ow}, feat_q,
-                        dbg_opt_golden[{5'd0, cur_oh, cur_ow}],
-                        pad_at_addr, rom_q, mac_prod[31:0]);
-                if (({cur_oh, cur_ow} == 8'd136) && (cur_oc == 7'd0) &&
-                    (mac_ic == 7'd0) && (mac_kh == 2'd1) && (mac_kw == 2'd1))
-                    $display(
-                        "[BEH_OPT_CMP] conv1 tap idx=136 ic0 kh=1 kw=1 ph=%0d pw=%0d opt_rtl=%h opt_g=%h",
-                        ph, pw, feat_q, dbg_opt_golden[{5'd0, ph, pw}]);
-`endif
                 if (mac_end_3x3_c1) begin
                     mac_wr_hold <= mac_relu_next;
                     mac_bp      <= 1'b1;
@@ -551,41 +424,7 @@ always @(posedge clk) begin
                 end
             end else begin
                 // Bias / write phase
-`ifdef DUMP_BEH_STAGE_CMP
-                if ((cur_oc == 7'd0) &&
-                    (({cur_oh, cur_ow} == 8'd120) || ({cur_oh, cur_ow} == 8'd136)))
-                    $display(
-                        "[BEH_OPT_CMP] conv1 wr idx=%0d opt_ch0=%h opt_g=%h mac_acc=%h bias=%h relu=%h",
-                        {cur_oh, cur_ow}, opt_mem[{5'd0, cur_oh, cur_ow}],
-                        dbg_opt_golden[{5'd0, cur_oh, cur_ow}],
-                        mac_acc, bias_q, mac_wr_hold, mac_cl_next, mac_relu_next);
-`endif
-`ifdef DUMP_BEH_CONV1_PATCH
-                if (({cur_oh, cur_ow} == 8'd120 || {cur_oh, cur_ow} == 8'd136) &&
-                    (cur_oc == 7'd0))
-                    $display(
-                        "[BEH_CONV1_PATCH] idx=%0d oc=%0d acc=%h acc_n=%h cl_n=%h relu_n=%h hold=%h",
-                        {cur_oh, cur_ow}, cur_oc, mac_acc, mac_acc_next,
-                        mac_cl_next, mac_relu_next, mac_wr_hold);
-`endif
                 sh1_mem[{cur_oc[6:0], cur_oh, cur_ow}] <= mac_wr_hold;
-`ifdef DUMP_BEH_GOLDEN
-                if ({cur_oh, cur_ow} == 8'd3 || {cur_oh, cur_ow} == 8'd135 ||
-                    {cur_oh, cur_ow} == 8'd136)
-                    $display("[BEH] S_CONV1 oc=%0d idx=%0d acc=%h sh=%h bias=%h cl=%h relu=%h",
-                             cur_oc, {cur_oh, cur_ow}, mac_acc, mac_sh[15:0],
-                             bias_q, mac_cl, mac_relu);
-`endif
-`ifdef DUMP_BEH_STAGE_CMP
-                if (({cur_oh, cur_ow} == 8'd120 || {cur_oh, cur_ow} == 8'd136) &&
-                    (cur_oc == 7'd0 || cur_oc == 7'd17 || cur_oc == 7'd32))
-                    $display(
-                        "[BEH_STAGE_CMP] S_CONV1 wr oc=%0d idx=%0d hold=%h cl_n=%h golden=%h delta=%0d",
-                        cur_oc, {cur_oh, cur_ow}, mac_wr_hold, mac_cl_next,
-                        dbg_sh1_golden[{cur_oc[6:0], cur_oh, cur_ow}],
-                        beh_abs_delta($signed(mac_wr_hold),
-                            $signed(dbg_sh1_golden[{cur_oc[6:0], cur_oh, cur_ow}])));
-`endif
                 mac_acc <= 48'sd0;
                 mac_bp  <= 1'b0;
                 mac_ic  <= 7'd0; mac_kh <= 2'd0; mac_kw <= 2'd0;
@@ -627,22 +466,6 @@ always @(posedge clk) begin
                 end
             end else begin
                 sh2_mem[{cur_oc[5:0], cur_oh, cur_ow}] <= mac_wr_hold;
-`ifdef DUMP_BEH_GOLDEN
-                if ({cur_oh, cur_ow} == 8'd136 && (cur_oc == 7'd0 || cur_oc == 7'd47))
-                    $display("[BEH] S_CONV2 oc=%0d idx=%0d acc=%h cl=%h relu=%h",
-                             cur_oc, {cur_oh, cur_ow}, mac_acc, mac_cl, mac_relu);
-`endif
-`ifdef DUMP_BEH_STAGE_CMP
-                if (({cur_oh, cur_ow} == 8'd120 || {cur_oh, cur_ow} == 8'd136) &&
-                    (cur_oc == 7'd0 || cur_oc == 7'd17 || cur_oc == 7'd21 ||
-                     cur_oc == 7'd32 || cur_oc == 7'd47))
-                    $display(
-                        "[BEH_STAGE_CMP] S_CONV2 wr oc=%0d idx=%0d hold=%h cl_n=%h golden=%h delta=%0d",
-                        cur_oc, {cur_oh, cur_ow}, mac_wr_hold, mac_cl_next,
-                        dbg_sh2_golden[{cur_oc[5:0], cur_oh, cur_ow}],
-                        beh_abs_delta($signed(mac_wr_hold),
-                            $signed(dbg_sh2_golden[{cur_oc[5:0], cur_oh, cur_ow}])));
-`endif
                 mac_acc <= 48'sd0;
                 mac_bp  <= 1'b0;
                 mac_ic  <= 7'd0; mac_kh <= 2'd0; mac_kw <= 2'd0;
@@ -668,24 +491,6 @@ always @(posedge clk) begin
         S_CTR: begin
             if (!mac_bp) begin
                 mac_acc <= mac_acc + {{16{mac_prod[31]}}, mac_prod};
-`ifdef DUMP_BEH_TAP
-                if (mac_ic == 7'd0 &&
-                    ({cur_oh, cur_ow} == 8'd136 || {cur_oh, cur_ow} == 8'd3))
-                    $display("[BEH_TAP] S_CTR idx=%0d ic=%0d sh2=%h ctr_w=%h prod=%h",
-                             {cur_oh, cur_ow}, mac_ic, feat_q, rom_q, mac_prod[31:0]);
-`endif
-`ifdef DUMP_BEH_STAGE_CMP
-                if (({cur_oh, cur_ow} == 8'd120 || {cur_oh, cur_ow} == 8'd136) &&
-                    (mac_ic == 7'd0 || mac_ic == 7'd7 || mac_ic == 7'd15 ||
-                     mac_ic == 7'd17 || mac_ic == 7'd21 || mac_ic == 7'd23 ||
-                     mac_ic == 7'd31 || mac_ic == 7'd32 || mac_ic == 7'd39 ||
-                     mac_ic == 7'd47))
-                    $display(
-                        "[BEH_CTR_STEP] idx=%0d ic=%0d sh2_rtl=%h sh2_g=%h ctr_w=%h prod=%h acc=%h",
-                        {cur_oh, cur_ow}, mac_ic, feat_q,
-                        dbg_sh2_golden[{mac_ic[5:0], cur_oh, cur_ow}],
-                        rom_q, mac_prod[31:0], mac_acc);
-`endif
                 if (mac_end_1x1) begin
                     mac_wr_hold <= mac_sig_next;
                     mac_bp      <= 1'b1;
@@ -694,25 +499,6 @@ always @(posedge clk) begin
                 end
             end else begin
                 score_mem[{cur_oh, cur_ow}] <= mac_wr_hold;
-`ifdef DUMP_BEH_GOLDEN
-                if ({cur_oh, cur_ow} == 8'd3 || {cur_oh, cur_ow} == 8'd135 ||
-                    {cur_oh, cur_ow} == 8'd136 || {cur_oh, cur_ow} == 8'd120)
-                    $display("[BEH] S_CTR idx=%0d acc=%h cl=%h sig=%02h mac_sig=%h",
-                             {cur_oh, cur_ow}, mac_acc, mac_cl, sig_out, mac_sig);
-`endif
-`ifdef DUMP_BEH_BBOX_DEBUG
-                if ({cur_oh, cur_ow} == 8'd120 || {cur_oh, cur_ow} == 8'd136)
-                    $display("[BEH_SCORE_CMP] S_CTR idx=%0d rtl_sc=%h golden_sc=%h",
-                             {cur_oh, cur_ow}, mac_sig, dbg_score_golden[{cur_oh, cur_ow}]);
-`endif
-`ifdef DUMP_BEH_STAGE_CMP
-                if ({cur_oh, cur_ow} == 8'd120 || {cur_oh, cur_ow} == 8'd136)
-                    $display(
-                        "[BEH_STAGE_CMP] S_CTR done idx=%0d acc=%h cl=%h sig=%02h sc=%h | raw_g=%h sc_g=%h",
-                        {cur_oh, cur_ow}, mac_acc, mac_cl, sig_out, mac_sig,
-                        dbg_raw_ctr_golden[{cur_oh, cur_ow}],
-                        dbg_score_golden_stg[{cur_oh, cur_ow}]);
-`endif
                 mac_acc <= 48'sd0;
                 mac_bp  <= 1'b0;
                 mac_ic  <= 7'd0;
@@ -741,13 +527,6 @@ always @(posedge clk) begin
                 end
             end else begin
                 size_mem[{cur_oc[0], cur_oh, cur_ow}] <= mac_wr_hold;
-`ifdef DUMP_BEH_TAIL_WR
-                if ({cur_oh, cur_ow} == 8'd120 || {cur_oh, cur_ow} == 8'd136)
-                    $display(
-                        "[BEH_TAIL_WR] S_SIZE wr oc=%0d idx=%0d sz_wa=%0d rom=%h feat=%h acc=%h cl=%h sig=%02h mac_sig=%h",
-                        cur_oc[0], {cur_oh, cur_ow}, sz_wa, rom_q, feat_q,
-                        mac_acc, mac_cl, sig_out, mac_sig);
-`endif
                 mac_acc <= 48'sd0;
                 mac_bp  <= 1'b0;
                 mac_ic  <= 7'd0;
@@ -781,12 +560,6 @@ always @(posedge clk) begin
                 end
             end else begin
                 off_mem[{cur_oc[0], cur_oh, cur_ow}] <= mac_wr_hold;
-`ifdef DUMP_BEH_TAIL_WR
-                if ({cur_oh, cur_ow} == 8'd120 || {cur_oh, cur_ow} == 8'd136)
-                    $display(
-                        "[BEH_TAIL_WR] S_OFF wr oc=%0d idx=%0d of_wa=%0d rom=%h feat=%h acc=%h mac_cl=%h",
-                        cur_oc[0], {cur_oh, cur_ow}, of_wa, rom_q, feat_q, mac_acc, mac_cl);
-`endif
                 mac_acc <= 48'sd0;
                 mac_bp  <= 1'b0;
                 mac_ic  <= 7'd0;
@@ -795,54 +568,6 @@ always @(posedge clk) begin
                     state  <= S_BBOX;
                     bbox_start <= 1'b1;
                     bcnt   <= 11'd0;
-`ifdef DUMP_BEH_BBOX_DEBUG
-                    if (!dbg_tail_dumped) begin
-                        dbg_tail_dumped <= 1'b1;
-                        dbg_rtl_max    = 16'sh8000;
-                        dbg_rtl_argmax = 8'd0;
-                        dbg_g_max      = 16'sh8000;
-                        dbg_g_argmax   = 8'd0;
-                        for (dbg_ai = 0; dbg_ai < FEAT_SZ; dbg_ai = dbg_ai + 1) begin
-                            if ($signed(score_mem[dbg_ai]) > dbg_rtl_max) begin
-                                dbg_rtl_max    = score_mem[dbg_ai];
-                                dbg_rtl_argmax = dbg_ai;
-                            end
-                            if ($signed(dbg_score_golden[dbg_ai]) > dbg_g_max) begin
-                                dbg_g_max    = dbg_score_golden[dbg_ai];
-                                dbg_g_argmax = dbg_ai;
-                            end
-                        end
-                        $display("\n[BEH_TAIL_DUMP] before S_BBOX (score/size/off mem filled)");
-                        $display("  RTL argmax idx=%0d (oh=%0d ow=%0d) max_sc=%h",
-                                 dbg_rtl_argmax, dbg_rtl_argmax[7:4],
-                                 dbg_rtl_argmax[3:0], dbg_rtl_max);
-                        $display("  Golden argmax idx=%0d (oh=%0d ow=%0d) max_sc=%h",
-                                 dbg_g_argmax, dbg_g_argmax[7:4],
-                                 dbg_g_argmax[3:0], dbg_g_max);
-                        for (dbg_gi = 0; dbg_gi < 3; dbg_gi = dbg_gi + 1) begin
-                            if (dbg_gi == 0)
-                                dbg_anchor_idx = 8'd3;
-                            else if (dbg_gi == 1)
-                                dbg_anchor_idx = 8'd135;
-                            else
-                                dbg_anchor_idx = 8'd136;
-                            $display(
-                                "  idx=%0d (oh=%0d ow=%0d) | sc rtl=%h g=%h | sz0 rtl=%h g=%h sz1 rtl=%h g=%h | of0 rtl=%h g=%h of1 rtl=%h g=%h",
-                                dbg_anchor_idx, dbg_anchor_idx[7:4], dbg_anchor_idx[3:0],
-                                score_mem[dbg_anchor_idx], dbg_score_golden[dbg_anchor_idx],
-                                size_mem[dbg_anchor_idx], dbg_size_golden[dbg_anchor_idx],
-                                size_mem[FEAT_SZ + dbg_anchor_idx],
-                                dbg_size_golden[FEAT_SZ + dbg_anchor_idx],
-                                off_mem[dbg_anchor_idx], dbg_off_golden[dbg_anchor_idx],
-                                off_mem[FEAT_SZ + dbg_anchor_idx],
-                                dbg_off_golden[FEAT_SZ + dbg_anchor_idx]);
-                        end
-                        $display("  flat idx=120 (oh=7 ow=8) sc rtl=%h g=%h | idx=136 sc rtl=%h g=%h",
-                                 score_mem[8'd120], dbg_score_golden[8'd120],
-                                 score_mem[8'd136], dbg_score_golden[8'd136]);
-                        $display("  (cal_bbox argmax on streamed score; cy/h from size1/off1 at argmax idx)");
-                    end
-`endif
                 end else if (cur_ow == FEAT_W_M1) begin
                     cur_ow <= 4'd0;
                     if (cur_oh == FEAT_H_M1) begin
@@ -861,16 +586,6 @@ always @(posedge clk) begin
         // S_BBOX：串流餵 cal_bbox（相位須與 u_bbox.state 對齊，見 head_top.v）
         S_BBOX: begin
             if (bbox_busy) begin
-`ifdef DUMP_BEH_BBOX_DEBUG
-                if (bcnt == 11'd120 || bcnt == 11'd136 ||
-                    bcnt == 11'd376 || bcnt == 11'd392 ||
-                    bcnt == 11'd632 || bcnt == 11'd648 ||
-                    bcnt == 11'd1144 || bcnt == 11'd1160)
-                    $display(
-                        "[BEH_BBOX_STRM] bcnt=%0d bbox_st=%0d sc_v=%b sz_v=%b of_v=%b | sc=%h sz=%h of=%h adv=%b",
-                        bcnt, bbox_u_st, bbox_sc_v, bbox_sz_v, bbox_of_v,
-                        bbox_sc_q, bbox_sz_q, bbox_of_q, bbox_stream_advance);
-`endif
                 if (bbox_stream_advance && (bcnt <= BBOX_STREAM_LAST))
                     bcnt <= bcnt + 11'd1;
             end
@@ -893,11 +608,6 @@ always @(posedge clk) begin
             cur_oc  <= 7'd0;  cur_oh <= 4'd0;  cur_ow <= 4'd0;
             mac_ic  <= 7'd0;  mac_kh <= 2'd0;  mac_kw <= 2'd0;
             mac_acc <= 48'sd0; mac_bp <= 1'b0;
-`ifdef DUMP_BEH_STAGE_CMP
-            $display("[BEH_OPT_FILL] after S_FILL opt[120] rtl=%h g=%h | opt[136] rtl=%h g=%h",
-                     opt_mem[13'd120], dbg_opt_golden[13'd120],
-                     opt_mem[13'd136], dbg_opt_golden[13'd136]);
-`endif
         end
         if (state == S_CONV1 && mac_bp && all_done_c1) begin
             cur_oc  <= 7'd0;  cur_oh <= 4'd0;  cur_ow <= 4'd0;
@@ -923,27 +633,7 @@ end
 assign busy = (state != S_IDLE);
 
 // ---------------------------------------------------------------------------
-// Optional FSM heartbeat（除錯用：確認卡在哪個 state）
-// ---------------------------------------------------------------------------
-`ifdef DUMP_BEH_FSM
-reg [31:0] beh_hb_cnt;
-always @(posedge clk) begin
-    if (reset)
-        beh_hb_cnt <= 32'd0;
-    else if (state != S_IDLE && state != S_DONE) begin
-        if (beh_hb_cnt == 32'd1_000_000) begin
-            $display("[BEH_FSM] t=%0t state=%0d oc=%0d oh=%0d ow=%0d ic=%0d mac_bp=%b bcnt=%0d bbox_st=%0d",
-                     $time, state, cur_oc, cur_oh, cur_ow, mac_ic, mac_bp, bcnt, bbox_u_st);
-            beh_hb_cnt <= 32'd0;
-        end else
-            beh_hb_cnt <= beh_hb_cnt + 32'd1;
-    end else
-        beh_hb_cnt <= 32'd0;
-end
-`endif
-
-// ---------------------------------------------------------------------------
-// 預設將未使用的索引壓 0，避免 X 傳播（純 sim helper）
+// 預設將未使用的索引壓 0，避免 X 傳播（sim 初始化）
 // ---------------------------------------------------------------------------
 initial begin
     for (reset_i = 0; reset_i < OPT_LEN;     reset_i = reset_i + 1) opt_mem[reset_i]   = 16'sd0;
