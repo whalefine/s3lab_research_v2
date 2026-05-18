@@ -38,14 +38,14 @@ DATA:
     SAMPLE_PER_EPOCH: 10000
 
 MODEL:
-  # vit_CARE_relu6_fixed_q68：CARE ReLU6 backbone + Q6.8（int_bits=6, frac_bits=8）
-  # checkpoint 目錄 basename：vit_coco_uav123_care_relu6_fixed_q68（建議 ln -sfn 至 vit_coco_uav123_care_relu6）
+  # vit_CARE_relu6_fixed_q610：CARE ReLU6 backbone + Q6.10（int_bits=6, frac_bits=10）
+  # checkpoint 目錄 basename：vit_coco_uav123_care_relu6_fixed_q610（建議 ln -sfn 至 vit_coco_uav123_care_relu6）
   PRETRAIN_FILE: "mae_pretrain_vit_base.pth"
   EXTRA_MERGER: False
   RETURN_INTER: False
   RETURN_STAGES: []
   BACKBONE:
-    TYPE: vit_care_relu6_fixed_q68_base_patch16_224
+    TYPE: vit_care_relu6_fixed_q610_base_patch16_224
     STRIDE: 16
     MID_PE: False
     SEP_SEG: False
@@ -57,11 +57,11 @@ MODEL:
     CE_KEEP_RATIO: []
     CE_TEMPLATE_RANGE: 'ALL'
   HEAD:
-    # CenterPredictorFixed；與 backbone 同為 Q6.8
+    # CenterPredictorFixed；與 backbone 同為 Q6.10
     TYPE: CENTER_FIXED
     NUM_CHANNELS: 256
     FIXED_INT_BITS: 6
-    FIXED_FRAC_BITS: 8
+    FIXED_FRAC_BITS: 10
 
 TRAIN:
   BACKBONE_MULTIPLIER: 0.1
