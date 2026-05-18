@@ -11,7 +11,7 @@
 - template_after_pos_add_out.npy / search_after_pos_add_out.npy 以 np.load 從
   --golden-dir 載入，作為 backbone 的真正輸入
 - 所有 weight 從 --weight-dir 的 exported npy 載入（float32）
-- backbone 每個 op 後的 activation 做 to_fixed_point(8, 8)（np.trunc 向零截斷量化）
+- backbone 每個 op 後的 activation 做 to_fixed_point(8, 8)（np.round 四捨五入量化，與 write_bi / conv2d / linear MAC 一致）
 - shared-trunk head 對齊 `head_shared_trunk_dump.py` 的節點命名：
   shared_conv1/2（folded BN）+ tail_ctr/size/offset（1x1 conv），ctr/size 做 sigmoid_clamped
 - 輸出 npy 命名盡量與 dump_golden_intermediate.py / head_shared_trunk_dump.py 一致，
@@ -53,19 +53,59 @@ SEARCH_SIZE = 256
 # ---------------------------------------------------------------------------
 
 def to_fixed_point(x: np.ndarray, int_bits: int, frac_bits: int) -> np.ndarray:
-    """有號定點數量化：scale → trunc（向零截斷）→ saturate → descale。"""
+    """有號定點數量化：scale → round → saturate → descale。"""
     scale = 2**frac_bits
     qmin = -(2 ** (int_bits + frac_bits - 1))
     qmax = (2 ** (int_bits + frac_bits - 1)) - 1
     scaled = x.astype(np.float64) * scale
-    truncated = np.trunc(scaled)
-    saturated = np.clip(truncated, qmin, qmax)
+    rounded = np.round(scaled)
+    saturated = np.clip(rounded, qmin, qmax)
     return (saturated / scale).astype(np.float32)
 
 
 def fp(x: np.ndarray) -> np.ndarray:
     """Shorthand: to_fixed_point(x, 8, 8)."""
     return to_fixed_point(x, 8, 8)
+
+
+_INV_SQRT_LUT_SEED_Q88 = np.array(
+    [2364, 1671, 1182, 836, 591, 418, 296, 209, 148, 105, 74, 52, 37, 26, 18, 13],
+    dtype=np.int64,
+)
+
+
+# inv_sqrt NR config — must match inv_sqrt_nr.v (S_ITER1..S_ITER3).
+# 2 NR with 16-entry LUT seed: max err ~306 LSB (insufficient).
+# 3 NR + round-to-nearest at each shift: max err ~40 LSB (~8x better).
+_INV_SQRT_NR_ITERS = 3
+
+
+def _inv_sqrt_nr_q88_fixed(var_q88_int: np.ndarray) -> np.ndarray:
+    """Bit-accurate Q8.8 inv-sqrt — matches inv_sqrt_lut_seed.v + inv_sqrt_nr.v exactly.
+
+    - LUT seed: 16-entry leading-bit table (unchanged)
+    - NR iterations: _INV_SQRT_NR_ITERS (=3) with round-to-nearest at each Q8.8 shift
+    - var_eps: +1 LSB only when var<=0 (matches layer_norm.v)
+    Returns int64 array of Q8.8 codes for inv_std.
+    """
+    v = np.asarray(var_q88_int, dtype=np.int64)
+    v_eps = np.where(v <= 0, np.int64(1), v).astype(np.int64)
+
+    msb = np.zeros_like(v_eps)
+    tmp = v_eps.copy()
+    for bit in range(15, -1, -1):
+        hit = (tmp & (np.int64(1) << bit)) != 0
+        msb = np.where((msb == 0) & hit, np.int64(bit), msb)
+
+    y = _INV_SQRT_LUT_SEED_Q88[msb].astype(np.int64)
+    for _ in range(_INV_SQRT_NR_ITERS):
+        y_sq = (y * y + 128) >> 8
+        term = (v_eps * y_sq + 256) >> 9
+        coeff = np.int64(384) - term
+        y_new = (y * coeff + 128) >> 8
+        y_new = ((y_new + 0x8000) & 0xFFFF) - 0x8000
+        y = y_new
+    return y
 
 
 def layer_norm(
@@ -75,21 +115,49 @@ def layer_norm(
     eps: float = LN_EPS,
     inv_sqrt_iter: int = 2,
 ) -> np.ndarray:
-    """硬體友善 LayerNorm（Newton-Raphson inv_sqrt）。"""
+    """硬體友善 LayerNorm — bit-accurate vs verilog_backbone/layer_norm.v.
+
+    Each step mirrors the RTL FSM in Q8.8 integer domain:
+      S_MEAN:   mean   = sat_q88((sum_int * RCP + 32768) >> 16)
+      S_CENTER: c_int  = sat_q88(x_int - mean)
+      S_VAR:    var    = sat((sum_sq * RCP + 2^23) >> 24)
+      S_INV:    inv    = inv_sqrt_nr (LUT seed + 3 NR, round)  ← _inv_sqrt_nr_q88_fixed
+      S_NORM:   y      = sat(rnd_q16((w*rnd_q16(c*inv)) + b))
+    """
     N = x.shape[-1]
-    rcp_n = float(round(1.0 / N * 65536)) / 65536.0
-    mean = fp(x.sum(axis=-1, keepdims=True) * rcp_n)
-    centered = fp(x - mean)
-    var = fp((centered.astype(np.float64) ** 2).sum(axis=-1, keepdims=True) * rcp_n)
-    inv_std = fp(_inv_sqrt_nr(var + eps, num_iter=inv_sqrt_iter))
-    return fp(weight * fp(centered * inv_std) + bias)
+    if N != 32:
+        raise ValueError(f"layer_norm bit-accurate path expects FEAT_DIM=32 (got {N})")
+    RCP = 2048  # round(2^16/32)
+
+    x_int = np.round(x.astype(np.float64) * 256.0).astype(np.int64)
+    w_int = np.round(weight.astype(np.float64) * 256.0).astype(np.int64)
+    b_int = np.round(bias.astype(np.float64) * 256.0).astype(np.int64)
+
+    def _sat16(v):
+        return np.clip(v, -32768, 32767).astype(np.int64)
+
+    def _rnd_q16(v):
+        return _sat16((v + 128) >> 8)
+
+    sum_int = x_int.sum(axis=-1, keepdims=True)
+    mean_int = _sat16((sum_int * RCP + 32768) >> 16)
+    centered = _sat16(x_int - mean_int)
+    sum_sq = (centered * centered).sum(axis=-1, keepdims=True)
+    var_int = np.clip((sum_sq * RCP + 8388608) >> 24, -32768, 32767).astype(np.int64)
+    inv_std = _inv_sqrt_nr_q88_fixed(var_int)
+
+    ci_std = _rnd_q16(centered * inv_std)
+    wci = _rnd_q16(w_int[..., :] * ci_std)
+    y_int = _sat16(wci + b_int[..., :])
+
+    return (y_int.astype(np.float64) / 256.0).astype(np.float32)
 
 
 def linear(x: np.ndarray, weight: np.ndarray, bias: np.ndarray) -> np.ndarray:
     """Q8.8 fixed-point integer MAC linear（整數 MAC + int64 累加器）。"""
     _SCALE = 1 << 8
-    x_int = np.trunc(x.astype(np.float64) * _SCALE).astype(np.int32)
-    w_int = np.trunc(weight.astype(np.float64) * _SCALE).astype(np.int32)
+    x_int = np.round(x.astype(np.float64) * _SCALE).astype(np.int32)
+    w_int = np.round(weight.astype(np.float64) * _SCALE).astype(np.int32)
 
     *batch, in_dim = x_int.shape
     out_dim = w_int.shape[0]
@@ -98,7 +166,7 @@ def linear(x: np.ndarray, weight: np.ndarray, bias: np.ndarray) -> np.ndarray:
     acc_q16 = x64 @ w64.T
     acc_q88 = acc_q16 >> 8
     if bias is not None:
-        bias_int = np.trunc(bias.astype(np.float64) * _SCALE).astype(np.int64)
+        bias_int = np.round(bias.astype(np.float64) * _SCALE).astype(np.int64)
         acc_q88 = acc_q88 + bias_int
     return (acc_q88.reshape(*batch, out_dim).astype(np.float64) / _SCALE).astype(np.float32)
 
@@ -154,6 +222,8 @@ def conv2d(
 
     x_int = np.round(x.astype(np.float64) * _SCALE).astype(np.int32)
     w_int = np.round(weight.astype(np.float64) * _SCALE).astype(np.int32)
+    # x_int = np.trunc(x.astype(np.float64) * _SCALE).astype(np.int32)
+    # w_int = np.trunc(weight.astype(np.float64) * _SCALE).astype(np.int32)
 
     if padding:
         x_int = np.pad(
@@ -216,7 +286,9 @@ def write_bi(arr: np.ndarray, base: Path, int_bits: int = 8, frac_bits: int = 8)
     # 僅輸出 *_bi.txt（避免 Weight/ 內混入非 *_bi.txt 的檔案）
     with open(base_str + "_bi.txt", "w") as f_bin:
         for num in flat:
-            fixed = int(num * scale)
+            #### @@@@ ####
+            # fixed = int(num * scale)
+            fixed = int(round(float(num) * scale))
             if fixed < min_int:
                 fixed = min_int
             elif fixed > max_int:
