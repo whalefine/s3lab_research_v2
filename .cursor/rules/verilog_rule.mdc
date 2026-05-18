@@ -31,18 +31,12 @@ alwaysApply: false
 - Sequential 用 `<=`（non-blocking），combinational 用 `=`（blocking）
 - 組合邏輯必須覆蓋所有輸出，禁止 latch 推論
 
-### 定點數設計
-- 明確定義每個信號的位寬（整數位 + 小數位）
-- 乘法器輸出位寬 = 兩輸入位寬之和，需適當截斷
-- 累加器需預留足夠位寬防止溢出
-- 建議 Activation: Q16.8 或 Q8.8，Weight: Q8.8 或 Q4.12
-
-### 面積/延遲/吞吐量取捨
+### 面積/延遲
 - 說明設計是 parallel / partially parallel / multi-cycle iterative
 - 估算 MAC 數量、cycle 數、pipeline 深度
-- 與 Python 模型的 FLOPs 對照說明加速比
 
 ## 驗證
 - 測試平台用 Verilog 撰寫，DUT 必須保持可合成
 - 包含 clock 產生與 reset 行為
 - 與 Python golden model 的輸出做 bit-accurate 比對
+- **Simulation 列印文字必須為英文**：`$display`、`$strobe`、`$fdisplay`、`$fwrite`、`$monitor` 等**執行時會輸出到 log／終端機的字串**一律使用 **ASCII 英文**（可含數字與常見標點），**禁止中文**；使用者 VCS 執行環境不支援中文輸出。模組內 `//` 註解仍可用中文，但不得把中文寫進上述 system task 的字串參數。
