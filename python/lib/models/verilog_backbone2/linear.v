@@ -9,7 +9,8 @@
 //   incremented); then wpre_feat++ if not last. Do NOT use a separate wr_slot
 //   updated while stream&&stream_r (that double-writes slot 0).
 //
-// bias_hold latched on WPRE stream rising edge at feat==0.
+// bias_hold latched on first wgt write (WPRE stream_r && wpre_feat==0), same as
+// verilog_backbone qkv_bias_ce / proj_bias_ce timing.
 // =============================================================================
 
 module linear #(
@@ -72,8 +73,8 @@ wire [4:0] feat_for_addr =
 assign w_addr_o = {1'b0, neu_for_addr, feat_for_addr};
 
 wire wgt_wr_ce     = (state == S_WPRE) && wpre_stream_r;
-// Latch bias when first weight is written (feat still 0); matches care_attention *_bias_ce.
-wire bias_latch_ce = wpre_stream_r && (wpre_feat == 5'd0);
+wire bias_latch_ce =
+    (state == S_WPRE) && wpre_stream_r && (wpre_feat == 5'd0);
 
 wire signed [31:0] mac_prod =
     $signed(x_buf[mac_feat]) * $signed(wgt_buf[mac_feat]);
