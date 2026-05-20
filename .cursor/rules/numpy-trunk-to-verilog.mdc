@@ -1,9 +1,10 @@
 ---
-description: 以 run_backbone_numpy_shared_trunk.py 為 golden，將 numpy trunk 對齊轉 Verilog（python/lib/models/verilog），含對拍、合成與修改原則
+description: 以 run_backbone_numpy_shared_trunk.py 為 golden，將 numpy trunk 對齊轉 Verilog；verilog/ 跑端到端，verilog_head/ 以準確 activation 僅驗 head 與後段
 globs:
+  - "python/lib/models/verilog_head/**/*.v"
   - "python/lib/models/verilog/**/*.v"
   - "python/tracking/run_backbone_numpy_shared_trunk.py"
-alwaysApply: false
+alwaysApply: true
 ---
 
 # Numpy Trunk → Verilog 對齊規則
@@ -14,6 +15,10 @@ alwaysApply: false
 
 - **數學與流程依據**：`python/tracking/run_backbone_numpy_shared_trunk.py`（以下稱 **numpy trunk**）。
 - **Verilog 實作目錄**：`python/lib/models/verilog/`（僅在此目錄新增／修改 RTL；ROM/RAM 若已在外部生成，介面以現有 top / testbench 為準）。
+- **Verilog 目錄分工**（兩條驗證路徑，勿混淆）：
+  - **`python/lib/models/verilog/`** — **端到端整條流程**：自 post-embedding（template / search）輸入，經 `sglatrack_top`（`backbone_top` → `head_top` → `cal_bbox` 等）跑完 backbone、head 與後續 bbox 路徑；TB 為 `TEST.v`，golden 自 template / search 起逐層對拍。
+  - **`python/lib/models/verilog_head/`** — **僅 head 與後段**：**不跑 backbone RTL**；以 numpy trunk 產出的**準確 activation**（例如 `backbone_after_norm_backbone_out_bi.txt`，與 `backbone_top` 輸出同序之 Q8.8 token 串流）作為 `head_top` 輸入，只驗證 shared conv → tail → `cal_bbox` 及後續 bbox 對拍；TB 為 `TEST_head.v`。用途是在假設 backbone 輸出已正確時，隔離 head／定點／SRAM 問題，縮小除錯範圍。
+  - 修改 RTL 時須先確認目標目錄：全鏈路改 `verilog/`；head-only 改 `verilog_head/`（兩邊 `head_top.v`、`cal_bbox.v` 等可能並存，以當次驗證範圍為準）。
 - **Activation 對答案檔**（Q8.8 二進位文字，一行一元素）：  
   `python/output/golden/vit_care_relu6_numpy_trunk_dim32_out/Activation/*.txt`  
   對應檔名多為 `*_bi.txt`（與腳本 `write_bi` 輸出一致）。RTL 除錯時以**此目錄**為 golden，不以「猜 golden」為準。
@@ -87,6 +92,7 @@ alwaysApply: false
 - **NBA 後數值**：要看 nonblocking 更新後的結果，優先用 **`$strobe`**，或在下一拍再讀已鎖存的 `reg`。
 - **SRAM `CLK(~clk)`**：讀 `*_q` 時可改在 **`negedge clk`** 列印（與 macro 讀取邊沿一致），避免 posedge 上位址已變而 `Q` 仍舊的錯覺（與 `head_top` 內 `DUMP_HEAD_BBOX_SRAM_NEGEDGE` 類思路一致）。
 - **格式**：定點以 **`%h` 為主**，並在註解或同一行標明 **Q8.8／Q0.8**；負值須明示 **signed 二補數** 解讀，勿將 `0xff..` 誤當無號大正數。
+- **列印語言（強制）**：`$display`／`$strobe`／`$fdisplay`／`$fwrite`／`$monitor` 等**仿真 log 內可見字串必須為英文（ASCII）**；使用者執行 `.v` 的環境**不支援中文**，禁止在 format string 或訊息內使用中文（含簡繁）。說明性文字請寫在 `//` 註解，或 Agent 回覆給使用者；RTL／TB 內僅輸出英文標籤（例如 `PASS`、`FAIL`、`bbox_mismatch`、`golden=`）。
 - **`ifdef` 分區**：除錯列印一律以 **`ifdef` 編譯開關**封裝（預設關閉），見 **§3**；可按模組拆成多個 macro（例如 `DUMP_HEAD_SIZE_SAT`），按需開啟。**每個 macro 對應的區塊**須有註解說明：**欲診斷的問題**（例如「追查 tail_size 寫入前 `mac_cl` 過大導致 sigmoid 全飽和」）、**建議搭配編譯選項**、以及**若問題已解決是否應移除或改為預設關閉**。
 - **註解義務（`ifdef`／`$display` 區塊）**：凡為除錯插入的列印，**不可**只留開關名稱；至少應在 **`ifdef` 上一行區塊註解**或**模組頭對應小節**寫明：
   - **要解決／驗證的現象**（例如 bbox 與 golden 差、`sc_q` 全為下限、與某 `Activation/*_bi.txt` 第一個分歧層級等）；
@@ -107,6 +113,7 @@ Agent 與使用者溝通時，若得知**僅能 display**，應優先建議 **�
 
 ## 12. Weight Golden、定點與 ROM（與 Activation 並列）
 
+- **RTL 讀取時序／暫存對齊**（通用，不列具體檔名）：撰寫或修改 `*.v` 時见 `.cursor/rules/verilog_rule.mdc` **「記憶體／ROM 讀取」**；本節負責 golden 路徑與 ROM 映像對照。
 - **ROM macro 檔名 ↔ `Weight/*_bi.txt` 分片對照**（backbone 0~6、box head）：見 **§12.1**。
 - **Verilog 側讀到的權重**並非在模擬／晶片內直接讀原始 **`.npy`**，而是讀 **已寫入 ROM** 的內容；該 ROM 的來源與 numpy trunk 一致，資料鏈為：
   1. `run_backbone_numpy_shared_trunk.py` 透過 `load_w()` 等路徑自 **`--weight-dir`** 讀取 **float32 的 `.npy` 權重**；
@@ -201,7 +208,7 @@ Agent 與使用者溝通時，若得知**僅能 display**，應優先建議 **�
 
 ## 17. numpy trunk 內部已知語意陷阱（對齊時必查）
 
-- `linear()` 對啟用／權重使用 **`np.trunc`** 量化；`conv2d()` 對輸入使用 **`np.round`**。RTL 與 binary check **須分模組**與各自 golden 對齊，不可假設同一捨入。
+- `linear()` 對啟用／權重使用 **`np.round`** 量化；`conv2d()` 對輸入使用 **`np.round`**。RTL 與 binary check **須分模組**與各自 golden 對齊，不可假設同一捨入。
 - `_recip_nr`、`_inv_sqrt_nr` 為 **float64 迭代**；RTL 多為 **定點 + LUT + 固定迭代次數**。對拍以**已書面化的定點規格**為準；若要求與 float 完全一致，應先改 Python 為整數語意再產 golden。
 
 ## 18. 分支與驗證範圍
@@ -242,13 +249,6 @@ Agent 與使用者溝通時，若得知**僅能 display**，應優先建議 **�
 
 ```bash
 vcs *.v \
-memory/Sram_opt.v \
-memory/Sram_off.v \
-memory/Sram_sh1_hi.v \
-memory/Sram_sh1_lo.v \
-memory/Sram_sh2.v \
-memory/Sram_size.v \
-memory/Sram_score.v \
 memory/rom_backbone_blocks_0_3_attn_qkv_weight.v \
 memory/rom_backbone_blocks_0_3_mlp_fc1_weight.v \
 memory/rom_backbone_blocks_0_3_mlp_fc2_weight.v \
@@ -285,5 +285,8 @@ memory/rom_box_head_tail_ctr_offset_size_weight.v \
 ## 與其他 rule 的關係
 
 - 大方向與 `python-to-rtl-plan.mdc` 一致時從之；本檔針對 **numpy trunk + 指定 golden 目錄 + verilog 目錄** 補充可操作細節。
-- 撰寫／修改 `python/lib/models/verilog/*.v` 時一併遵守 `verilog_rule.mdc`。
+- 撰寫／修改 `python/lib/models/verilog/*.v` 或 `verilog_head/*.v` 時一併遵守 `verilog_rule.mdc`；目錄分工見 **§1**。
 - 若 `hw-friendly-design.mdc` 與本檔對 attention／定點敘述並存，以 **可對拍之 numpy trunk 行為** 為準；設計原則檔僅作輔助說明。
+
+## 語言規則
+- 僅使用 Verilog-2005 語法，禁止 SystemVerilog 特性（logic, always_ff, always_comb, interface, typedef, enum, struct, package, assertions）
