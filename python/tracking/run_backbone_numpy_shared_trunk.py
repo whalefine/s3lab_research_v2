@@ -12,10 +12,10 @@
   --golden-dir 載入，作為 backbone 的真正輸入
 - 所有 weight 從 --weight-dir 的 exported npy 載入（float32）
 - backbone 每個 op 後的 activation 做 to_fixed_point(8, 8)（np.round 四捨五入量化，與 write_bi / conv2d / linear MAC 一致）
-- shared-trunk head 對齊 `head_shared_trunk_dump.py` 的節點命名：
-  shared_conv1/2（folded BN）+ tail_ctr/size/offset（1x1 conv），ctr/size 做 sigmoid_clamped
-- 輸出 npy 命名盡量與 dump_golden_intermediate.py / head_shared_trunk_dump.py 一致，
-  方便與 RTL 逐層比對
+- CARE attention 僅 Q8.8 整數路徑，語意對齊 `care_attention.v` / `linear.v`；
+  產出的 `Activation/*_bi.txt` 為 Verilog TB 的 golden。
+- shared-trunk head 對齊 `head_shared_trunk_dump.py` 的節點命名（head 仍為 conv + fp 截斷路徑）。
+- 輸出命名盡量與 dump 腳本一致，方便與 RTL 逐層比對。
 """
 
 from __future__ import annotations
@@ -306,7 +306,10 @@ def save_npy(filename: str, arr: np.ndarray) -> None:
     # 為了避免產生任何 *.npy 檔案，這裡只輸出對應的 .txt / *_bi.txt。
     if _bi_act_dir is not None:
         stem = filename[:-4] if filename.endswith(".npy") else filename
-        write_bi(arr, _bi_act_dir / stem)
+        if np.issubdtype(arr.dtype, np.integer):
+            write_bi(from_q88(arr), _bi_act_dir / stem)
+        else:
+            write_bi(arr, _bi_act_dir / stem)
 
 
 def load_w(path: Path) -> np.ndarray:
@@ -314,27 +317,178 @@ def load_w(path: Path) -> np.ndarray:
 
 
 # ---------------------------------------------------------------------------
-# Attention (CARE ReLU6 fixed-point)
+# Q8.8 helpers + CARE attention（對齊 verilog_backbone/care_attention.v）
 # ---------------------------------------------------------------------------
 
-def _inv_sqrt_nr(v: np.ndarray, num_iter: int = 2) -> np.ndarray:
-    v64 = v.astype(np.float64)
-    y = 1.0 / np.sqrt(v64 + 1e-30)
-    for _ in range(num_iter):
-        y = y * (1.5 - 0.5 * v64 * y * y)
-    return y.astype(np.float32)
+# care_attention.v parameters (EMBED_DIM=32, N_TOKENS=320, HEAD_DIM=8)
+S_Q88 = 152  # round(256 * 8^(-0.25))
+RELU6_MAX_Q88 = 1536
+RCP_N_NUM = 205  # round(65536 / N_TOKENS)
+RCP_N_SHIFT = 16
+# mean_n(k*v)：每項 k*v 為 Q16.16，除以 N 後還需 >>8 才回到 Q8.8（與 fp 路徑一致）
+KV_Q88_EXTRA_SHIFT = 8
+KV_Q88_ROUND = 1 << (RCP_N_SHIFT + KV_Q88_EXTRA_SHIFT - 1)  # 2^23，>>>24 四捨五入
+_RECIP_NR_ITERS = 1  # 對齊 run_backbone_numpy fp NR(1)；recip_nr.v 亦為 1 次迭代
+
+# recip_lut_seed.v y0 table indexed by MSB position k
+_RECIP_LUT_Y0 = np.array(
+    [32767, 21845, 10922, 5461, 2731, 1365, 683, 341, 171, 85, 43, 21, 11, 5, 3, 2],
+    dtype=np.int64,
+)
 
 
-def _recip_nr(x: np.ndarray, num_iter: int = 1) -> np.ndarray:
-    x64 = x.astype(np.float64)
-    y = 1.0 / x64
-    for _ in range(num_iter):
-        y = y * (2.0 - x64 * y)
-    return y.astype(np.float32)
+def from_q88(x_q: np.ndarray) -> np.ndarray:
+    """Q8.8 int codes → float32（供 block residual / head 介面，語意等同 fp()）。"""
+    return (np.asarray(x_q, dtype=np.float64) / 256.0).astype(np.float32)
+
+
+def as_q88(x: np.ndarray) -> np.ndarray:
+    """float activation → Q8.8 int（attention 入口一次量化）。"""
+    return np.round(x.astype(np.float64) * 256.0).astype(np.int32)
+
+
+def sat16(v: np.ndarray) -> np.ndarray:
+    return np.clip(np.asarray(v, dtype=np.int64), -32768, 32767).astype(np.int32)
+
+
+def rnd_shr8(v: np.ndarray) -> np.ndarray:
+    return sat16((np.asarray(v, dtype=np.int64) + 128) >> 8)
+
+
+def sat16_from33(v: np.ndarray) -> np.ndarray:
+    v = np.asarray(v, dtype=np.int64)
+    return np.where(v > 0x7FFF, 0x7FFF, np.where(v < -0x8000, -0x8000, v)).astype(np.int32)
+
+
+def sat16_from48(v: np.ndarray) -> np.ndarray:
+    v = np.asarray(v, dtype=np.int64)
+    return np.where(v > 0x7FFF, 0x7FFF, np.where(v < -0x8000, -0x8000, v)).astype(np.int32)
+
+
+def sat16_from49(v: np.ndarray) -> np.ndarray:
+    v = np.asarray(v, dtype=np.int64)
+    return np.where(v > 0x7FFF, 0x7FFF, np.where(v < -0x8000, -0x8000, v)).astype(np.int32)
+
+
+def relu6_q88(x_q: np.ndarray) -> np.ndarray:
+    x = np.asarray(x_q, dtype=np.int64)
+    x = np.where(x < 0, 0, x)
+    return np.where(x > RELU6_MAX_Q88, RELU6_MAX_Q88, x).astype(np.int32)
+
+
+def w_q88(w: np.ndarray) -> np.ndarray:
+    return np.round(w.astype(np.float64) * 256.0).astype(np.int32)
+
+
+def linear_sat_q88(x_q: np.ndarray, weight: np.ndarray, bias: np.ndarray) -> np.ndarray:
+    """Q8.8 linear MAC + bias + sat16（對齊 linear_q88.v 輸出）。"""
+    x_int = np.asarray(x_q, dtype=np.int64).reshape(-1, weight.shape[1])
+    w_int = w_q88(weight).astype(np.int64)
+    acc = (x_int @ w_int.T) >> 8
+    if bias is not None:
+        acc = acc + np.round(bias.astype(np.float64) * 256.0).astype(np.int64)
+    out = sat16(acc)
+    return out.astype(np.int32).reshape(*np.asarray(x_q).shape[:-1], weight.shape[0])
+
+
+def _recip_msb_k(x: np.ndarray) -> np.ndarray:
+    """Leading-bit index k for recip_lut_seed (x >= 1)."""
+    x = np.maximum(np.asarray(x, dtype=np.int64), 1)
+    k = np.zeros_like(x, dtype=np.int64)
+    for bit in range(15, -1, -1):
+        hit = (x >= (1 << bit)) & (k == 0)
+        k = np.where(hit, bit, k)
+    return k
+
+
+def _trunc_q88_slice32(v: np.ndarray) -> np.ndarray:
+    """Match recip_nr.v xy_raw[23:8] / y_new_raw[23:8] (truncate, no round)."""
+    v = np.asarray(v, dtype=np.int64)
+    s = (v >> 8) & 0xFFFF
+    return np.where(s >= 0x8000, s - 0x10000, s).astype(np.int64)
+
+
+def _recip_nr_q88_fixed(x_q88: np.ndarray) -> np.ndarray:
+    """Bit-accurate vs recip_lut_seed.v + recip_nr.v（1 NR iteration）。"""
+    x = np.maximum(np.asarray(x_q88, dtype=np.int64), 1)
+    y = _RECIP_LUT_Y0[_recip_msb_k(x)].astype(np.int64)
+    for _ in range(_RECIP_NR_ITERS):
+        coeff = 512 - _trunc_q88_slice32(x * y)
+        y = _trunc_q88_slice32(y * coeff)
+        y = np.clip(y, -32768, 32767).astype(np.int64)
+    return y.astype(np.int32)
+
+
+def _care_split_qk_q88(q: np.ndarray, k: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """S_SPLIT: rnd_shr8(q*S) / k*S then relu6."""
+    q = relu6_q88(rnd_shr8(q.astype(np.int64) * S_Q88))
+    k = relu6_q88(rnd_shr8(k.astype(np.int64) * S_Q88))
+    return q, k
+
+
+def _care_k_mean_q88(k: np.ndarray) -> np.ndarray:
+    """S_K_MEAN: mean over tokens N; output km[h,d]. k shape (B,H,N,d)."""
+    k_sum = k.astype(np.int64).sum(axis=2)
+    km_scaled = k_sum * RCP_N_NUM
+    return sat16_from48((km_scaled + 32768) >> RCP_N_SHIFT)
+
+
+def _care_qk_mean_q88(q: np.ndarray, km: np.ndarray) -> np.ndarray:
+    """S_QK_MEAN: sum_d q*km → (H,N). km shape (B,H,d)."""
+    _B, H, N, d = q.shape
+    km_h = km[0].astype(np.int64)
+    qkm = np.zeros((H, N), dtype=np.int32)
+    for h in range(H):
+        for n in range(N):
+            acc = 0
+            for di in range(d):
+                acc += int(q[0, h, n, di]) * int(km_h[h, di])
+            qkm[h, n] = sat16_from33((acc + 128) >> 8)
+    return qkm
+
+
+def _care_kv_q88(k: np.ndarray, v: np.ndarray) -> np.ndarray:
+    """S_KV: kv[h,d_out,d_k] = mean_n(k*v). k,v shape (B,H,N,d)."""
+    _B, H, N, d = k.shape
+    kv = np.zeros((H, d, d), dtype=np.int32)
+    for h in range(H):
+        for d_out in range(d):
+            for d_k in range(d):
+                acc = 0
+                for n in range(N):
+                    acc += int(k[0, h, n, d_out]) * int(v[0, h, n, d_k])
+                kv_scaled = acc * RCP_N_NUM
+                kv[h, d_out, d_k] = sat16_from48(
+                    (kv_scaled + KV_Q88_ROUND) >> (RCP_N_SHIFT + KV_Q88_EXTRA_SHIFT)
+                )
+    return kv
+
+
+def _care_attn_q88(q: np.ndarray, kv: np.ndarray, zr: np.ndarray) -> np.ndarray:
+    """S_ATTN: ao[n, :] flat; fp(fp(q@kv)*zr) = rnd_shr8(sat(sum_d q*kv) * zr).
+
+    kv[h, d_k, d_out] 對齊 fp 的 (q @ kv)[n,d_out] = sum_{d_k} q[n,d_k]*kv[d_k,d_out]；
+    勿用 kv[h,d_out,d_k]（與 care_attention.v at_kv_flat 一致）。
+    """
+    _B, H, N, d = q.shape
+    ao = np.zeros((N, EMBED_DIM), dtype=np.int32)
+    for h in range(H):
+        for n in range(N):
+            zr_hn = int(zr[h, n])
+            for d_out in range(d):
+                acc = 0
+                for d_k in range(d):
+                    acc += int(q[0, h, n, d_k]) * int(kv[h, d_k, d_out])
+                dot_sat = sat16_from49((acc + 128) >> 8)
+                ao[n, h * d + d_out] = rnd_shr8(int(dot_sat) * zr_hn)
+    return ao.reshape(1, N, EMBED_DIM)
 
 
 def attention_forward(x: np.ndarray, block_idx: int, wp: Path) -> np.ndarray:
+    """CARE attention Q8.8 整數路徑；回傳 float32 供 block residual（對齊 care_attention.v）。"""
     B, N, C = x.shape
+    if B != 1:
+        raise ValueError(f"attention_forward expects B=1 (got {B})")
     H, d = NUM_HEADS, HEAD_DIM
     pf = f"backbone_blocks_{block_idx}"
     lp = wp / "linearParam"
@@ -348,28 +502,34 @@ def attention_forward(x: np.ndarray, block_idx: int, wp: Path) -> np.ndarray:
     proj_b = load_w(lp / f"{pf}_attn_proj_bias.npy")
     write_wbi(proj_b, f"{pf}_attn_proj_bias")
 
-    qkv = linear(x, qkv_w, qkv_b).reshape(B, N, 3, H, d).transpose(2, 0, 3, 1, 4)
-    q, k, v = fp(qkv[0]), fp(qkv[1]), fp(qkv[2])
+    x_q = as_q88(x)
+
+    qkv_q88 = linear_sat_q88(x_q, qkv_w, qkv_b)
+    save_npy(f"{pf}_attn_after_qkv_linear_out.npy", qkv_q88)
+    qkv_reshaped = qkv_q88.reshape(B, N, 3, H, d)
+    save_npy(f"{pf}_attn_after_qkv_reshape_out.npy", qkv_reshaped)
+    qkv = qkv_reshaped.transpose(2, 0, 3, 1, 4)
+    save_npy(f"{pf}_attn_after_qkv_transpose_out.npy", qkv)
+    q = qkv[0].astype(np.int32)
+    k = qkv[1].astype(np.int32)
+    v = qkv[2].astype(np.int32)
     save_npy(f"{pf}_attn_after_qkv_q.npy", q)
     save_npy(f"{pf}_attn_after_qkv_k.npy", k)
     save_npy(f"{pf}_attn_after_qkv_v.npy", v)
 
-    q = fp(relu6(fp(q * S)))
-    k = fp(relu6(fp(k * S)))
-    v = fp(v)
+    q, k = _care_split_qk_q88(q, k)
 
-    rcp_n = float(round(1.0 / N * 65536)) / 65536.0
-    k_mean = fp(k.sum(axis=-2, keepdims=True) * rcp_n)
-    qk_mean = fp(q @ k_mean.transpose(0, 1, 3, 2))
-    qk_mean_eps = fp(np.maximum(qk_mean, 1.0 / 256))
-    z_recip = fp(_recip_nr(qk_mean_eps, num_iter=1))
-    kv = fp((k.transpose(0, 1, 3, 2) @ v) * rcp_n)
-    attn_out = fp(fp(q @ kv) * z_recip)
+    km = _care_k_mean_q88(k)
+    qkm = _care_qk_mean_q88(q, km)
+    qkm_eps = np.maximum(qkm, 1).astype(np.int32)
+    zr = _recip_nr_q88_fixed(qkm_eps)
+    kv = _care_kv_q88(k, v)
+    ao_q88 = _care_attn_q88(q, kv, zr)
 
-    attn_out = fp(attn_out.transpose(0, 2, 1, 3).reshape(B, N, C))
-    attn_out = fp(linear(attn_out, proj_w, proj_b))
-    save_npy(f"{pf}_after_attn_attn_out.npy", attn_out)
-    return attn_out
+    attn_q88 = linear_sat_q88(ao_q88, proj_w, proj_b)
+    save_npy(f"{pf}_after_attn_attn_out.npy", attn_q88)
+
+    return from_q88(attn_q88)
 
 
 def block_forward(x: np.ndarray, block_idx: int, wp: Path) -> np.ndarray:
@@ -645,6 +805,12 @@ def main() -> None:
         final_bbox = clip_box_numpy(mapped, H, W, margin=10)
         save_npy("tracker_after_final_bbox_bbox.npy", fp(np.array(final_bbox, dtype=np.float32)))
         x1, y1, bw, bh = final_bbox
+        init = manifest.get("init_bbox_xywh")
+        if init is not None:
+            print(
+                f"[tracker] init_bbox（frame1 初始化，非 frame2 目標）: "
+                f"x1={init[0]:.4f}, y1={init[1]:.4f}, w={init[2]:.4f}, h={init[3]:.4f}"
+            )
         print(f"[tracker] 最終 bbox（frame2 像素 xywh）: x1={x1:.4f}, y1={y1:.4f}, w={bw:.4f}, h={bh:.4f}")
     else:
         print("[WARNING] golden_manifest.json not found; skipping tracker post-processing.")
