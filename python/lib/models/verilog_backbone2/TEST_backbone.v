@@ -45,11 +45,53 @@
 //   Optional wgt prefetch debug on u_lin_qkv only:
 //     +define+DUMP_WGT_PREFETCH   -> grep "WGT_" in simv.log (u_lin_qkv only; DUMP_WGT=1)
 //
-// Full backbone end compare:
+// Residual1 debug (block0 only, 10240 elems):
+//   +define+DUMP_RES_DEBUG
+//   Compare u_tb.x_buf vs backbone_blocks_0_after_residual_add1_out_bi.txt
+//   when u_tb leaves S_RES1 -> S_NORM2. Stops after report (attn must pass first).
+//
+// Norm2 / MLP / block-out debug (block0 only):
+//   +define+DUMP_MLP_DEBUG
+//   Golden (10240 elems each, (N,C) row-major):
+//     backbone_blocks_0_after_norm2_out_bi.txt      (tmp_buf after S_NORM2)
+//     backbone_blocks_0_mlp_after_mlp_out_bi.txt    (tmp_buf after S_MLP_WAIT)
+//     backbone_blocks_0_after_block_out_bi.txt      (y_o stream in S_RES2)
+//   Stops when backbone_top tb_done on block0 (initial prints PASS/FAIL).
+//   +define+ must be on the vcs compile line (not only ./simv).
+//   Do not combine with DUMP_NORM1_DEBUG / DUMP_ATTN_DEBUG.
+//
+// Block N after_block_out vs tok_buf (compile-time block index):
+//   +define+DUMP_BLK_GOLDEN +define+BLK_DBG_IDX=<0..6>
+//   Example: +define+DUMP_BLK_GOLDEN +define+BLK_DBG_IDX=4
+//   On tb_done when block_idx==BLK_DBG_IDX, compare tok_buf[0:10239] vs
+//   ./TXT_File/Activation/backbone_blocks_<N>_after_block_out_bi.txt
+//   Log tags: [BLK_CMP], [BLK_DBG]. Stops after report ($finish).
+//   Legacy alias: +define+DUMP_BLOCK5_GOLDEN  (= DUMP_BLK_GOLDEN + BLK_DBG_IDX=5)
+//   Do not combine with DUMP_NORM1_DEBUG / DUMP_ATTN_DEBUG / DUMP_MLP_DEBUG.
+//
+// Full backbone end compare (+ detail log for backbone norm debug):
 //   +define+BB_COMPARE_GOLDEN
+//   Compares y_o stream vs backbone_after_norm_backbone_out_bi.txt.
+//   Also checks (grep [BBN_*] / [BB_CMP] in simv.log):
+//     [BBN_IN_CMP]  tok_buf vs backbone_blocks_6_after_block_out (norm input)
+//     [BBN_OBUF_CMP] out_buf vs golden after last u_bn token (before S_OUT)
+//     [BBN_WGT]     first backbone_norm ROM read vs Weight/*.txt
+//     [BBN_TOK]     per-token summary on u_bn done (tok 0,1,227,319)
+//     [BB_CMP]      y_o vs golden + y_o vs out_buf (S_OUT mux check)
+//   Golden-Weight: backbone_norm_weight/bias_bi.txt under TXT_File/Weight/
 //
 // Simulation log strings: English only (tooling may not render CJK).
 // =============================================================================
+
+// Legacy: DUMP_BLOCK5_GOLDEN -> DUMP_BLK_GOLDEN with BLK_DBG_IDX=5
+`ifdef DUMP_BLOCK5_GOLDEN
+    `ifndef DUMP_BLK_GOLDEN
+        `define DUMP_BLK_GOLDEN
+    `endif
+    `ifndef BLK_DBG_IDX
+        `define BLK_DBG_IDX 5
+    `endif
+`endif
 
 module TEST_backbone;
 
@@ -457,10 +499,389 @@ end
 `endif
 
 // ---------------------------------------------------------------------------
-// Capture backbone norm stream + optional golden compare
+// DUMP_RES_DEBUG / DUMP_MLP_DEBUG -- block0 residual1 + norm2/mlp/block_out
+// (transformer_block.v state ids must match)
+// ---------------------------------------------------------------------------
+`ifdef DUMP_RES_DEBUG
+`define TB_BLKDBG_EN
+`endif
+`ifdef DUMP_MLP_DEBUG
+`define TB_BLKDBG_EN
+`endif
+
+// When block-debug defines are on, initial stimulus prints PASS/FAIL and $finish;
+// do not let backbone_top done handler terminate the run first.
+`ifdef DUMP_RES_DEBUG
+`define TB_BLKDBG_STOP_DONE_FINISH
+`endif
+`ifdef DUMP_MLP_DEBUG
+`define TB_BLKDBG_STOP_DONE_FINISH
+`endif
+`ifdef DUMP_BLK_GOLDEN
+`define TB_BLKDBG_STOP_DONE_FINISH
+`endif
+
+// ---------------------------------------------------------------------------
+// DUMP_BLK_GOLDEN -- compare tok_buf after block BLK_DBG_IDX vs after_block_out
+// tok_buf is filled by backbone_top on each tb_y_valid (transformer_block S_RES2).
+// Set index on vcs line: +define+BLK_DBG_IDX=4  (default 0 if macro omitted)
+// ---------------------------------------------------------------------------
+`ifdef DUMP_BLK_GOLDEN
+`ifdef BLK_DBG_IDX
+localparam BLK_DBG_IDX_P = `BLK_DBG_IDX;
+`else
+localparam BLK_DBG_IDX_P = 0;
+`endif
+
+reg [15:0] GOLD_BLK_OUT [0:10239];
+reg [31:0] blk_out_mism;
+reg [31:0] blk_out_first_bad;
+reg        blk_out_compared;
+
+wire blk_out_done_ce =
+    u_DUT.tb_done && (u_DUT.block_idx == BLK_DBG_IDX_P[3:0]);
+
+always @(posedge clk) begin
+    if (reset) begin
+        blk_out_mism      <= 32'd0;
+        blk_out_first_bad <= 32'hFFFF_FFFF;
+        blk_out_compared  <= 1'b0;
+    end else if (blk_out_done_ce && !blk_out_compared) begin : blk_out_scan
+        integer bi;
+        reg [31:0] bm;
+        reg [31:0] bfb;
+        bm  = 32'd0;
+        bfb = 32'hFFFF_FFFF;
+        for (bi = 0; bi < 10240; bi = bi + 1) begin
+            if (u_DUT.tok_buf[bi] !== GOLD_BLK_OUT[bi]) begin
+                bm = bm + 32'd1;
+                if (bfb == 32'hFFFF_FFFF) bfb = bi[31:0];
+            end
+        end
+        blk_out_mism      <= bm;
+        blk_out_first_bad <= bfb;
+        blk_out_compared  <= 1'b1;
+        $display("[BLK_CMP] block_idx=%0d mism=%0d/10240 first_bad_idx=%0d rtl[0..3]=%h %h %h %h gold[0..3]=%h %h %h %h",
+                 BLK_DBG_IDX_P, bm, bfb,
+                 u_DUT.tok_buf[0], u_DUT.tok_buf[1],
+                 u_DUT.tok_buf[2], u_DUT.tok_buf[3],
+                 GOLD_BLK_OUT[0], GOLD_BLK_OUT[1], GOLD_BLK_OUT[2], GOLD_BLK_OUT[3]);
+        if (bfb != 32'hFFFF_FFFF) begin
+            $display("[BLK_CMP] block_idx=%0d first_mismatch flat=%0d rtl=%h gold=%h",
+                     BLK_DBG_IDX_P, bfb,
+                     u_DUT.tok_buf[bfb[13:0]], GOLD_BLK_OUT[bfb[13:0]]);
+        end
+    end
+end
+`endif
+
+`ifdef TB_BLKDBG_EN
+localparam TB_S_RES1     = 4'd5;
+localparam TB_S_NORM2    = 4'd6;
+localparam TB_S_MLP_FEED = 4'd7;
+localparam TB_S_MLP_WAIT = 4'd8;
+localparam TB_S_RES2     = 4'd9;
+
+reg [3:0] tb_u_tb_state_r;
+wire blkdbg_block0 = (u_DUT.block_idx == 4'd0);
+
+always @(posedge clk) begin
+    if (reset)
+        tb_u_tb_state_r <= 4'd0;
+    else
+        tb_u_tb_state_r <= u_DUT.u_tb.state;
+end
+
+wire res1_cmp_pulse =
+    blkdbg_block0 &&
+    (u_DUT.u_tb.state == TB_S_NORM2) &&
+    (tb_u_tb_state_r == TB_S_RES1);
+
+wire norm2_cmp_pulse =
+    blkdbg_block0 &&
+    (u_DUT.u_tb.state == TB_S_MLP_FEED) &&
+    (tb_u_tb_state_r == TB_S_NORM2);
+
+wire mlp_cmp_pulse =
+    blkdbg_block0 &&
+    (u_DUT.u_tb.state == TB_S_RES2) &&
+    (tb_u_tb_state_r == TB_S_MLP_WAIT);
+`endif
+
+`ifdef DUMP_RES_DEBUG
+reg [15:0] GOLD_RES1 [0:10239];
+reg [31:0] res1_mism;
+reg [31:0] res1_first_bad;
+reg        res1_compared;
+
+always @(posedge clk) begin
+    if (reset) begin
+        res1_mism      <= 32'd0;
+        res1_first_bad <= 32'hFFFF_FFFF;
+        res1_compared  <= 1'b0;
+    end else if (res1_cmp_pulse && !res1_compared) begin : res1_scan
+        integer ri;
+        reg [31:0] rm;
+        reg [31:0] rfb;
+        rm  = 32'd0;
+        rfb = 32'hFFFF_FFFF;
+        for (ri = 0; ri < 10240; ri = ri + 1) begin
+            if (u_DUT.u_tb.x_buf[ri] !== GOLD_RES1[ri]) begin
+                rm = rm + 32'd1;
+                if (rfb == 32'hFFFF_FFFF) rfb = ri[31:0];
+            end
+        end
+        res1_mism      <= rm;
+        res1_first_bad <= rfb;
+        res1_compared  <= 1'b1;
+        $display("[RES1_CMP] mism=%0d/10240 first_bad_idx=%0d rtl[0..3]=%h %h %h %h gold[0..3]=%h %h %h %h",
+                 rm, rfb,
+                 u_DUT.u_tb.x_buf[0], u_DUT.u_tb.x_buf[1],
+                 u_DUT.u_tb.x_buf[2], u_DUT.u_tb.x_buf[3],
+                 GOLD_RES1[0], GOLD_RES1[1], GOLD_RES1[2], GOLD_RES1[3]);
+    end
+end
+`endif
+
+`ifdef DUMP_MLP_DEBUG
+reg [15:0] GOLD_N2   [0:10239];
+reg [15:0] GOLD_MLP  [0:10239];
+reg [15:0] GOLD_BLK  [0:10239];
+
+reg [31:0] norm2_mism;
+reg [31:0] mlp_mism;
+reg [31:0] blkout_mism;
+reg [31:0] norm2_first_bad;
+reg [31:0] mlp_first_bad;
+reg [31:0] blkout_first_bad;
+reg [31:0] blkout_cnt;
+reg        norm2_compared;
+reg        mlp_compared;
+reg        tb_blk0_done_seen;
+
+always @(posedge clk) begin
+    if (reset) begin
+        norm2_mism       <= 32'd0;
+        mlp_mism         <= 32'd0;
+        blkout_mism      <= 32'd0;
+        norm2_first_bad  <= 32'hFFFF_FFFF;
+        mlp_first_bad    <= 32'hFFFF_FFFF;
+        blkout_first_bad <= 32'hFFFF_FFFF;
+        blkout_cnt       <= 32'd0;
+        norm2_compared   <= 1'b0;
+        mlp_compared     <= 1'b0;
+        tb_blk0_done_seen <= 1'b0;
+    end else begin
+        if (norm2_cmp_pulse && !norm2_compared) begin : norm2_scan
+            integer ni;
+            reg [31:0] nm;
+            reg [31:0] nfb;
+            nm  = 32'd0;
+            nfb = 32'hFFFF_FFFF;
+            for (ni = 0; ni < 10240; ni = ni + 1) begin
+                if (u_DUT.u_tb.tmp_buf[ni] !== GOLD_N2[ni]) begin
+                    nm = nm + 32'd1;
+                    if (nfb == 32'hFFFF_FFFF) nfb = ni[31:0];
+                end
+            end
+            norm2_mism      <= nm;
+            norm2_first_bad <= nfb;
+            norm2_compared  <= 1'b1;
+            $display("[NORM2_CMP] mism=%0d/10240 first_bad_idx=%0d rtl[0..3]=%h %h %h %h gold[0..3]=%h %h %h %h",
+                     nm, nfb,
+                     u_DUT.u_tb.tmp_buf[0], u_DUT.u_tb.tmp_buf[1],
+                     u_DUT.u_tb.tmp_buf[2], u_DUT.u_tb.tmp_buf[3],
+                     GOLD_N2[0], GOLD_N2[1], GOLD_N2[2], GOLD_N2[3]);
+        end
+        if (mlp_cmp_pulse && !mlp_compared) begin : mlp_scan
+            integer mi;
+            reg [31:0] mm;
+            reg [31:0] mfb;
+            mm  = 32'd0;
+            mfb = 32'hFFFF_FFFF;
+            for (mi = 0; mi < 10240; mi = mi + 1) begin
+                if (u_DUT.u_tb.tmp_buf[mi] !== GOLD_MLP[mi]) begin
+                    mm = mm + 32'd1;
+                    if (mfb == 32'hFFFF_FFFF) mfb = mi[31:0];
+                end
+            end
+            mlp_mism      <= mm;
+            mlp_first_bad <= mfb;
+            mlp_compared  <= 1'b1;
+            $display("[MLP_CMP] mism=%0d/10240 first_bad_idx=%0d rtl[0..3]=%h %h %h %h gold[0..3]=%h %h %h %h",
+                     mm, mfb,
+                     u_DUT.u_tb.tmp_buf[0], u_DUT.u_tb.tmp_buf[1],
+                     u_DUT.u_tb.tmp_buf[2], u_DUT.u_tb.tmp_buf[3],
+                     GOLD_MLP[0], GOLD_MLP[1], GOLD_MLP[2], GOLD_MLP[3]);
+        end
+        if (blkdbg_block0 &&
+            (u_DUT.u_tb.state == TB_S_RES2) && u_DUT.u_tb.y_valid) begin
+            if (u_DUT.u_tb.y_o[15:0] !== GOLD_BLK[blkout_cnt[13:0]]) begin
+                blkout_mism <= blkout_mism + 32'd1;
+                if (blkout_first_bad == 32'hFFFF_FFFF)
+                    blkout_first_bad <= blkout_cnt;
+            end
+            blkout_cnt <= blkout_cnt + 32'd1;
+        end
+        // Latch on backbone_top tb_done while block_idx still 0 (same cycle as
+        // block0 transformer_block done, before block_idx increments).
+        if (blkdbg_block0 && u_DUT.tb_done)
+            tb_blk0_done_seen <= 1'b1;
+    end
+end
+`endif
+
+// ---------------------------------------------------------------------------
+// BB_COMPARE_GOLDEN -- backbone norm input / out_buf / y_o stream debug
 // ---------------------------------------------------------------------------
 `ifdef BB_COMPARE_GOLDEN
-reg [15:0] GOLD_BB [0:TOK_TOTAL-1];
+// Match backbone_top.v FSM encoding
+localparam BB_S_IDLE          = 3'd0;
+localparam BB_S_RUN_FIXED     = 3'd1;
+localparam BB_S_RUN_SELECTED  = 3'd2;
+localparam BB_S_BACKBONE_NORM = 3'd3;
+localparam BB_S_OUT           = 3'd4;
+localparam BB_S_DONE          = 3'd5;
+
+reg [15:0] GOLD_BB     [0:TOK_TOTAL-1];
+reg [15:0] GOLD_BN_IN  [0:TOK_TOTAL-1];
+reg [15:0] GOLD_BNW    [0:31];
+reg [15:0] GOLD_BNB    [0:31];
+
+reg [2:0]  bb_dut_state_r;
+reg [31:0] bb_in_mism;
+reg [31:0] bb_in_first_bad;
+reg        bb_in_compared;
+reg [31:0] bb_obuf_mism;
+reg [31:0] bb_obuf_first_bad;
+reg        bb_obuf_compared;
+reg [31:0] bb_yobuf_mism;
+reg [31:0] bb_first_bad;
+reg [31:0] bb_mism_le2;
+reg        bb_wgt_logged;
+
+wire bb_enter_bbnorm =
+    (u_DUT.state == BB_S_BACKBONE_NORM) &&
+    (bb_dut_state_r != BB_S_BACKBONE_NORM);
+wire bb_leave_bbnorm =
+    (u_DUT.state == BB_S_OUT) &&
+    (bb_dut_state_r == BB_S_BACKBONE_NORM);
+
+always @(posedge clk) begin
+    if (reset)
+        bb_dut_state_r <= BB_S_IDLE;
+    else
+        bb_dut_state_r <= u_DUT.state;
+end
+
+// Norm input: tok_buf should equal block6 after_block_out before u_bn runs
+always @(posedge clk) begin
+    if (reset) begin
+        bb_in_mism      <= 32'd0;
+        bb_in_first_bad <= 32'hFFFF_FFFF;
+        bb_in_compared  <= 1'b0;
+    end else if (bb_enter_bbnorm && !bb_in_compared) begin : bb_in_scan
+        integer ii;
+        reg [31:0] im;
+        reg [31:0] ifb;
+        im  = 32'd0;
+        ifb = 32'hFFFF_FFFF;
+        for (ii = 0; ii < 10240; ii = ii + 1) begin
+            if (u_DUT.tok_buf[ii] !== GOLD_BN_IN[ii]) begin
+                im = im + 32'd1;
+                if (ifb == 32'hFFFF_FFFF) ifb = ii[31:0];
+            end
+        end
+        bb_in_mism      <= im;
+        bb_in_first_bad <= ifb;
+        bb_in_compared  <= 1'b1;
+        $display("[BBN_IN_CMP] tok_buf vs blocks_6_after_block_out mism=%0d/10240 first_bad=%0d",
+                 im, ifb);
+        $display("[BBN_IN_CMP] rtl[0..3]=%h %h %h %h gold[0..3]=%h %h %h %h",
+                 u_DUT.tok_buf[0], u_DUT.tok_buf[1], u_DUT.tok_buf[2], u_DUT.tok_buf[3],
+                 GOLD_BN_IN[0], GOLD_BN_IN[1], GOLD_BN_IN[2], GOLD_BN_IN[3]);
+        if (ifb != 32'hFFFF_FFFF)
+            $display("[BBN_IN_CMP] first_mismatch flat=%0d rtl=%h gold=%h",
+                     ifb, u_DUT.tok_buf[ifb[13:0]], GOLD_BN_IN[ifb[13:0]]);
+    end
+end
+
+// After all tokens through u_bn: out_buf vs backbone_after_norm golden
+always @(posedge clk) begin
+    if (reset) begin
+        bb_obuf_mism      <= 32'd0;
+        bb_obuf_first_bad <= 32'hFFFF_FFFF;
+        bb_obuf_compared  <= 1'b0;
+    end else if (bb_leave_bbnorm && !bb_obuf_compared) begin : bb_obuf_scan
+        integer oi;
+        reg [31:0] om;
+        reg [31:0] ofb;
+        om  = 32'd0;
+        ofb = 32'hFFFF_FFFF;
+        for (oi = 0; oi < 10240; oi = oi + 1) begin
+            if (u_DUT.out_buf[oi] !== GOLD_BB[oi]) begin
+                om = om + 32'd1;
+                if (ofb == 32'hFFFF_FFFF) ofb = oi[31:0];
+            end
+        end
+        bb_obuf_mism      <= om;
+        bb_obuf_first_bad <= ofb;
+        bb_obuf_compared  <= 1'b1;
+        $display("[BBN_OBUF_CMP] out_buf vs backbone_after_norm mism=%0d/10240 first_bad=%0d out_wr_addr=%0d",
+                 om, ofb, u_DUT.out_wr_addr);
+        $display("[BBN_OBUF_CMP] rtl[0..3]=%h %h %h %h gold[0..3]=%h %h %h %h",
+                 u_DUT.out_buf[0], u_DUT.out_buf[1], u_DUT.out_buf[2], u_DUT.out_buf[3],
+                 GOLD_BB[0], GOLD_BB[1], GOLD_BB[2], GOLD_BB[3]);
+        if (ofb != 32'hFFFF_FFFF)
+            $display("[BBN_OBUF_CMP] first_mismatch flat=%0d out_buf=%h gold=%h",
+                     ofb, u_DUT.out_buf[ofb[13:0]], GOLD_BB[ofb[13:0]]);
+    end
+end
+
+// First backbone_norm weight/bias ROM sample (tok0 feat0)
+always @(posedge clk) begin
+    if (reset)
+        bb_wgt_logged <= 1'b0;
+    else if (!bb_wgt_logged &&
+             (u_DUT.state == BB_S_BACKBONE_NORM) &&
+             u_DUT.bn_rp_stream &&
+             (u_DUT.bn_tok_cnt == 9'd0) &&
+             (u_DUT.bn_feat_cnt == 5'd0)) begin
+        bb_wgt_logged <= 1'b1;
+        $display("[BBN_WGT] tok=0 feat=0 bn_feat_addr=%0d w_rom=%h b_rom=%h gold_w=%h gold_b=%h",
+                 u_DUT.bn_feat_addr, u_DUT.bn_wgt_mux, u_DUT.bn_bias_mux,
+                 GOLD_BNW[0], GOLD_BNB[0]);
+    end
+end
+
+// Sparse per-token check after each u_bn token completes
+always @(posedge clk) begin
+    if (!reset && (u_DUT.state == BB_S_BACKBONE_NORM) && u_DUT.bn_done) begin
+        if ((u_DUT.bn_tok_cnt == 9'd0) ||
+            (u_DUT.bn_tok_cnt == 9'd1) ||
+            (u_DUT.bn_tok_cnt == 9'd227) ||
+            (u_DUT.bn_tok_cnt == N_TOKENS - 1)) begin : bbn_tok_chk
+            integer ti;
+            reg [31:0] tm;
+            reg [31:0] tfb;
+            reg [13:0] base;
+            tm  = 32'd0;
+            tfb = 32'hFFFF_FFFF;
+            base = u_DUT.bn_tok_cnt * EMBED_DIM;
+            for (ti = 0; ti < EMBED_DIM; ti = ti + 1) begin
+                if (u_DUT.out_buf[base + ti] !== GOLD_BB[base + ti]) begin
+                    tm = tm + 32'd1;
+                    if (tfb == 32'hFFFF_FFFF) tfb = ti[31:0];
+                end
+            end
+            $display("[BBN_TOK] bn_done tok=%0d ch_mism=%0d/32 first_ch=%0d out[0..3]=%h %h %h %h gold=%h %h %h %h",
+                     u_DUT.bn_tok_cnt, tm, tfb,
+                     u_DUT.out_buf[base], u_DUT.out_buf[base+1],
+                     u_DUT.out_buf[base+2], u_DUT.out_buf[base+3],
+                     GOLD_BB[base], GOLD_BB[base+1], GOLD_BB[base+2], GOLD_BB[base+3]);
+        end
+    end
+end
 `endif
 
 reg [13:0] rtl_bb_cnt;
@@ -468,12 +889,28 @@ reg [31:0] bb_mism;
 
 always @(posedge clk) begin
     if (reset) begin
-        rtl_bb_cnt <= 14'd0;
-        bb_mism    <= 32'd0;
+        rtl_bb_cnt     <= 14'd0;
+        bb_mism        <= 32'd0;
+`ifdef BB_COMPARE_GOLDEN
+        bb_first_bad   <= 32'hFFFF_FFFF;
+        bb_mism_le2    <= 32'd0;
+        bb_yobuf_mism  <= 32'd0;
+`endif
     end else if (y_valid) begin
 `ifdef BB_COMPARE_GOLDEN
-        if (GOLD_BB[rtl_bb_cnt] !== y_o[15:0])
+        if (GOLD_BB[rtl_bb_cnt] !== y_o[15:0]) begin
             bb_mism <= bb_mism + 32'd1;
+            if (bb_first_bad == 32'hFFFF_FFFF) begin
+                bb_first_bad <= {18'b0, rtl_bb_cnt};
+                $display("[BB_CMP] first_y_mismatch idx=%0d y_o=%h gold=%h out_buf=%h state=%0d",
+                         rtl_bb_cnt, y_o[15:0], GOLD_BB[rtl_bb_cnt],
+                         u_DUT.out_buf[rtl_bb_cnt], u_DUT.state);
+            end
+            if (abs_diff16(y_o, GOLD_BB[rtl_bb_cnt]) <= 16'd2)
+                bb_mism_le2 <= bb_mism_le2 + 32'd1;
+        end
+        if (y_o[15:0] !== u_DUT.out_buf[rtl_bb_cnt])
+            bb_yobuf_mism <= bb_yobuf_mism + 32'd1;
 `endif
         rtl_bb_cnt <= rtl_bb_cnt + 14'd1;
     end
@@ -489,18 +926,51 @@ always @(negedge clk) begin
         $display("  sel_block_i = %0d", sel_block_i);
         $display("  y_valid samples captured = %0d (expect %0d)", rtl_bb_cnt, TOK_TOTAL);
 `ifdef BB_COMPARE_GOLDEN
-        if (bb_mism == 0 && rtl_bb_cnt == TOK_TOTAL)
-            $display("  [PASS] backbone_after_norm_backbone_out (golden) all %0d elems match", TOK_TOTAL);
-        else if (rtl_bb_cnt != TOK_TOTAL)
-            $display("  [FAIL] sample count mismatch (PIPELINE?)");
+        if (!bb_in_compared)
+            $display("  [WARN] [BBN_IN_CMP] never ran (missed S_BACKBONE_NORM entry?)");
+        else if (bb_in_mism == 0)
+            $display("  [PASS] [BBN_IN_CMP] tok_buf == blocks_6_after_block_out before norm");
         else
-            $display("  [FAIL] backbone golden mismatches = %0d (see BB_COMPARE_GOLDEN)", bb_mism);
+            $display("  [FAIL] [BBN_IN_CMP] norm input mism=%0d first=%0d (block chain before norm)",
+                     bb_in_mism, bb_in_first_bad);
+        if (!bb_obuf_compared)
+            $display("  [WARN] [BBN_OBUF_CMP] never ran (missed S_OUT entry?)");
+        else if (bb_obuf_mism == 0)
+            $display("  [PASS] [BBN_OBUF_CMP] out_buf == golden after all u_bn tokens");
+        else
+            $display("  [FAIL] [BBN_OBUF_CMP] out_buf mism=%0d first=%0d (layer_norm u_bn path)",
+                     bb_obuf_mism, bb_obuf_first_bad);
+        $display("  [BB_CMP] y_o vs out_buf mism=%0d (S_OUT read mux)", bb_yobuf_mism);
+        $display("  [BB_CMP] y_o vs golden mism=%0d le2=%0d first_bad=%0d",
+                 bb_mism, bb_mism_le2, bb_first_bad);
+        if (bb_mism == 0 && rtl_bb_cnt == TOK_TOTAL && bb_yobuf_mism == 0 &&
+            bb_in_mism == 0 && bb_obuf_mism == 0)
+            $display("  [PASS] backbone_after_norm_backbone_out all %0d elems match", TOK_TOTAL);
+        else if (rtl_bb_cnt != TOK_TOTAL)
+            $display("  [FAIL] y_valid sample count %0d (expect %0d)", rtl_bb_cnt, TOK_TOTAL);
+        else if (bb_in_mism != 0)
+            $display("  [HINT] fix tok_buf / block6 chain before debugging u_bn");
+        else if (bb_obuf_mism != 0 && bb_mism == 0)
+            $display("  [HINT] out_buf wrong but y_o stream ok? unlikely; recheck compare timing");
+        else if (bb_obuf_mism == 0 && bb_mism != 0)
+            $display("  [HINT] out_buf ok but S_OUT y_o mism -- check out_rd_addr / y_valid timing");
+        else if (bb_yobuf_mism != 0)
+            $display("  [HINT] y_o != out_buf[%0d] -- S_OUT address or NBA timing", bb_first_bad);
+        else
+            $display("  [FAIL] backbone golden mismatches = %0d (see [BB_CMP] first_y_mismatch)",
+                     bb_mism);
 `else
+`ifndef TB_BLKDBG_STOP_DONE_FINISH
         $display("  [INFO] re-run with +define+BB_COMPARE_GOLDEN to diff vs backbone_after_norm_backbone_out_bi.txt");
+`else
+        $display("  [INFO] block-debug run: see [RES_DBG]/[MLP_DBG] PASS/FAIL above (not BB_COMPARE)");
+`endif
 `endif
         $toggle_stop();
         $toggle_report("backbone_only_rtl.saif", 1.0e-9, "u_DUT");
+`ifndef TB_BLKDBG_STOP_DONE_FINISH
         $finish;
+`endif
     end
 end
 
@@ -527,6 +997,16 @@ end
 // Stimulus
 // ---------------------------------------------------------------------------
 initial begin
+`ifdef DUMP_BLK_GOLDEN
+    $display("[TB] BUILD: +define+DUMP_BLK_GOLDEN BLK_DBG_IDX=%0d (tok_buf vs after_block_out)",
+             BLK_DBG_IDX_P);
+`endif
+`ifdef DUMP_RES_DEBUG
+    $display("[TB] BUILD: +define+DUMP_RES_DEBUG (block0 residual_add1 golden compare)");
+`endif
+`ifdef DUMP_MLP_DEBUG
+    $display("[TB] BUILD: +define+DUMP_MLP_DEBUG (block0 norm2/mlp/block_out golden compare)");
+`endif
 `ifdef DUMP_NORM1_DEBUG
     $readmemb("./TXT_File/Activation/after_pos_drop_out_bi.txt", GOLD_MERGED);
     $readmemb("./TXT_File/Activation/backbone_blocks_0_after_norm1_out_bi.txt", GOLD_NORM1);
@@ -552,8 +1032,24 @@ initial begin
     end
 `endif
 `ifdef BB_COMPARE_GOLDEN
+    $display("[TB] BUILD: +define+BB_COMPARE_GOLDEN (norm in/out + y_o stream debug)");
     $readmemb("./TXT_File/Activation/backbone_after_norm_backbone_out_bi.txt", GOLD_BB);
-    $display("[TB] Loaded backbone golden: %0d values", TOK_TOTAL);
+    $readmemb("./TXT_File/Activation/backbone_blocks_6_after_block_out_bi.txt", GOLD_BN_IN);
+    $readmemb("./TXT_File/Weight/backbone_norm_weight_bi.txt", GOLD_BNW);
+    $readmemb("./TXT_File/Weight/backbone_norm_bias_bi.txt", GOLD_BNB);
+    $display("[TB] Loaded golden: backbone_after_norm + blocks_6_in + norm w/b");
+    bb_in_mism       = 0;
+    bb_in_first_bad  = 32'hFFFF_FFFF;
+    bb_in_compared   = 1'b0;
+    bb_obuf_mism     = 0;
+    bb_obuf_first_bad= 32'hFFFF_FFFF;
+    bb_obuf_compared = 1'b0;
+    bb_yobuf_mism    = 0;
+    bb_first_bad     = 32'hFFFF_FFFF;
+    bb_mism_le2      = 0;
+    bb_wgt_logged    = 1'b0;
+    rtl_bb_cnt       = 0;
+    bb_mism          = 0;
 `endif
 `ifdef DUMP_ATTN_DEBUG
     $readmemb("./TXT_File/Activation/backbone_blocks_0_attn_after_qkv_q_bi.txt",   GOLD_Q);
@@ -572,6 +1068,43 @@ initial begin
     attn_first_bad_ao = 32'hFFFF_FFFF;
     attn_qkv_compared = 1'b0;
     attn_done_seen    = 1'b0;
+`endif
+`ifdef DUMP_RES_DEBUG
+    $readmemb("./TXT_File/Activation/backbone_blocks_0_after_residual_add1_out_bi.txt",
+              GOLD_RES1);
+    $display("[RES_DBG] golden loaded: residual_add1 10240 elems");
+    res1_mism      = 0;
+    res1_first_bad = 32'hFFFF_FFFF;
+    res1_compared  = 1'b0;
+`endif
+`ifdef DUMP_BLK_GOLDEN
+    begin : load_blk_golden
+        reg [8*96-1:0] blk_gold_path;
+        $sformat(blk_gold_path,
+                 "./TXT_File/Activation/backbone_blocks_%0d_after_block_out_bi.txt",
+                 BLK_DBG_IDX_P);
+        $readmemb(blk_gold_path, GOLD_BLK_OUT);
+        $display("[BLK_DBG] golden loaded: %s (10240 elems)", blk_gold_path);
+    end
+    blk_out_mism      = 0;
+    blk_out_first_bad = 32'hFFFF_FFFF;
+    blk_out_compared  = 1'b0;
+`endif
+`ifdef DUMP_MLP_DEBUG
+    $readmemb("./TXT_File/Activation/backbone_blocks_0_after_norm2_out_bi.txt", GOLD_N2);
+    $readmemb("./TXT_File/Activation/backbone_blocks_0_mlp_after_mlp_out_bi.txt", GOLD_MLP);
+    $readmemb("./TXT_File/Activation/backbone_blocks_0_after_block_out_bi.txt", GOLD_BLK);
+    $display("[MLP_DBG] golden loaded: norm2/mlp/block_out 10240 elems each");
+    norm2_mism       = 0;
+    mlp_mism         = 0;
+    blkout_mism      = 0;
+    norm2_first_bad  = 32'hFFFF_FFFF;
+    mlp_first_bad    = 32'hFFFF_FFFF;
+    blkout_first_bad = 32'hFFFF_FFFF;
+    blkout_cnt       = 0;
+    norm2_compared   = 1'b0;
+    mlp_compared     = 1'b0;
+    tb_blk0_done_seen = 1'b0;
 `endif
 
     $readmemb("./TXT_File/Activation/template_post_embed_input_bi.txt", TEMPL_MEM);
@@ -647,6 +1180,72 @@ initial begin
         $display("  [FAIL] QKV linear mismatch -- check linear.v MAC / ROM addr / bias decode");
     else
         $display("  [FAIL] QKV ok but attn_out diverged -- check SPLIT/K_MEAN/QK_MEAN/Z_RECIP/KV/ATTN stages");
+    $finish;
+`endif
+
+`ifdef DUMP_RES_DEBUG
+    wait (res1_compared);
+    #(CYCLE * 4);
+    $display("\n[RES_DBG] === block0 residual_add1 (S_RES1 -> S_NORM2) ===");
+    $display("  [RES1_CMP] total_mism=%0d first_bad_idx=%0d", res1_mism, res1_first_bad);
+    if (res1_mism == 0)
+        $display("  [PASS] block0 after_residual_add1 bit-exact vs golden (10240 elems)");
+    else
+        $display("  [FAIL] residual_add1 mismatch -- check residual.v / x_buf+tmp_buf timing");
+`ifndef DUMP_MLP_DEBUG
+    $toggle_stop();
+    $toggle_report("backbone_only_rtl.saif", 1.0e-9, "u_DUT");
+    $finish;
+`endif
+`endif
+
+`ifdef DUMP_MLP_DEBUG
+    wait (tb_blk0_done_seen);
+    #(CYCLE * 4);
+    $display("\n[MLP_DBG] === block0 norm2 + mlp + block_out finished ===");
+    if (!norm2_compared)
+        $display("  [WARN] norm2 compare never ran (state transition missed?)");
+    if (!mlp_compared)
+        $display("  [WARN] mlp compare never ran (state transition missed?)");
+    $display("  [NORM2_CMP]   total_mism=%0d first_bad_idx=%0d", norm2_mism, norm2_first_bad);
+    $display("  [MLP_CMP]     total_mism=%0d first_bad_idx=%0d", mlp_mism, mlp_first_bad);
+    $display("  [BLKOUT_CMP]  total_mism=%0d/%0d first_bad_idx=%0d",
+             blkout_mism, blkout_cnt, blkout_first_bad);
+    if (norm2_compared && mlp_compared &&
+        norm2_mism == 0 && mlp_mism == 0 && blkout_mism == 0 && blkout_cnt == 32'd10240)
+        $display("  [PASS] block0 norm2 + mlp + after_block_out bit-exact vs golden");
+    else if (!norm2_compared || !mlp_compared)
+        $display("  [FAIL] compare did not run -- check TB state ids vs transformer_block.v");
+    else if (blkout_cnt != 32'd10240)
+        $display("  [FAIL] block_out sample count %0d (expect 10240)", blkout_cnt);
+    else if (norm2_mism != 0)
+        $display("  [FAIL] norm2 mismatch -- check layer_norm / norm2 ROM wtype=001");
+    else if (mlp_mism != 0)
+        $display("  [FAIL] mlp mismatch -- check mlp.v / fc1+fc2 ROM");
+    else
+        $display("  [FAIL] block_out stream mismatch -- check S_RES2 / residual2");
+    $toggle_stop();
+    $toggle_report("backbone_only_rtl.saif", 1.0e-9, "u_DUT");
+    $finish;
+`endif
+
+`ifdef DUMP_BLK_GOLDEN
+    wait (blk_out_compared);
+    #(CYCLE * 4);
+    $display("\n[BLK_DBG] === block %0d finished (tb_done, block_idx match) ===",
+             BLK_DBG_IDX_P);
+    $display("  [BLK_CMP] total_mism=%0d first_bad_idx=%0d",
+             blk_out_mism, blk_out_first_bad);
+    if (blk_out_mism == 0)
+        $display("  [PASS] block %0d after_block_out bit-exact vs golden (10240 elems in tok_buf)",
+                 BLK_DBG_IDX_P);
+    else if (blk_out_first_bad == 32'hFFFF_FFFF)
+        $display("  [FAIL] compare ran but no first_bad_idx (unexpected)");
+    else
+        $display("  [FAIL] block %0d tok_buf mismatch -- check earlier blocks or this block RTL/ROM",
+                 BLK_DBG_IDX_P);
+    $toggle_stop();
+    $toggle_report("backbone_only_rtl.saif", 1.0e-9, "u_DUT");
     $finish;
 `endif
 
