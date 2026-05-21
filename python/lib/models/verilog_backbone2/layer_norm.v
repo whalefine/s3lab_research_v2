@@ -18,9 +18,6 @@
 //
 // inv_sqrt_nr 使用 4-cycle 子模組（inv_sqrt_nr.v）。
 //
-// Debug: compile +define+DUMP_NORM1_DEBUG to print per-token mean/var/inv_std
-// and first 4 norm outputs (English log only). Parent TB compares vs golden.
-//
 // RCP_C 精度：
 //   round(2^16 / FEAT_DIM) = round(65536/768) = 85
 //   mean_int = (sum_int × 85) >> 16
@@ -269,36 +266,5 @@ always @(posedge clk) begin
 end
 
 assign busy = (state != S_IDLE);
-
-// ---------------------------------------------------------------------------
-// Simulation-only: internal LN stats (+define+DUMP_NORM1_DEBUG)
-// Diagnose: numpy eps=1e-6 float vs RTL var_eps = var_q88 + 1 (Q8.8 +1 LSB)
-// ---------------------------------------------------------------------------
-`ifdef DUMP_NORM1_DEBUG
-reg [7:0] ln_dbg_tok;
-always @(posedge clk) begin
-    if (reset)
-        ln_dbg_tok <= 8'd0;
-    else if (start && (state == S_IDLE))
-        ln_dbg_tok <= 8'd0;
-    else if (done)
-        ln_dbg_tok <= ln_dbg_tok + 8'd1;
-
-    if (!reset && (ln_dbg_tok < 8'd2)) begin
-        if (state == S_MEAN)
-            $display("[LN_INT] tok#%0d S_MEAN sum_acc=%0d mean_q88_next=%h (RCP_NUM=%0d)",
-                     ln_dbg_tok, sum_acc, rnd_shr16_q88(sum_acc * RCP_NUM), RCP_NUM);
-        if (state == S_VAR)
-            $display("[LN_INT] tok#%0d S_VAR var_q88_comb=%h var_eps=%h sum_sq_acc_hi=%h",
-                     ln_dbg_tok, var_q88_comb, var_eps, sum_sq_acc[47:32]);
-        if (state == S_INV && inv_done)
-            $display("[LN_INT] tok#%0d inv_sqrt done inv_std=%h v_in=%h",
-                     ln_dbg_tok, inv_std, var_eps);
-        if (state == S_NORM && addr < 10'd4)
-            $display("[LN_INT] tok#%0d S_NORM addr=%0d x_c=%h w=%h b=%h y=%h",
-                     ln_dbg_tok, addr, feat_buf[addr], w_i, b_i, y_sat);
-    end
-end
-`endif
 
 endmodule

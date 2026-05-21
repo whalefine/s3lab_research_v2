@@ -32,6 +32,7 @@
 // Inter-block token chaining:
 //   tok_buf captures each transformer_block's output; replayed to next block.
 //   Block 0 reads external x_i/x_valid; blocks 1+ replay tok_buf.
+//
 // =============================================================================
 
 module backbone_top #(
@@ -83,22 +84,6 @@ reg signed [15:0] tok_buf [0:N_TOKENS*EMBED_DIM-1];
 reg [13:0] tok_wr_ptr;   // write: incremented on tb_y_valid
 reg [13:0] tok_rd_ptr;   // read:  incremented during replay to u_tb
 reg        tok_replay;   // 0 for block 0; 1 for all subsequent blocks
-
-// ---------------------------------------------------------------------------
-// Simulation-only dump: block 1 tok_buf capture
-// Golden: vit_care_relu6_numpy_trunk_dim32_out/Activation/backbone_blocks_1_after_block_out_bi.txt
-// ---------------------------------------------------------------------------
-`ifdef DUMP_TOK_BUF
-`ifndef DUMP_TOK_BUF_BLOCK
-`define DUMP_TOK_BUF_BLOCK 1
-`endif
-integer tok_buf_dump_f;
-reg [3:0] tok_buf_dump_block;
-initial begin
-    tok_buf_dump_f = $fopen("rtl_backbone_blocks_0_after_block_out_bi.txt", "w");
-    tok_buf_dump_block = 4'd0;
-end
-`endif
 
 // transformer_block status (must precede tok_rp_active — uses tb_busy)
 wire tb_busy, tb_done;
@@ -153,15 +138,16 @@ reg  [8:0] bn_tok_cnt;   // which token u_bn is processing (0..N_TOKENS-1)
 // otherwise the first LOAD cycle can miss a sample and u_bn stays in S_LOAD forever.
 reg       bn_rp_stream;   // x_valid to u_bn during feature replay
 reg       bn_arm;         // set with bn_start; wait bn_busy before streaming
-reg [5:0] bn_stream_left; // countdown while streaming (EMBED_DIM .. 1); 0 = idle
+reg [4:0] bn_rp_feat;     // 0..EMBED_DIM-1 (same as transformer_block rp_feat)
 
-wire [5:0] bn_ed6        = EMBED_DIM + 6'd0;
-wire [5:0] bn_mux_ix6    = bn_ed6 - bn_stream_left;
-wire [4:0] bn_feat_cnt   = bn_mux_ix6[4:0];
+wire [4:0] bn_feat_cnt   = bn_rp_feat;
 
 wire [13:0] bn_rp_addr = bn_tok_cnt * EMBED_DIM + {9'b0, bn_feat_cnt};
 wire signed [15:0] bn_x_mux  = tok_buf[bn_rp_addr];
 wire               bn_xv_mux = bn_rp_stream;
+
+// Flat index for out_buf capture (row-major tok*C+ch); must match numpy golden flatten.
+wire [13:0] bn_cap_flat = bn_tok_cnt * EMBED_DIM + {9'b0, bn_feat_addr[4:0]};
 
 layer_norm #(.FEAT_DIM(EMBED_DIM), .RCP_NUM(65536/EMBED_DIM)) u_bn (
     .clk(clk), .reset(reset), .start(bn_start),
@@ -177,7 +163,6 @@ layer_norm #(.FEAT_DIM(EMBED_DIM), .RCP_NUM(65536/EMBED_DIM)) u_bn (
 // Backbone norm output buffer (captures bn_y for streaming in S_OUT)
 // ---------------------------------------------------------------------------
 reg signed [15:0] out_buf [0:N_TOKENS*EMBED_DIM-1];
-reg [13:0] out_wr_addr;  // write address (incremented on bn_y_valid)
 reg [13:0] out_rd_addr;  // read address (incremented in S_OUT)
 
 // ---------------------------------------------------------------------------
@@ -449,36 +434,13 @@ always @(posedge clk) begin
         tok_replay  <= 1'b0;
         bn_tok_cnt      <= 9'd0;
         bn_arm          <= 1'b0;
-        bn_stream_left  <= 6'd0;
+        bn_rp_feat      <= 5'd0;
         bn_rp_stream    <= 1'b0;
-        out_wr_addr <= 14'd0;
         out_rd_addr <= 14'd0;
-`ifdef DUMP_TOK_BUF
-        tok_buf_dump_block <= 4'd0;
-`endif
     end else begin
         // ---- Always: capture transformer_block output → tok_buf ----
         if (tb_y_valid) begin
             tok_buf[tok_wr_ptr] <= tb_y;
-`ifdef DUMP_TOK_BUF
-            // Dump tb_y because tok_buf is updated by nonblocking assignment
-            // in this same clock edge. tb_y_valid is asserted only while
-            // transformer_block is streaming its S_OUT data.
-            if (tok_wr_ptr == 14'd0) begin
-                $display("[DUMP_TOK_BUF] block_stream=%0d block_idx=%0d u_tb.state=%0d first_y=%016b",
-                         tok_buf_dump_block, block_idx, u_tb.state, tb_y[15:0]);
-            end
-            if (tok_buf_dump_block == `DUMP_TOK_BUF_BLOCK) begin
-                $fwrite(tok_buf_dump_f, "%016b\n", tb_y[15:0]);
-                if (tok_wr_ptr == N_TOKENS*EMBED_DIM-1) begin
-                    $fclose(tok_buf_dump_f);
-                    $display("[DUMP_TOK_BUF] wrote block 1 output to rtl_backbone_blocks_1_after_block_out_bi.txt");
-                end
-            end
-            if (tok_wr_ptr == N_TOKENS*EMBED_DIM-1) begin
-                tok_buf_dump_block <= tok_buf_dump_block + 4'd1;
-            end
-`endif
             tok_wr_ptr <= tok_wr_ptr + 14'd1;
         end
 
@@ -487,24 +449,25 @@ always @(posedge clk) begin
             tok_rd_ptr <= tok_rd_ptr + 14'd1;
 
         // ---- Always: capture backbone norm output → out_buf ----
-        if (bn_y_valid) begin
-            out_buf[out_wr_addr] <= bn_y_sat;
-            out_wr_addr <= out_wr_addr + 14'd1;
-        end
+        // Index: tok*EMBED_DIM + ln_feat_addr (same as transformer_block tmp_buf).
+        if (bn_y_valid && (state == S_BACKBONE_NORM))
+            out_buf[bn_cap_flat] <= bn_y_sat;
 
         // ---- Backbone norm: gated feature stream into u_bn (see regs above) ----
+        // Stream exactly EMBED_DIM samples per token (feat 0..EMBED_DIM-1).
+        // Old countdown (stop when left==1) only delivered 31 beats -> wrong mean/var.
         if (state == S_BACKBONE_NORM) begin
             if (bn_arm && bn_busy) begin
-                bn_rp_stream     <= 1'b1;
-                bn_stream_left   <= bn_ed6;
-                bn_arm           <= 1'b0;
+                bn_rp_stream <= 1'b1;
+                bn_rp_feat   <= 5'd0;
+                bn_arm       <= 1'b0;
             end
-            if (bn_rp_stream && (bn_stream_left != 6'd0)) begin
-                if (bn_stream_left == 6'd1) begin
-                    bn_rp_stream     <= 1'b0;
-                    bn_stream_left   <= 6'd0;
+            if (bn_rp_stream) begin
+                if (bn_rp_feat == EMBED_DIM - 1) begin
+                    bn_rp_stream <= 1'b0;
+                    bn_rp_feat   <= 5'd0;
                 end else begin
-                    bn_stream_left <= bn_stream_left - 6'd1;
+                    bn_rp_feat <= bn_rp_feat + 5'd1;
                 end
             end
         end
@@ -518,11 +481,11 @@ always @(posedge clk) begin
                 tok_rd_ptr  <= 14'd0;
                 bn_tok_cnt      <= 9'd0;
                 bn_arm          <= 1'b0;
-                bn_stream_left  <= 6'd0;
+                bn_rp_feat      <= 5'd0;
                 bn_rp_stream    <= 1'b0;
-                out_wr_addr <= 14'd0;
                 out_rd_addr <= 14'd0;
-                if (start) sel_block_r <= sel_block_i;
+                if (start)
+                    sel_block_r <= sel_block_i;
             end
 
             // ------------------------------------------------------------
@@ -568,13 +531,13 @@ always @(posedge clk) begin
             // ------------------------------------------------------------
             S_BACKBONE_NORM: begin
                 // Pulse start; arm stream — x_valid only after u_bn busy (see block above)
-                if (!bn_busy && !bn_rp_stream && (bn_stream_left == 6'd0) && !bn_arm) begin
+                if (!bn_busy && !bn_rp_stream && !bn_arm) begin
                     bn_start <= 1'b1;
                     bn_arm   <= 1'b1;
                 end
 
                 // Advance token counter after each u_bn completion
-                if (bn_done && bn_tok_cnt < N_TOKENS-1)
+                if (bn_done && (bn_tok_cnt < N_TOKENS - 1))
                     bn_tok_cnt <= bn_tok_cnt + 9'd1;
             end
 

@@ -30,12 +30,6 @@
 // Buffers (sim reg arrays — APR needs SRAM macros):
 //   x_buf   : 10240 × 16 — input  -> after S_RES1 holds residual1 sum
 //   tmp_buf : 10240 × 16 — norm1  -> attn -> norm2 -> mlp (reused each phase)
-//
-// Debug (TEST_backbone.v):
-//   +define+DUMP_NORM1_DEBUG  stops after block0 norm1
-//   +define+DUMP_ATTN_DEBUG   compares q/k/v + attn_out vs golden
-//   +define+DUMP_RES_DEBUG    compares x_buf after S_RES1 vs *_after_residual_add1_out_bi.txt
-//   +define+DUMP_MLP_DEBUG    compares tmp_buf (norm2/mlp) + y_o (block_out) vs golden
 // =============================================================================
 
 module transformer_block #(
@@ -129,13 +123,6 @@ reg        feed_active;
 reg [13:0] cap_ptr;      // capture-into-tmp_buf pointer for attn / mlp WAIT phases
 reg [13:0] res_rp;       // residual read pointer
 reg [13:0] res_wp;       // residual write pointer (lags res_rp by 2 cycles)
-
-`ifdef DUMP_TB_NODES
-integer dump_norm1_f;
-initial begin
-    dump_norm1_f = $fopen("rtl_backbone_blocks_0_after_norm1_out_bi.txt", "w");
-end
-`endif
 
 // ---------------------------------------------------------------------------
 // Norm1/Norm2 shared streaming addr — reads x_buf for both phases.
@@ -346,13 +333,6 @@ always @(posedge clk) begin
 
                 if (ln1_yv) begin
                     tmp_buf[tok_cnt * EMBED_DIM + ln1_addr[4:0]] <= ln1_y_sat;
-`ifdef DUMP_TB_NODES
-                    if (block_idx == 4'd0) begin
-                        $fwrite(dump_norm1_f, "%016b\n", ln1_y_sat[15:0]);
-                        if (tok_cnt == N_TOKENS-1 && feat_cnt == EMBED_DIM-1)
-                            $fclose(dump_norm1_f);
-                    end
-`endif
                     feat_cnt <= feat_cnt + 5'd1;
                     if (feat_cnt == EMBED_DIM-1) begin
                         feat_cnt <= 5'd0;

@@ -15,8 +15,7 @@
 
 module linear #(
     parameter IN_DIM  = 32,
-    parameter OUT_DIM = 96,
-    parameter DUMP_WGT = 0   // 1: enable [WGT_*] when +define+DUMP_WGT_PREFETCH (QKV only)
+    parameter OUT_DIM = 96
 ) (
     input  wire        clk,
     input  wire        reset,
@@ -206,21 +205,5 @@ always @(posedge clk) begin
 end
 
 assign busy = (state != S_IDLE);
-
-`ifdef DUMP_WGT_PREFETCH
-always @(posedge clk) begin
-    if (DUMP_WGT && !reset && wgt_wr_ce && (neu_cnt == 7'd0))
-        $display("[WGT_WR] neu=%0d slot=%0d w_i=%h",
-                 neu_cnt, wpre_feat, w_i);
-end
-
-always @(posedge clk) begin
-    if (DUMP_WGT && !reset && state == S_MAC && (neu_cnt == 7'd0) &&
-        (mac_feat == 5'd0))
-        $display("[WGT_CHK] wgt_buf[0..7]=%h %h %h %h %h %h %h %h gold=ffe2 002f ffe6 ffff 0015 0004 fff2 002a",
-                 wgt_buf[0], wgt_buf[1], wgt_buf[2], wgt_buf[3],
-                 wgt_buf[4], wgt_buf[5], wgt_buf[6], wgt_buf[7]);
-end
-`endif
 
 endmodule

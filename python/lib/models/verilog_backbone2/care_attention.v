@@ -29,10 +29,8 @@
 //   qkm, zr             :  1280 x 16
 //   kv                  :   256 x 16
 //
-// Each always block below is preceded by a one-line purpose comment per
-// verilog_rule.mdc. All $display strings inside DUMP_ATTN_DEBUG are ASCII
-// English. Sequential = `<=`, combinational = `=`. No latch inference (all
-// outputs covered in case branches).
+// Sequential = `<=`, combinational = `=`. No latch inference (all outputs
+// covered in case branches).
 // =============================================================================
 
 module care_attention #(
@@ -207,7 +205,7 @@ wire               lin_qkv_yv;
 wire [6:0]         lin_qkv_neu;
 wire [12:0]        lin_qkv_addr;
 
-linear #(.IN_DIM(EMBED_DIM), .OUT_DIM(3*EMBED_DIM), .DUMP_WGT(1)) u_lin_qkv (
+linear #(.IN_DIM(EMBED_DIM), .OUT_DIM(3*EMBED_DIM)) u_lin_qkv (
     .clk     (clk),
     .reset   (reset),
     .start   (lin_qkv_start),
