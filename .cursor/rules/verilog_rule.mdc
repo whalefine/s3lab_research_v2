@@ -3,7 +3,8 @@ description: Verilog RTL synthesis coding rules for SGLATrack hardware accelerat
 globs:
   - "**/*.v"
   - "python/lib/models/verilog_backbone2/**/*.v"
-  - "python/lib/models/verilog_head/**/*.v"
+  - "python/lib/models/verilog_head2/**/*.v"
+  - "python/lib/models/verilog2/**/*.v"
 alwaysApply: false
 ---
 
@@ -33,7 +34,41 @@ alwaysApply: false
 - `always @(posedge clk)` 用於 sequential，`always @(*)` 用於 combinational
 - 優先使用同步 reset
 - Sequential 用 `<=`（non-blocking），combinational 用 `=`（blocking）
-- 組合邏輯必須覆蓋所有輸出，禁止 latch 推論
+- 組合邏輯必須覆蓋所有輸出，**禁止 latch 推論**（細則见下節）
+
+### 避免產生 latch（組合邏輯完整性，必守）
+
+綜合工具在 **`always @(*)`**（或對敏感列表內所有變化都會執行的組合 `always`）中，若某個被賦值的 `reg`／`wire` **並非每一條執行路徑都有賦值**，會推論 **latch** 以「記住上一拍值」。本專案 **一律禁止** 依賴此類 latch；須改寫為明確暫存器（`posedge clk`）或補齊賦值。
+
+#### 常見成因（寫 code 時逐項自查）
+
+| 問題 | 說明 |
+|------|------|
+| **`if` 無 `else`** | 條件不成立時該訊號無賦值 → latch |
+| **`case` 無 `default`** | 未列舉到的編碼無賦值 → latch |
+| **巢狀分支不全** | 外層 `if` 成立、內層只覆蓋部分情況，其餘路徑未賦值 |
+| **區塊開頭無預設值** | 多個 `if`／`case` 分支各自賦值，但漏掉某一組合條件 |
+| **同一訊號多驅動** | 組合 `always` 與另一 `always`／`assign` 同時驅動（綜合／仿真行為混亂，亦可能伴隨不完整路徑） |
+| **在 `always` 內宣告 `reg`** | 已禁止（见「語言規則」）；亦易造成路徑覆蓋難以檢查 |
+
+#### 推薦寫法（組合 `always @(*)`）
+
+1. **區塊最上方先對「本 block 驅動的所有輸出」寫預設賦值**（安全 idle 值），再寫 `if`／`case` 覆寫；預設須與 FSM／介面規格一致（例如 `next_state = state`、`busy = 0`、`mac_en = 0`）。
+2. **每個 `if` 都配 `else`**，或改採「先 default、再單向覆寫」；避免「僅在條件成立時才賦值」。
+3. **`case`／`casex` 必須有 `default`**；`case` 的每個分支須對**同一組輸出**給齊賦值，或已在區塊開頭 default 過。
+4. **一個 `always` 只負責一類邏輯**（例如僅 next-state、僅 MAC 控制）；勿與無關 datapath 混寫，以免漏賦值。
+5. **FSM 次態**：組合 block 內 `next_state` 先預設為 `state`（或 `IDLE`），再在 `case (state)` 覆寫；避免「某些 state 未寫 next_state」。
+6. 能用 **`assign`** 表達的純組合式，優先 `assign`，減少 `always @(*)` 分支遺漏風險。
+
+#### 時序 `always @(posedge clk)` 與 latch 的區別
+
+- 在 **時序** block 中僅於 `if (en)` 內更新某 `reg`、無 `else` → 綜合為 **帶 enable 的 D 暫存器（hold）**，屬預期行為，**不是** 本节禁止的組合 latch。
+- 若某值**必須在組合邏輯當拍就確定**（例如送進同拍 MAC 的 `mac_en`、`w_addr`），**不可** 放在「有時賦值、有時不賦值」的 `always @(*)`；應 default 賦齊，或改到時序 block 並 **對齊延遲一拍**（见「記憶體／ROM 讀取」）。
+
+#### 修改／除錯時
+
+- 綜合報告 **Inferred latch**、**latch inferred for …** 時，先定位對應 `always @(*)`，補 **default + 缺漏分支**，勿僅改最終輸出節點。
+- 仿真若見組合輸出為 **X** 或「上一拍殘值」，先查該 block 是否在部分條件下**未賦值**（與 golden 對拍無關前也應先排除）。
 
 ### 面積/延遲
 - 說明設計是 parallel / partially parallel / multi-cycle iterative
