@@ -122,7 +122,10 @@ always @(negedge clk) begin
         $display("    h  = 0x%04h  (%f)", h_out,  $itor($signed(h_out))  / 256.0);
 
         $display("\n  Golden bbox (Activation/box_head_after_cal_bbox_bbox_bi.txt):");
-        $display("    cx = 0x007F  cy = 0x007E  w = 0x0023  h = 0x0054");
+        $display("    cx = 0x007F  (0.496094)");
+        $display("    cy = 0x007E  (0.492188)");
+        $display("    w  = 0x0024  (0.148438)");
+        $display("    h  = 0x0057  (0.343750)");
 
         if (($signed(cx_out) - $signed(16'sh007F)) <= 2 &&
             ($signed(16'sh007F) - $signed(cx_out)) <= 2 &&
