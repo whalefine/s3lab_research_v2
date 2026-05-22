@@ -3,6 +3,7 @@ description: Verilog RTL synthesis coding rules for SGLATrack hardware accelerat
 globs:
   - "**/*.v"
   - "python/lib/models/verilog_backbone2/**/*.v"
+  - "python/lib/models/verilog_head/**/*.v"
 alwaysApply: false
 ---
 

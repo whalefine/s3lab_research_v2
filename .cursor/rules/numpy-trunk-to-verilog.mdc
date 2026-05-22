@@ -113,7 +113,7 @@ Agent 與使用者溝通時，若得知**僅能 display**，應優先建議 **�
 
 ## 12. Weight Golden、定點與 ROM（與 Activation 並列）
 
-- **RTL 讀取時序／暫存對齊**（通用，不列具體檔名）：撰寫或修改 `*.v` 時见 `.cursor/rules/verilog_rule.mdc` **「記憶體／ROM 讀取」**；本節負責 golden 路徑與 ROM 映像對照。
+- **RTL 讀取時序／暫存對齊**：撰寫或修改 `*.v` 時见 `.cursor/rules/verilog_rule.mdc`——**權重 ROM `CLK(~clk)`、`stream`/`stream_r` 列預取、bias 鎖定與反模式（§7）**；通用讀取契約（**「記憶體／ROM 讀取」**）。**本節**負責 golden 路徑與 ROM 映像對照，不列舉具體時序實作細節。
 - **ROM macro 檔名 ↔ `Weight/*_bi.txt` 分片對照**（backbone 0~6、box head）：見 **§12.1**。
 - **Verilog 側讀到的權重**並非在模擬／晶片內直接讀原始 **`.npy`**，而是讀 **已寫入 ROM** 的內容；該 ROM 的來源與 numpy trunk 一致，資料鏈為：
   1. `run_backbone_numpy_shared_trunk.py` 透過 `load_w()` 等路徑自 **`--weight-dir`** 讀取 **float32 的 `.npy` 權重**；
