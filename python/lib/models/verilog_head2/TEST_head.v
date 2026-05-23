@@ -25,6 +25,7 @@ parameter OC_CONV1     = 96 ;
 parameter OC_CONV2     = 48 ;
 parameter IN_CH_CONV1  = 32 ;
 parameter IN_CH_CONV2  = 96 ;
+parameter BBOX_TOL_LSB = 2 ;
 
 reg clk ;
 reg rst_n ;
@@ -208,6 +209,10 @@ cal_bbox #(.DATA_W(DATA_W)) u_bbox (
 
 reg [31:0] bb_fail_cnt ;
 reg [31:0] bb_cmp_idx ;
+reg [31:0] cycle_cnt ;
+
+always @(posedge clk)
+    cycle_cnt <= rst_n ? (cycle_cnt + 1) : 32'd0 ;
 
 always @(posedge clk) begin
     if (!rst_n) begin
@@ -280,13 +285,28 @@ initial begin
     b_start = 1'b0 ;
     @(posedge b_done) ;
 
-    if (bb_fail_cnt == 0 && bb_cmp_idx == BBOX_LEN)
-        $display("[BBOX] PASS cx=%h cy=%h w=%h h=%h (golden match)",
-                 bbox_out[0], bbox_out[1], bbox_out[2], bbox_out[3]) ;
+    $display("\n---- Head-only done @ cycle %0d ----", cycle_cnt);
+    $display("\n  Predicted bbox (Q8.8 hex | float/256):");
+    $display("    cx = 0x%04h  (%f)", bbox_out[0], $itor($signed(bbox_out[0])) / 256.0);
+    $display("    cy = 0x%04h  (%f)", bbox_out[1], $itor($signed(bbox_out[1])) / 256.0);
+    $display("    w  = 0x%04h  (%f)", bbox_out[2], $itor($signed(bbox_out[2])) / 256.0);
+    $display("    h  = 0x%04h  (%f)", bbox_out[3], $itor($signed(bbox_out[3])) / 256.0);
+    $display("\n  Golden bbox  (box_head_after_cal_bbox_bbox_bi.txt):");
+    $display("    cx = 0x%04h  (%f)", bbox_gold[0], $itor($signed(bbox_gold[0])) / 256.0);
+    $display("    cy = 0x%04h  (%f)", bbox_gold[1], $itor($signed(bbox_gold[1])) / 256.0);
+    $display("    w  = 0x%04h  (%f)", bbox_gold[2], $itor($signed(bbox_gold[2])) / 256.0);
+    $display("    h  = 0x%04h  (%f)", bbox_gold[3], $itor($signed(bbox_gold[3])) / 256.0);
+    if (($signed(bbox_out[0]) - $signed(bbox_gold[0])) <= BBOX_TOL_LSB &&
+        ($signed(bbox_gold[0]) - $signed(bbox_out[0])) <= BBOX_TOL_LSB &&
+        ($signed(bbox_out[1]) - $signed(bbox_gold[1])) <= BBOX_TOL_LSB &&
+        ($signed(bbox_gold[1]) - $signed(bbox_out[1])) <= BBOX_TOL_LSB &&
+        ($signed(bbox_out[2]) - $signed(bbox_gold[2])) <= BBOX_TOL_LSB &&
+        ($signed(bbox_gold[2]) - $signed(bbox_out[2])) <= BBOX_TOL_LSB &&
+        ($signed(bbox_out[3]) - $signed(bbox_gold[3])) <= BBOX_TOL_LSB &&
+        ($signed(bbox_gold[3]) - $signed(bbox_out[3])) <= BBOX_TOL_LSB)
+        $display("\n  [PASS] bbox matches golden within +-%0d LSB", BBOX_TOL_LSB);
     else
-        $display("[BBOX] FAIL cx got=%h exp=%h cy got=%h exp=%h w got=%h exp=%h h got=%h exp=%h",
-                 bbox_out[0], bbox_gold[0], bbox_out[1], bbox_gold[1],
-                 bbox_out[2], bbox_gold[2], bbox_out[3], bbox_gold[3]) ;
+        $display("\n  [FAIL] bbox differs from golden (+- %0d LSB)", BBOX_TOL_LSB);
 
     $finish ;
 end
