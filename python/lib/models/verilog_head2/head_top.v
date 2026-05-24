@@ -1,8 +1,7 @@
 // =============================================================================
-// head_top.v -- verilog2 head wrapper (conv1 + conv2 + tail + cal_bbox)
+// head_top.v -- verilog_head2 head wrapper (conv1 + conv2 + tail + cal_bbox)
 //
-// NOTE: Active development copy is verilog_head2/head_top.v (SRAM etc.).
-//       After verilog_head2 changes, copy that file here to keep verilog2 in sync.
+// Development copy: edit here first (e.g. SRAM buffers), then sync to verilog2/.
 //
 // Maps to numpy: head_shared_trunk() + cal_bbox() in run_backbone_numpy_shared_trunk.py
 //
@@ -42,13 +41,13 @@ module head_top #(
     output wire [DATA_W-1:0] h_o
 );
 
-localparam FEAT_SZ    = FEAT_H * FEAT_W;
-localparam SKIP_VALS  = LENS_Z * IN_CH;
-localparam TOT_VALS   = N_TOKENS * IN_CH;
+localparam FEAT_SZ     = FEAT_H * FEAT_W;
+localparam SKIP_VALS   = LENS_Z * IN_CH;
+localparam TOT_VALS    = N_TOKENS * IN_CH;
 localparam TOT_VALS_M1 = TOT_VALS - 1;
 localparam IN_LEN_HEAD = FEAT_SZ * IN_CH;
-localparam C1_LEN     = C_SH1 * FEAT_SZ;
-localparam C2_LEN     = C_SH2 * FEAT_SZ;
+localparam C1_LEN      = C_SH1 * FEAT_SZ;
+localparam C2_LEN      = C_SH2 * FEAT_SZ;
 
 wire rst_n = ~reset;
 
@@ -73,7 +72,7 @@ wire        fill_search = (fill_cnt >= SKIP_VALS) && (fill_cnt < TOT_VALS);
 wire [13:0] fill_dst    = {fill_c, fill_n};
 
 // Feature buffers (search NCHW + conv outputs)
-reg [DATA_W-1:0] x_buf  [0:IN_LEN_HEAD-1];
+reg [DATA_W-1:0] x_buf   [0:IN_LEN_HEAD-1];
 reg [DATA_W-1:0] sh1_buf [0:C1_LEN-1];
 reg [DATA_W-1:0] sh2_buf [0:C2_LEN-1];
 

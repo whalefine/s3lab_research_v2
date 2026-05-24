@@ -1,7 +1,8 @@
 // =============================================================================
-// TEST_head.v -- verilog_head2 : conv1 + conv2 + tail + cal_bbox
-//   Input  : backbone_after_norm (reshape to head NCHW)
-//   Check  : box_head_after_cal_bbox_bbox_bi.txt (4 x Q8.8) only
+// TEST_head.v -- verilog_head2 head-only test via head_top
+//
+// Streams backbone_after_norm token order into head_top (skip template in RTL).
+// Compares final bbox vs box_head_after_cal_bbox_bbox_bi.txt only.
 // =============================================================================
 
 `timescale 1ns/1ps
@@ -13,19 +14,17 @@
 module TEST_head ;
 
 parameter DATA_W       = 16 ;
-parameter IN_LEN_RAW   = 10240 ;
-parameter IN_LEN_HEAD  = 8192  ;
-parameter C1_LEN       = 24576 ;
-parameter C2_LEN       = 12288 ;
-parameter BBOX_LEN     = 4     ;
-parameter SKIP_TOKENS  = 64 ;
-parameter EMBED_DIM    = 32 ;
-parameter FEAT_SZ      = 16 ;
-parameter OC_CONV1     = 96 ;
-parameter OC_CONV2     = 48 ;
-parameter IN_CH_CONV1  = 32 ;
-parameter IN_CH_CONV2  = 96 ;
+parameter IN_CH        = 32 ;
+parameter N_TOKENS     = 320 ;
+parameter LENS_Z       = 64 ;
+parameter FEAT_H       = 16 ;
+parameter FEAT_W       = 16 ;
+parameter TOT_VALS     = N_TOKENS * IN_CH ;
+parameter BBOX_LEN     = 4 ;
 parameter BBOX_TOL_LSB = 2 ;
+
+// Watchdog: head pipeline is ~1e8 cycles; 5e9 ns @ 10ns/clk is plenty
+localparam [63:0] TIMEOUT_NS = 64'd5_000_000_000 ;
 
 reg clk ;
 reg rst_n ;
@@ -35,275 +34,120 @@ initial begin
 end
 always #5 clk = ~clk ;
 
-reg [DATA_W-1:0] raw_in    [0:IN_LEN_RAW-1] ;
-reg [DATA_W-1:0] x_buf     [0:IN_LEN_HEAD-1] ;
-reg [DATA_W-1:0] sh1_buf   [0:C1_LEN-1] ;
-reg [DATA_W-1:0] sh2_buf   [0:C2_LEN-1] ;
+reg [DATA_W-1:0] raw_in    [0:TOT_VALS-1] ;
 reg [DATA_W-1:0] bbox_gold [0:BBOX_LEN-1] ;
-reg [DATA_W-1:0] bbox_out  [0:BBOX_LEN-1] ;
 
-// conv1
-wire [13:0]       c1_x_addr ;
-reg  [DATA_W-1:0] c1_x_i_q ;
-always @(negedge clk)
-    c1_x_i_q <= x_buf[c1_x_addr] ;
+reg               kick_start ;
+reg               start_seen ;
+reg               head_start ;
+reg               stream_en ;
+reg [13:0]        stream_cnt ;
+reg               a_valid ;
+reg signed [15:0] a_i ;
 
-wire              c1_busy, c1_done, c1_y_valid ;
-wire [DATA_W-1:0] c1_y_data ;
-reg               c1_start ;
+wire              head_busy ;
+wire              head_done ;
+wire [15:0]       cx_o, cy_o, w_o, h_o ;
 
-conv #(
-    .IN_CH       (IN_CH_CONV1),
-    .OUT_CH      (OC_CONV1   ),
-    .IN_H        (FEAT_SZ    ),
-    .IN_W        (FEAT_SZ    ),
-    .K           (3          ),
-    .PAD         (1          ),
-    .HAS_RELU    (1          ),
-    .DATA_W      (DATA_W     ),
-    .FRAC_W      (8          ),
-    .ACC_W       (32         ),
-    .ROM_PROFILE (1          ),
-    .X_AW        (14         )
-) u_conv1 (
+head_top #(
+    .IN_CH    (IN_CH   ),
+    .C_SH1    (96      ),
+    .C_SH2    (48      ),
+    .FEAT_H   (FEAT_H  ),
+    .FEAT_W   (FEAT_W  ),
+    .N_TOKENS (N_TOKENS),
+    .LENS_Z   (LENS_Z  ),
+    .DATA_W   (DATA_W  )
+) u_head (
     .clk     (clk       ),
-    .rst_n   (rst_n     ),
-    .start   (c1_start  ),
-    .busy    (c1_busy   ),
-    .done    (c1_done   ),
-    .x_addr  (c1_x_addr ),
-    .x_i     (c1_x_i_q  ),
-    .y_valid (c1_y_valid),
-    .y_data  (c1_y_data ),
-    .y_oc    (           ),
-    .y_oh    (           ),
-    .y_ow    (           )
+    .reset   (~rst_n    ),
+    .start   (head_start),
+    .a_i     (a_i       ),
+    .a_valid (a_valid   ),
+    .busy    (head_busy ),
+    .done    (head_done ),
+    .cx_o    (cx_o      ),
+    .cy_o    (cy_o      ),
+    .w_o     (w_o       ),
+    .h_o     (h_o       )
 );
 
-// conv2
-wire [14:0]       c2_x_addr ;
-reg  [DATA_W-1:0] c2_x_i_q ;
-always @(negedge clk)
-    c2_x_i_q <= sh1_buf[c2_x_addr] ;
-
-wire              c2_busy, c2_done, c2_y_valid ;
-wire [DATA_W-1:0] c2_y_data ;
-reg               c2_start ;
-
-conv #(
-    .IN_CH       (IN_CH_CONV2),
-    .OUT_CH      (OC_CONV2   ),
-    .IN_H        (FEAT_SZ    ),
-    .IN_W        (FEAT_SZ    ),
-    .K           (3          ),
-    .PAD         (1          ),
-    .HAS_RELU    (1          ),
-    .DATA_W      (DATA_W     ),
-    .FRAC_W      (8          ),
-    .ACC_W       (32         ),
-    .ROM_PROFILE (2          ),
-    .X_AW        (15         )
-) u_conv2 (
-    .clk     (clk       ),
-    .rst_n   (rst_n     ),
-    .start   (c2_start  ),
-    .busy    (c2_busy   ),
-    .done    (c2_done   ),
-    .x_addr  (c2_x_addr ),
-    .x_i     (c2_x_i_q  ),
-    .y_valid (c2_y_valid),
-    .y_data  (c2_y_data ),
-    .y_oc    (           ),
-    .y_oh    (           ),
-    .y_ow    (           )
-);
-
-reg [31:0] c1_wr_idx ;
-always @(negedge clk) begin
-    if (!rst_n)
-        c1_wr_idx <= 0 ;
-    else if (c1_y_valid) begin
-        sh1_buf[c1_wr_idx] <= c1_y_data ;
-        c1_wr_idx <= c1_wr_idx + 1 ;
-    end
-end
-
-reg [31:0] c2_wr_idx ;
-always @(negedge clk) begin
-    if (!rst_n)
-        c2_wr_idx <= 0 ;
-    else if (c2_y_valid) begin
-        sh2_buf[c2_wr_idx] <= c2_y_data ;
-        c2_wr_idx <= c2_wr_idx + 1 ;
-    end
-end
-
-// tail
-wire [14:0]       t_x_addr ;
-reg  [DATA_W-1:0] t_x_i_q ;
-always @(negedge clk)
-    t_x_i_q <= sh2_buf[t_x_addr] ;
-
-wire              t_busy, t_done ;
-reg               t_start ;
-wire              tc_raw_v, tc_sig_v, to_v, ts_raw_v, ts_sig_v ;
-wire [DATA_W-1:0] tc_raw_d, tc_sig_d, to_d, ts_raw_d, ts_sig_d ;
-wire [4:0]        tc_raw_oh, tc_raw_ow, to_oh, to_ow, ts_raw_oh, ts_raw_ow ;
-wire              to_sub, ts_raw_sub ;
-
-tail #(
-    .DATA_W (DATA_W),
-    .X_AW   (15    )
-) u_tail (
-    .clk              (clk       ),
-    .rst_n            (rst_n     ),
-    .start            (t_start   ),
-    .busy             (t_busy    ),
-    .done             (t_done    ),
-    .x_addr           (t_x_addr  ),
-    .x_i              (t_x_i_q   ),
-    .ctr_raw_y_valid  (tc_raw_v  ),
-    .ctr_raw_y_data   (tc_raw_d  ),
-    .ctr_raw_y_oh     (tc_raw_oh ),
-    .ctr_raw_y_ow     (tc_raw_ow ),
-    .ctr_y_valid      (tc_sig_v  ),
-    .ctr_y_data       (tc_sig_d  ),
-    .off_y_valid      (to_v      ),
-    .off_y_data       (to_d      ),
-    .off_y_sub        (to_sub    ),
-    .off_y_oh         (to_oh     ),
-    .off_y_ow         (to_ow     ),
-    .size_raw_y_valid (ts_raw_v  ),
-    .size_raw_y_data  (ts_raw_d  ),
-    .size_raw_y_sub   (ts_raw_sub),
-    .size_raw_y_oh    (ts_raw_oh ),
-    .size_raw_y_ow    (ts_raw_ow ),
-    .size_y_valid     (ts_sig_v  ),
-    .size_y_data      (ts_sig_d  )
-);
-
-// cal_bbox
-reg               b_start ;
-wire              b_busy, b_done, b_valid ;
-wire [DATA_W-1:0] b_data ;
-wire [1:0]        b_idx ;
-
-cal_bbox #(.DATA_W(DATA_W)) u_bbox (
-    .clk           (clk      ),
-    .rst_n         (rst_n    ),
-    .start         (b_start  ),
-    .busy          (b_busy   ),
-    .done          (b_done   ),
-    .ctr_in_valid  (tc_sig_v ),
-    .ctr_in_data   (tc_sig_d ),
-    .size_in_valid (ts_sig_v ),
-    .size_in_data  (ts_sig_d ),
-    .size_in_sub   (1'b0     ),
-    .off_in_valid  (to_v     ),
-    .off_in_data   (to_d     ),
-    .off_in_sub    (1'b0     ),
-    .bbox_valid    (b_valid  ),
-    .bbox_data     (b_data   ),
-    .bbox_idx      (b_idx    )
-);
-
-reg [31:0] bb_fail_cnt ;
-reg [31:0] bb_cmp_idx ;
 reg [31:0] cycle_cnt ;
 
 always @(posedge clk)
     cycle_cnt <= rst_n ? (cycle_cnt + 1) : 32'd0 ;
 
+// One-cycle start pulse; stream begins the cycle AFTER start (head_top in S_FILL)
 always @(posedge clk) begin
     if (!rst_n) begin
-        bb_fail_cnt <= 0 ;
-        bb_cmp_idx  <= 0 ;
-    end else if (b_valid) begin
-        bbox_out[bb_cmp_idx] <= b_data ;
-        if (b_data !== bbox_gold[bb_cmp_idx])
-            bb_fail_cnt <= bb_fail_cnt + 1 ;
-        bb_cmp_idx <= bb_cmp_idx + 1 ;
+        head_start  <= 1'b0 ;
+        start_seen  <= 1'b0 ;
+        stream_en   <= 1'b0 ;
+        stream_cnt  <= 14'd0 ;
+        a_valid     <= 1'b0 ;
+        a_i         <= 16'sd0 ;
+    end else begin
+        head_start <= 1'b0 ;
+
+        if (kick_start) begin
+            head_start  <= 1'b1 ;
+            start_seen  <= 1'b1 ;
+            stream_en   <= 1'b0 ;
+            stream_cnt  <= 14'd0 ;
+            a_valid     <= 1'b0 ;
+        end else if (start_seen && !stream_en) begin
+            // first cycle in S_FILL: begin 10240-beat activation stream
+            start_seen <= 1'b0 ;
+            stream_en  <= 1'b1 ;
+        end else if (stream_en && (stream_cnt < TOT_VALS)) begin
+            a_valid    <= 1'b1 ;
+            a_i        <= raw_in[stream_cnt] ;
+            stream_cnt <= stream_cnt + 14'd1 ;
+        end else begin
+            a_valid <= 1'b0 ;
+            if (stream_cnt >= TOT_VALS)
+                stream_en <= 1'b0 ;
+        end
     end
 end
-
-// stimulus
-integer c, h, w ;
-integer src_idx, dst_idx ;
 
 initial begin
     $readmemb({`GOLDEN_ACT, "/backbone_after_norm_backbone_out_bi.txt"}, raw_in    ) ;
     $readmemb({`GOLDEN_ACT, "/box_head_after_cal_bbox_bbox_bi.txt"     }, bbox_gold) ;
 
-    for (c = 0; c < EMBED_DIM; c = c + 1) begin
-        for (h = 0; h < FEAT_SZ; h = h + 1) begin
-            for (w = 0; w < FEAT_SZ; w = w + 1) begin
-                src_idx = (SKIP_TOKENS + h * FEAT_SZ + w) * EMBED_DIM + c ;
-                dst_idx = c * FEAT_SZ * FEAT_SZ + h * FEAT_SZ + w ;
-                x_buf[dst_idx] = raw_in[src_idx] ;
-            end
-        end
-    end
-
-    rst_n    = 1'b0 ;
-    c1_start = 1'b0 ;
-    c2_start = 1'b0 ;
-    t_start  = 1'b0 ;
-    b_start  = 1'b0 ;
+    rst_n      = 1'b0 ;
+    kick_start = 1'b0 ;
     #25 ;
     @(posedge clk) ;
     rst_n = 1'b1 ;
     @(posedge clk) ;
     @(posedge clk) ;
 
+    kick_start = 1'b1 ;
     @(posedge clk) ;
-    c1_start = 1'b1 ;
-    @(posedge clk) ;
-    c1_start = 1'b0 ;
-    @(posedge c1_done) ;
+    kick_start = 1'b0 ;
 
-    while (c2_busy)
-        @(posedge clk) ;
-    @(posedge clk) ;
-    c2_start = 1'b1 ;
-    @(posedge clk) ;
-    c2_start = 1'b0 ;
-    @(posedge c2_done) ;
-
-    while (t_busy)
-        @(posedge clk) ;
-    @(posedge clk) ;
-    t_start = 1'b1 ;
-    @(posedge clk) ;
-    t_start = 1'b0 ;
-    @(posedge t_done) ;
-
-    while (b_busy)
-        @(posedge clk) ;
-    @(posedge clk) ;
-    b_start = 1'b1 ;
-    @(posedge clk) ;
-    b_start = 1'b0 ;
-    @(posedge b_done) ;
+    @(posedge head_done) ;
 
     $display("\n---- Head-only done @ cycle %0d ----", cycle_cnt);
     $display("\n  Predicted bbox (Q8.8 hex | float/256):");
-    $display("    cx = 0x%04h  (%f)", bbox_out[0], $itor($signed(bbox_out[0])) / 256.0);
-    $display("    cy = 0x%04h  (%f)", bbox_out[1], $itor($signed(bbox_out[1])) / 256.0);
-    $display("    w  = 0x%04h  (%f)", bbox_out[2], $itor($signed(bbox_out[2])) / 256.0);
-    $display("    h  = 0x%04h  (%f)", bbox_out[3], $itor($signed(bbox_out[3])) / 256.0);
+    $display("    cx = 0x%04h  (%f)", cx_o, $itor($signed(cx_o)) / 256.0);
+    $display("    cy = 0x%04h  (%f)", cy_o, $itor($signed(cy_o)) / 256.0);
+    $display("    w  = 0x%04h  (%f)", w_o,  $itor($signed(w_o))  / 256.0);
+    $display("    h  = 0x%04h  (%f)", h_o,  $itor($signed(h_o))  / 256.0);
     $display("\n  Golden bbox  (box_head_after_cal_bbox_bbox_bi.txt):");
     $display("    cx = 0x%04h  (%f)", bbox_gold[0], $itor($signed(bbox_gold[0])) / 256.0);
     $display("    cy = 0x%04h  (%f)", bbox_gold[1], $itor($signed(bbox_gold[1])) / 256.0);
     $display("    w  = 0x%04h  (%f)", bbox_gold[2], $itor($signed(bbox_gold[2])) / 256.0);
     $display("    h  = 0x%04h  (%f)", bbox_gold[3], $itor($signed(bbox_gold[3])) / 256.0);
-    if (($signed(bbox_out[0]) - $signed(bbox_gold[0])) <= BBOX_TOL_LSB &&
-        ($signed(bbox_gold[0]) - $signed(bbox_out[0])) <= BBOX_TOL_LSB &&
-        ($signed(bbox_out[1]) - $signed(bbox_gold[1])) <= BBOX_TOL_LSB &&
-        ($signed(bbox_gold[1]) - $signed(bbox_out[1])) <= BBOX_TOL_LSB &&
-        ($signed(bbox_out[2]) - $signed(bbox_gold[2])) <= BBOX_TOL_LSB &&
-        ($signed(bbox_gold[2]) - $signed(bbox_out[2])) <= BBOX_TOL_LSB &&
-        ($signed(bbox_out[3]) - $signed(bbox_gold[3])) <= BBOX_TOL_LSB &&
-        ($signed(bbox_gold[3]) - $signed(bbox_out[3])) <= BBOX_TOL_LSB)
+    if (($signed(cx_o) - $signed(bbox_gold[0])) <= BBOX_TOL_LSB &&
+        ($signed(bbox_gold[0]) - $signed(cx_o)) <= BBOX_TOL_LSB &&
+        ($signed(cy_o) - $signed(bbox_gold[1])) <= BBOX_TOL_LSB &&
+        ($signed(bbox_gold[1]) - $signed(cy_o)) <= BBOX_TOL_LSB &&
+        ($signed(w_o)  - $signed(bbox_gold[2])) <= BBOX_TOL_LSB &&
+        ($signed(bbox_gold[2]) - $signed(w_o))  <= BBOX_TOL_LSB &&
+        ($signed(h_o)  - $signed(bbox_gold[3])) <= BBOX_TOL_LSB &&
+        ($signed(bbox_gold[3]) - $signed(h_o))  <= BBOX_TOL_LSB)
         $display("\n  [PASS] bbox matches golden within +-%0d LSB", BBOX_TOL_LSB);
     else
         $display("\n  [FAIL] bbox differs from golden (+- %0d LSB)", BBOX_TOL_LSB);
@@ -312,8 +156,9 @@ initial begin
 end
 
 initial begin
-    #2_000_000_000 ;
-    $display("[BBOX] TIMEOUT") ;
+    #TIMEOUT_NS ;
+    $display("[BBOX] TIMEOUT @ %0d ns (head_done never rose; stream_cnt=%0d head_busy=%0d)",
+             TIMEOUT_NS, stream_cnt, head_busy) ;
     $finish ;
 end
 
