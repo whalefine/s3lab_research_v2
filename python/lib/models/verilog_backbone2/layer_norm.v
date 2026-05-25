@@ -52,8 +52,10 @@ module layer_norm #(
     output reg  signed [15:0] y_o,
     output reg         y_valid,
     // Combinational saturated output (valid same cycle as feat_addr_o in S_NORM).
-    // Parent must capture y_sat_o on ln1_yv posedge — y_o is 1 cycle late (NBA).
-    output wire signed [15:0] y_sat_o
+    // Parent must capture y_sat_o on each out_beat_o posedge (y_o is 1 cycle late).
+    output wire signed [15:0] y_sat_o,
+    // High during S_NORM: y_sat_o and feat_addr_o are aligned (capture on posedge).
+    output wire        out_beat_o
 );
 
 // FSM state encoding
@@ -145,7 +147,8 @@ wire [31:0] wci_raw      = $signed(w_i) * ci_std;
 wire signed [15:0] wci   = rnd_q16_to_q8(wci_raw);
 wire signed [31:0] y_full = $signed(wci) + $signed(b_i);
 wire signed [15:0] y_sat  = sat_q88(y_full);
-assign y_sat_o = y_sat;
+assign y_sat_o   = y_sat;
+assign out_beat_o = (state == S_NORM);
 
 // Squared centered value for variance accumulation
 wire [31:0] csq = $signed(centered) * $signed(centered);  // (centered_int)²
