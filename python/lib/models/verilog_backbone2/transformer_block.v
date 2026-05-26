@@ -3,10 +3,10 @@
 //
 // Pipeline (matches block_forward in run_backbone_numpy_shared_trunk.py L526-560):
 //   external x_i  -> [S_LOAD_X] x_buf
-//                 -> [S_NORM1]  tmp_buf  = norm1(x_buf)
+//                 -> [S_NORM1]  tmp_buf  = norm1(x_buf); x_snap -> u_attn Sram_x
 //                 -> [S_ATTN_FEED + S_ATTN_WAIT]
-//                       u_attn streams tmp_buf in, emits attn output back into
-//                       tmp_buf (reused; norm1 output no longer needed)
+//                       S_ATTN_FEED: pulse attn_start (x preloaded during norm1)
+//                       S_ATTN_WAIT: capture attn y into tmp_buf
 //                 -> [S_RES1]   x_buf    = residual(x_buf, tmp_buf)  // in-place
 //                 -> [S_NORM2]  tmp_buf  = norm2(x_buf)
 //                 -> [S_MLP_FEED + S_MLP_WAIT]
@@ -92,7 +92,6 @@ Sram_tok1 u_sram_tmp (
 
 // 2-phase / multi-phase helpers (SRAM only)
 reg        x_norm_phase;   // norm1/2 x read: 0=ADDR, 1=USE -> u_norm1
-reg        feed_phase;     // attn/mlp feed tmp read: 0=ADDR, 1=USE
 reg [1:0]  res_subphase;   // S_RES1/S_RES2: 0=RD, 1=FEED, 2=WR or OUT
 
 reg [13:0]       tmp_wr_flat_lat;
@@ -137,8 +136,9 @@ wire [13:0] tmp_cap_flat = tok_cnt * EMBED_DIM + {9'b0, ln1_addr[4:0]};
 
 // Attention sub-block regs / wires
 reg                attn_start;
-reg  signed [15:0] attn_x;
-reg                attn_xv;
+wire               x_snap_wr;
+wire [13:0]        x_snap_flat;
+wire signed [15:0] x_snap_din;
 wire signed [15:0] attn_y;
 wire               attn_yv;
 wire               attn_busy, attn_done;
@@ -166,9 +166,7 @@ reg                res_v;
 wire signed [15:0] res_y;
 wire               res_v_o;
 
-// Generic streaming pointers reused across attn/mlp feed and residual phases
-reg [13:0] feed_ptr;
-reg        feed_active;
+// Generic streaming pointers reused across capture and residual phases
 reg [13:0] cap_ptr;
 reg [13:0] res_rp;
 reg [13:0] res_wp;
@@ -179,14 +177,22 @@ wire [13:0] xbuf_rp_addr = tok_cnt * EMBED_DIM + {9'b0, rp_feat};
 `ifdef USE_REG_BUF
 wire signed [15:0] xbuf_rp_data = x_buf[xbuf_rp_addr];
 wire               x_norm_use    = 1'b1;
-wire               feed_use      = 1'b1;
 `else
 wire signed [15:0] xbuf_rp_data = sx_q;
 wire               x_norm_use    = x_norm_phase;
-wire               feed_use      = feed_phase;
 `endif
 
 wire ln1_xv = rp_stream && in_norm_phase && x_norm_use;
+
+`ifdef USE_REG_BUF
+assign x_snap_wr   = (state == S_NORM1) && ln1_yv;
+assign x_snap_flat = tok_cnt * EMBED_DIM + {9'b0, ln1_addr[4:0]};
+assign x_snap_din  = ln1_y_sat;
+`else
+assign x_snap_wr   = (state == S_NORM1) && tmp_wr_do;
+assign x_snap_flat = tmp_wr_flat_lat;
+assign x_snap_din  = tmp_wr_din_lat;
+`endif
 
 layer_norm #(
     .FEAT_DIM (EMBED_DIM),
@@ -212,8 +218,11 @@ care_attention #(
     .clk      (clk),
     .reset    (reset),
     .start    (attn_start),
-    .x_i      (attn_x),
-    .x_valid  (attn_xv),
+    .x_i      (16'sd0),
+    .x_valid  (1'b0),
+    .x_snap_wr   (x_snap_wr),
+    .x_snap_flat (x_snap_flat),
+    .x_snap_din  (x_snap_din),
     .wgt_i    (wgt_i),
     .bias_i   (bias_i),
     .wgt_addr_o(attn_wgt_addr),
@@ -313,12 +322,6 @@ always @(*) begin
         st_addr = tmp_wr_flat_lat;
         st_din  = tmp_wr_din_lat[15:0];
     end
-  // tmp: attn feed read (ADDR phase)
-    else if ((state == S_ATTN_FEED) && feed_active && (feed_phase == 1'b0)) begin
-        st_ceb  = 1'b0;
-        st_web  = 1'b1;
-        st_addr = feed_ptr;
-    end
   // tmp: mlp FC1 norm2 read (ADDR); USE next cycle via st_q (no overlap mlp_yv write)
     else if (mlp_norm_rd_en) begin
         st_ceb  = 1'b0;
@@ -391,8 +394,7 @@ always @(*) begin
         S_NORM1:     next_state = (ln1_done && tok_cnt == N_TOKENS[8:0]) ? S_ATTN_FEED : S_NORM1;
         S_NORM2:     next_state = (ln1_done && tok_cnt == N_TOKENS[8:0]) ? S_MLP_FEED  : S_NORM2;
 
-        S_ATTN_FEED: next_state = (feed_ptr == TOK_FLAT[13:0] - 14'd1 && feed_use)
-                                   ? S_ATTN_WAIT : S_ATTN_FEED;
+        S_ATTN_FEED: next_state = S_ATTN_WAIT;
         S_ATTN_WAIT: next_state = attn_done ? S_RES1 : S_ATTN_WAIT;
 
         S_RES1:      next_state = (res_wp == TOK_FLAT[13:0]) ? S_NORM2 : S_RES1;
@@ -412,7 +414,6 @@ always @(posedge clk) begin
     y_valid    <= 1'b0;
     ln1_start  <= 1'b0;
     attn_start <= 1'b0;
-    attn_xv    <= 1'b0;
     mlp_start  <= 1'b0;
     res_v      <= 1'b0;
 
@@ -422,18 +423,14 @@ always @(posedge clk) begin
         feat_cnt    <= 5'd0;
         rp_feat     <= 5'd0;
         rp_stream   <= 1'b0;
-        feed_ptr    <= 14'd0;
-        feed_active <= 1'b0;
         cap_ptr     <= 14'd0;
         res_rp      <= 14'd0;
         res_wp      <= 14'd0;
-        attn_x      <= 16'sd0;
         res_a       <= 16'sd0;
         res_b       <= 16'sd0;
         y_o         <= 16'sd0;
 `ifndef USE_REG_BUF
         x_norm_phase <= 1'b0;
-        feed_phase   <= 1'b0;
         res_subphase <= 2'd0;
 `endif
     end else begin
@@ -444,14 +441,11 @@ always @(posedge clk) begin
                 feat_cnt    <= 5'd0;
                 rp_feat     <= 5'd0;
                 rp_stream   <= 1'b0;
-                feed_ptr    <= 14'd0;
-                feed_active <= 1'b0;
                 cap_ptr     <= 14'd0;
                 res_rp      <= 14'd0;
                 res_wp      <= 14'd0;
 `ifndef USE_REG_BUF
                 x_norm_phase <= 1'b0;
-                feed_phase   <= 1'b0;
                 res_subphase <= 2'd0;
 `endif
             end
@@ -515,8 +509,6 @@ always @(posedge clk) begin
                     ln1_start <= 1'b1;
 
                 if (ln1_done && tok_cnt == N_TOKENS) begin
-                    feed_ptr    <= 14'd0;
-                    feed_active <= 1'b0;
                     cap_ptr     <= 14'd0;
                     tok_cnt     <= 9'd0;
                     feat_cnt    <= 5'd0;
@@ -525,35 +517,11 @@ always @(posedge clk) begin
             end
 
             S_ATTN_FEED: begin
-                if (!feed_active) begin
-                    attn_start  <= 1'b1;
-                    feed_active <= 1'b1;
-                    feed_ptr    <= 14'd0;
-`ifndef USE_REG_BUF
-                    feed_phase  <= 1'b0;
-`endif
-                end else begin
-`ifdef USE_REG_BUF
-                    attn_x  <= tmp_buf[feed_ptr];
-                    attn_xv <= 1'b1;
-                    if (feed_ptr < TOK_FLAT[13:0] - 14'd1)
-                        feed_ptr <= feed_ptr + 14'd1;
-`else
-                    if (feed_phase == 1'b0)
-                        feed_phase <= 1'b1;
-                    else begin
-                        attn_x  <= st_q;
-                        attn_xv <= 1'b1;
-                        feed_phase <= 1'b0;
-                        if (feed_ptr < TOK_FLAT[13:0] - 14'd1)
-                            feed_ptr <= feed_ptr + 14'd1;
-                    end
-`endif
-                end
+                attn_start <= 1'b1;
+                cap_ptr    <= 14'd0;
             end
 
             S_ATTN_WAIT: begin
-                feed_active <= 1'b0;
 `ifdef USE_REG_BUF
                 if (attn_yv) begin
                     tmp_buf[cap_ptr] <= attn_y;
@@ -664,8 +632,6 @@ always @(posedge clk) begin
                     ln1_start <= 1'b1;
 
                 if (ln1_done && tok_cnt == N_TOKENS) begin
-                    feed_ptr    <= 14'd0;
-                    feed_active <= 1'b0;
                     cap_ptr     <= 14'd0;
                 end
             end

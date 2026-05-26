@@ -6,7 +6,8 @@
 // python/tracking/run_backbone_numpy_shared_trunk.py (Q8.8 CARE path).
 //
 // Pipeline (per block):
-//   norm1 stream -> [LOAD_X] -> [QKV linear] -> [SPLIT: scale + ReLU6 on q,k]
+//   parent norm1 x_snap -> Sram_x / x_in_buf -> [QKV linear] -> [SPLIT: scale + ReLU6 on q,k]
+//   (no S_LOAD_X: x preloaded by transformer_block during S_NORM1)
 //      -> [K_MEAN] -> [QK_MEAN] -> [Z_RECIP via NR]
 //      -> [KV outer mean] -> [ATTN: q@kv*zr]
 //      -> [PROJ linear] -> y_o stream
@@ -25,7 +26,7 @@
 //                     temporal overlap.)
 //   ao_buf -> Sram_v  (S_ATTN write, S_PROJ read; non-overlapping with v role)
 //
-//   x_in_buf [10240]   -> Sram_x (S_LOAD_X write, S_QKV 2-phase read; token-major flat)
+//   x_in_buf [10240]   -> Sram_x (x_snap_wr during parent norm1, S_QKV 2-phase read)
 //   q layout           -> Sram_q only (QKV capture, SPLIT, QK_MEAN, ATTN; no x)
 //   qkm_buf  [ 1280]   -> Sram_qkm (S_QK_MEAN write, S_Z_RECIP read/write zr)
 //   zr_buf   [ 1280]   -> same Sram_qkm (non-overlapping states vs qkm role)
@@ -59,7 +60,7 @@
 //                       * 2 = 20480.
 //   S_PROJ streaming : pj_sub (4-state: START/USE/ADDR/WAIT). Reads ao via Sram_v
 //                       to feed lin_proj_x; ~2 cycles per beat.
-//   S_LOAD_X / S_QKV x : qkv_x_phase on Sram_x (2-phase read for lin_qkv_x).
+//   S_QKV x read : qkv_x_phase on Sram_x (2-phase read for lin_qkv_x).
 //   S_Z_RECIP          : zr_phase on Sram_qkm (read qkm, write zr per index).
 //   S_ATTN zr          : at_zr_r shadow from Sram_qkm read at at_dk==0.
 //
@@ -94,9 +95,14 @@ module care_attention #(
     input  wire        reset,
     input  wire        start,
 
-    // Streaming input from norm1 (N_TOKENS * EMBED_DIM = 10240 beats, Q8.8)
+    // Legacy stream ports (tie off; parent preloads x via x_snap_* during norm1)
     input  wire signed [15:0] x_i,
     input  wire        x_valid,
+
+    // Parent norm1 capture (same beat / data as transformer_block tmp write)
+    input  wire        x_snap_wr,
+    input  wire [13:0] x_snap_flat,
+    input  wire signed [15:0] x_snap_din,
 
     // ROM weight / bias (1-cycle latency from wgt_addr_o)
     input  wire signed [15:0] wgt_i,
@@ -124,7 +130,6 @@ parameter X_ELEMS   = N_TOKENS * EMBED_DIM;              // 10240
 // FSM states (4-bit)
 // ---------------------------------------------------------------------------
 parameter S_IDLE    = 4'd0;
-parameter S_LOAD_X  = 4'd1;
 parameter S_QKV     = 4'd2;
 parameter S_SPLIT   = 4'd3;
 parameter S_K_MEAN  = 4'd4;
@@ -143,7 +148,7 @@ parameter PJ_WAIT  = 2'd3;
 
 // ---------------------------------------------------------------------------
 // Reg storage
-//   q/k/v/ao + x_in + qkm + zr : USE_REG_BUF legacy arrays only
+//   q/k/v/ao + x_in + qkm + zr : USE_REG_BUF legacy arrays (x_in via x_snap_wr)
 //   km_buf / kv_buf : always reg (small)
 // ---------------------------------------------------------------------------
 `ifdef USE_REG_BUF
@@ -187,7 +192,6 @@ reg [3:0] state, next_state;
 // ---------------------------------------------------------------------------
 // Counters / sub-state regs (declarations precede always blocks)
 // ---------------------------------------------------------------------------
-reg [13:0] load_ptr;
 reg [8:0]  qx_tok;
 reg [5:0]  qkv_stream_cnt;
 reg [1:0]  qkv_grp;
@@ -695,8 +699,7 @@ end
 // ---------------------------------------------------------------------------
 always @(*) begin
     case (state)
-        S_IDLE:    next_state = start ? S_LOAD_X : S_IDLE;
-        S_LOAD_X:  next_state = (load_ptr == X_ELEMS[13:0] - 14'd1 && x_valid) ? S_QKV : S_LOAD_X;
+        S_IDLE:    next_state = start ? S_QKV : S_IDLE;
         S_QKV:     next_state = (lin_qkv_done && qx_tok == N_TOKENS[8:0] - 9'd1) ? S_SPLIT : S_QKV;
         S_SPLIT:   next_state = (sp_ptr == HD_ELEMS[13:0] - 14'd1 && sp_phase == 1'b1) ? S_K_MEAN : S_SPLIT;
         S_K_MEAN:  next_state = (km_oidx == KM_ELEMS[4:0] - 5'd1 && km_n == N_TOKENS[8:0] - 9'd1 && km_phase == 1'b1) ? S_QK_MEAN : S_K_MEAN;
@@ -762,7 +765,6 @@ always @(posedge clk) begin
     lin_proj_xv    <= 1'b0;
 
     if (reset) begin
-        load_ptr        <= 14'd0;
         qx_tok          <= 9'd0;
         qkv_stream_cnt  <= 6'd0;
         sp_ptr          <= 14'd0;
@@ -801,9 +803,9 @@ always @(posedge clk) begin
         case (state)
             // -----------------------------------------------------------
             S_IDLE: begin
-                load_ptr        <= 14'd0;
                 qx_tok          <= 9'd0;
                 qkv_stream_cnt  <= 6'd0;
+                qkv_x_phase     <= 1'b0;
                 sp_ptr          <= 14'd0;
                 sp_phase        <= 1'b0;
                 km_oidx         <= 5'd0;
@@ -827,32 +829,11 @@ always @(posedge clk) begin
                 px_tok          <= 9'd0;
                 proj_stream_cnt <= 6'd0;
                 pj_sub          <= PJ_START;
-                qkv_x_phase     <= 1'b0;
                 zr_phase        <= 1'b0;
             end
 
             // -----------------------------------------------------------
-            // S_LOAD_X: capture norm1 stream (reg or Sram_x write).
-            // -----------------------------------------------------------
-            S_LOAD_X: begin
-`ifdef USE_REG_BUF
-                if (x_valid && load_ptr < X_ELEMS[13:0]) begin
-                    x_in_buf[load_ptr] <= x_i;
-                    load_ptr <= load_ptr + 14'd1;
-                end
-`else
-                if (x_valid && load_ptr < X_ELEMS[13:0])
-                    load_ptr <= load_ptr + 14'd1;
-`endif
-                if (next_state == S_QKV) begin
-                    qx_tok          <= 9'd0;
-                    qkv_stream_cnt  <= 6'd0;
-                    qkv_x_phase     <= 1'b0;
-                end
-            end
-
-            // -----------------------------------------------------------
-            // S_QKV: 2-phase read x from Sram_x (USE_SRAM_BUF) or combo reg.
+            // S_QKV: 2-phase read x from Sram_x (USE_SRAM_BUF) or x_in_buf reg.
             // q/k/v capture writes still via SRAM mux on lin_qkv_yv.
             // -----------------------------------------------------------
             S_QKV: begin
@@ -1187,6 +1168,14 @@ end
 // pulse (different driver, same data path).
 // ---------------------------------------------------------------------------
 always @(posedge clk) begin
+    if (x_snap_wr) begin
+`ifdef USE_REG_BUF
+        x_in_buf[x_snap_flat] <= x_snap_din;
+`endif
+    end
+end
+
+always @(posedge clk) begin
     if (state == S_QKV && lin_qkv_yv) begin
         qkv_grp    = lin_qkv_neu[6:5];
         neu_in_grp = lin_qkv_neu[4:0];
@@ -1222,17 +1211,13 @@ always @(*) begin
     s7_ceb = 1'b1; s7_web = 1'b1; s7_addr = 14'd0; s7_din = 16'd0;
 
 `ifndef USE_REG_BUF
-    case (state)
-        // ---- S_LOAD_X: write norm1 stream into Sram_x (token-major flat) ----
-        S_LOAD_X: begin
-            if (x_valid) begin
-                s7_ceb  = 1'b0;
-                s7_web  = 1'b0;
-                s7_addr = load_ptr;
-                s7_din  = x_i;
-            end
-        end
-
+    // Golden: parent norm1 tmp (backbone_blocks_<b>_after_norm1_out_bi.txt) via x_snap_wr
+    if (x_snap_wr) begin
+        s7_ceb  = 1'b0;
+        s7_web  = 1'b0;
+        s7_addr = x_snap_flat;
+        s7_din  = x_snap_din[15:0];
+    end else case (state)
         // ---- S_QKV: read x from Sram_x; capture q/k/v to s3/s4/s5 ----
         S_QKV: begin
             if (lin_qkv_yv) begin
@@ -1352,5 +1337,24 @@ always @(*) begin
 end
 
 assign busy = (state != S_IDLE);
+
+// -----------------------------------------------------------------------------
+// Simulation-only: B2 x_snap / Sram_x preload spot-check (first 4 writes).
+// Enable: +define+DUMP_ATTN_X_SNAP  (grep ATTN_X_SNAP simv.log)
+// Not synthesizable.
+// -----------------------------------------------------------------------------
+`ifdef DUMP_ATTN_X_SNAP
+reg [15:0] dbg_xsnap_cnt;
+
+always @(posedge clk) begin
+    if (reset)
+        dbg_xsnap_cnt <= 16'd0;
+    else if (x_snap_wr && (dbg_xsnap_cnt < 16'd4)) begin
+        $display("ATTN_X_SNAP %m idx=%0d flat=%0d din=%h",
+            dbg_xsnap_cnt, x_snap_flat, x_snap_din);
+        dbg_xsnap_cnt <= dbg_xsnap_cnt + 16'd1;
+    end
+end
+`endif
 
 endmodule

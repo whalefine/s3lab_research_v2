@@ -27,6 +27,16 @@
 //     care_attention per u_attn: Sram_x + Sram_q + Sram_k + Sram_v + Sram_qkm.
 //
 //   ./simv | tee simv.log
+//
+//   A1 linear debug (ROM addr vs w_i / acc / y_o):
+//     add +define+DUMP_LINEAR_DEBUG; grep simv.log LIN_DBG
+//     pass0 neu0: full 32 MAC lines; compare first "Y ... neu=0 y_next=" vs golden qkv q[0]
+//     A2 fc2: grep 'LIN_DBG.*u_fc2.* Y pass=0' vs backbone_blocks_0_mlp_after_mlp_out_bi.txt
+//   Full end-to-end (default): sel_block_i=6, runs blocks 0..5 + adaptive block 6 + norm
+//     grep -E '\\[PASS\\]|\\[FAIL\\]|TIMEOUT|backbone_top done' simv.log
+//
+//   Block0 only (fast debug): +define+CHECK_BLOCK0_ONLY
+//     early stop after block0; sel_block_i ignored
 // =============================================================================
 
 module TEST_backbone;
@@ -128,6 +138,14 @@ always @(posedge clk) begin
 end
 
 always @(negedge clk) begin
+`ifdef CHECK_BLOCK0_ONLY
+    if (!reset && (u_DUT.state == 3'd1) && (u_DUT.block_idx == 4'd0) && u_DUT.u_tb.done) begin
+        $display("\n---- early stop after block0 @ cycle %0d ----", cycle_cnt);
+        $display("  sel_block_i = %0d (CHECK_BLOCK0_ONLY)", sel_block_i);
+        $finish;
+    end
+`endif
+
     if (done) begin
         $display("\n---- backbone_top done @ cycle %0d ----", cycle_cnt);
         $display("  sel_block_i = %0d", sel_block_i);
@@ -140,8 +158,6 @@ always @(negedge clk) begin
         else
             $display("  [FAIL] backbone_after_norm_backbone_out mismatches = %0d / %0d  first_bad_idx = %0d",
                      bb_mism, TOK_TOTAL, bb_first_bad);
-        $toggle_stop();
-        $toggle_report("backbone_only_rtl.saif", 1.0e-9, "u_DUT");
         $finish;
     end
 end
@@ -180,7 +196,11 @@ initial begin
     bb_mism    = 0;
     bb_first_bad = 32'hFFFF_FFFF;
 
+`ifdef CHECK_BLOCK0_ONLY
+    sel_block_i = 4'd0;
+`else
     sel_block_i = 4'd6;
+`endif
 
     #(CYCLE) reset = 1;
     #(CYCLE) reset = 0;
@@ -190,10 +210,8 @@ initial begin
     @(negedge clk);
     start = 0;
 
-    #(CYCLE * 500_000_000);
-    $display("[TB] TIMEOUT: backbone_top did not finish");
-    $toggle_stop();
-    $toggle_report("backbone_only_rtl.saif", 1.0e-9, "u_DUT");
+    #(CYCLE * 800_000_000);
+    $display("[TB] TIMEOUT: backbone_top did not finish (cycle %0d)", cycle_cnt);
     $finish;
 end
 
