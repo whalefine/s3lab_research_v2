@@ -249,31 +249,38 @@ Agent 與使用者溝通時，若得知**僅能 display**，應優先建議 **�
 
 ```bash
 vcs *.v \
-memory/rom_backbone_blocks_0_3_attn_qkv_weight.v \
-memory/rom_backbone_blocks_0_3_mlp_fc1_weight.v \
-memory/rom_backbone_blocks_0_3_mlp_fc2_weight.v \
-memory/rom_backbone_blocks_0_6_attn_proj_bias.v \
-memory/rom_backbone_blocks_0_6_attn_proj_weight.v \
-memory/rom_backbone_blocks_0_6_attn_qkv_bias.v \
-memory/rom_backbone_blocks_0_6_mlp_fc1_bias.v \
-memory/rom_backbone_blocks_0_6_mlp_fc2_bias.v \
-memory/rom_backbone_blocks_0_6_norm1_bias.v \
-memory/rom_backbone_blocks_0_6_norm1_weight.v \
-memory/rom_backbone_blocks_0_6_norm2_bias.v \
-memory/rom_backbone_blocks_0_6_norm2_weight.v \
-memory/rom_backbone_blocks_4_6_attn_qkv_weight.v \
-memory/rom_backbone_blocks_4_6_mlp_fc1_weight.v \
-memory/rom_backbone_blocks_4_6_mlp_fc2_weight.v \
-memory/rom_backbone_norm_bias.v \
-memory/rom_backbone_norm_weight.v \
-memory/rom_box_head_shared_conv1_2_folded_bias.v \
-memory/rom_box_head_shared_conv1_folded_weight1.v \
-memory/rom_box_head_shared_conv1_folded_weight2.v \
-memory/rom_box_head_shared_conv2_folded_weight1.v \
-memory/rom_box_head_shared_conv2_folded_weight2.v \
-memory/rom_box_head_shared_conv2_folded_weight3.v \
-memory/rom_box_head_tail_ctr_offset_size_bias.v \
-memory/rom_box_head_tail_ctr_offset_size_weight.v \
+memory2/Sram_tok1.v \
+memory2/Sram_tok2.v \
+memory2/Sram_q.v \
+memory2/Sram_k.v \
+memory2/Sram_v.v \
+memory2/Sram_qkm.v \
+memory2/Sram_c2w.v \
+memory2/rom_backbone_blocks_0_3_attn_qkv_weight.v \
+memory2/rom_backbone_blocks_0_3_mlp_fc1_weight.v \
+memory2/rom_backbone_blocks_0_3_mlp_fc2_weight.v \
+memory2/rom_backbone_blocks_0_6_attn_proj_bias.v \
+memory2/rom_backbone_blocks_0_6_attn_proj_weight.v \
+memory2/rom_backbone_blocks_0_6_attn_qkv_bias.v \
+memory2/rom_backbone_blocks_0_6_mlp_fc1_bias.v \
+memory2/rom_backbone_blocks_0_6_mlp_fc2_bias.v \
+memory2/rom_backbone_blocks_0_6_norm1_bias.v \
+memory2/rom_backbone_blocks_0_6_norm1_weight.v \
+memory2/rom_backbone_blocks_0_6_norm2_bias.v \
+memory2/rom_backbone_blocks_0_6_norm2_weight.v \
+memory2/rom_backbone_blocks_4_6_attn_qkv_weight.v \
+memory2/rom_backbone_blocks_4_6_mlp_fc1_weight.v \
+memory2/rom_backbone_blocks_4_6_mlp_fc2_weight.v \
+memory2/rom_backbone_norm_bias.v \
+memory2/rom_backbone_norm_weight.v \
+memory2/rom_box_head_shared_conv1_2_folded_bias.v \
+memory2/rom_box_head_shared_conv1_folded_weight1.v \
+memory2/rom_box_head_shared_conv1_folded_weight2.v \
+memory2/rom_box_head_shared_conv2_folded_weight1.v \
+memory2/rom_box_head_shared_conv2_folded_weight2.v \
+memory2/rom_box_head_shared_conv2_folded_weight3.v \
+memory2/rom_box_head_tail_ctr_offset_size_bias.v \
+memory2/rom_box_head_tail_ctr_offset_size_weight.v \
 +lint=TFIPC-L -debug_access+all -debug_region+cell +define+TSMC_CM_NO_WARNING \
 | tee -i runvcs.log
 

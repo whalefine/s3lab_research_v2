@@ -1,5 +1,5 @@
 ---
-description: Verilog RTL synthesis coding rules for SGLATrack hardware accelerator
+description: Verilog-2005 RTL synthesis rules (FSM, latch avoidance, ROM/SRAM read contracts). Portable across projects; project-specific golden paths live in other rules.
 globs:
   - "**/*.v"
   - "python/lib/models/verilog_backbone2/**/*.v"
@@ -131,9 +131,11 @@ alwaysApply: false
 - 係數 **內容** 來自綜合前之 memory 映像；**僅改讀取時序／暫存／FSM** 通常 **不必** 重產映像。
 - **若** 變更 flatten 順序、位寬、深度、表內容 → 须重產映像並在回覆中告知（細節见專案 golden／ROM 流程規則，本節不列檔案表）。
 
-### 7. 本專案常見：ROM `CLK(~clk)` 與權重列預取（backbone / linear）
+### 7. 專案範例：ROM `CLK(~clk)` 與權重列預取（可選參考）
 
-本節為 **SGLATrack backbone** 實際除錯沉澱；細部 golden 路徑、ROM 檔名對照见 `numpy-trunk-to-verilog.mdc`，此處只寫 **可合成 RTL 必守時序**。
+> **§7.1–§7.6** 為本 repo **SGLATrack / CARE backbone** 除錯沉澱（權重 ROM、`linear` 預取）。**其他專案**可略過或替換為自己的 ROM 契約；**§7.7** 為 **通用 1P SRAM** 規則，建議所有使用 macro 的專案遵守。
+
+細部 golden 路徑、ROM 檔名见 `numpy-trunk-to-verilog.mdc`（若適用）。
 
 #### 7.1 讀取契約（須寫在模組頭）
 
@@ -179,6 +181,141 @@ alwaysApply: false
 
 - 權重預取 dump（例：`DUMP_WGT_PREFETCH`）應以 **module parameter**（例：`DUMP_WGT=1`）限制 **單一 instance**（通常只開 QKV `linear`），避免與 PROJ 混淆。
 - `$display` 標籤建議區分 **`[WGT_WR]`**（當拍寫入）與 **`[WGT_CHK]`**（進 MAC 前 buffer 快照）；兩者不一致時 **先查 7.2／7.5**，勿先重產 ROM。
+
+#### 7.7 SRAM macro（1P、`CLK(~clk)`）讀寫 cycle 對拍
+
+本節為 **activation／feature map 用 TSMC Single-Port SRAM** 之必守時序；與 §7.1 ROM 契約並列。若 compiler 產出為 **Dual-Port** 或 `CLK` 接法不同，須在模組頭 **改寫契約**，不可默認與本節相同。
+
+##### 7.7.1 介面與 port 型態
+
+- 本專案 SRAM macro 預設為 **Single Port（1P）**：每 cycle 僅 **read 或 write 擇一**，由 **`WEB`** 區分；**不可** 同址同拍 read+write。
+- 常見控制（active-low）：**`CEB=0`** 啟用 macro；**`WEB=0`** 寫入、**`WEB=1`** 讀取。
+- **`CEBM`／`WEBM` 等 B-port 腳位未接** → 視為 1P，勿當 2P 同拍讀寫。
+- 多顆 macro（如 `Sram_fmap1~4`）並行 = **多顆 1P 同時讀／寫不同 bank**，不是一顆 dual-port。
+
+##### 7.7.2 讀取契約（須寫在模組頭，與 §1 一致）
+
+本專案 TSMC 1P SRAM 若 **`CLK(~clk)`**（controller 用 **`posedge clk`**），預設 **同步 read latency = 1 個主時脈 posedge**：
+
+| 拍 | 動作 |
+|----|------|
+| **`posedge T`** | 送 **`A`**（addr）、**`CEB=0`**、**`WEB=1`**（read）；`D` 不關 |
+| **macro `negedge clk`** | macro 採樣 addr／控制 |
+| **`posedge T+1`** | **`Q`** 對應 **`A@T`** 之資料；**此拍** 才可鎖進 `data_r` 或送 MAC |
+
+建議模組頭固定三行（依 instance 改信號名）：
+
+```verilog
+// SRAM read contract (1P, CLK = ~clk):
+//   posedge T:   sram_addr, CEB=0, WEB=1
+//   posedge T+1: sram_q valid for addr@T; use only latched data_r (or sram_q@T+1), not addr@T+1
+```
+
+- **禁止** 在 **`posedge T` 更新 addr 的同一拍**，把組合 **`Q`** 直接送進乘加／比較（除非 datasheet＋golden 明訂 0-cycle，且 TB 同拍）。
+- 若 datapath 需再多一拍（例：`data_r <= sram_q` 後才 MAC），須在契約寫 **總 latency = 2**，並對齊 FSM counter；參考 `reference/rongxuan_verilog/CFVT.v` 之 `temp_fm1_out <= fm1_out`、`temp_ps_out <= ps_out`。
+
+##### 7.7.3 寫入契約
+
+預設 **write 占 1 個 `posedge clk` cycle**（與 read 相同，不可與 read 同拍混用同一 1P macro）：
+
+| 拍 | 動作 |
+|----|------|
+| **`posedge T`** | **`A`**、**`D`** 穩定；**`CEB=0`**、**`WEB=0`** |
+| **macro `negedge clk`** | 寫入完成 |
+
+- **位址遞增** 應在 **寫入拍之後** 的獨立拍進行（勿在 **`WEB` 仍為 write 的同一拍** 用「下一筆 addr」當作剛寫入資料之 index）；典型：`WEB=0` 拍寫入 → 下一拍 `A++`。
+- **禁止** 寫入完成當拍立刻 read 同址並假設 `Q` 為新值（1P macro 無 bypass；須至少隔 **1 read cycle** 或改 schedule）。
+
+##### 7.7.3.1 Producer 邊界：`reg valid` + 組合 `data`／`addr`（必守）
+
+部分子模組（典型 **`layer_norm` S_NORM**）在同一 `posedge` 內：
+
+- **`y_sat_o`（或等價 comb 輸出）** 與 **`feat_addr_o`** 對齊當拍資料；
+- **`y_valid`** 為 **reg**，在該 posedge **NBA** 才變 1，且 **`addr` 同拍遞增**。
+
+Consumer（top／controller）若用 **組合 `if (y_valid)`** 驅動 SRAM **`WEB=0`**，並以 **當拍 `feat_addr_o`** 當寫入 index → **off-by-one**：**index 0 漏寫**、後續整段錯位；與 macro read latency 無關，是 **握手錯**。
+
+**推薦 capture 契約**（須在 consumer 模組頭或 SRAM mux 旁註明）：
+
+| 拍 | 動作 |
+|----|------|
+| **`posedge T`**（producer **`out_beat_o` 或 `state==S_NORM` 為 1**） | 鎖 `{flat, y_sat_o}` 進 **`s1_wr_flat_lat` / `s1_wr_din_lat`**（`flat = tok×C + feat_addr`，row-major） |
+| **`posedge T+1`**（**`s1_wr_do`** 為 1） | 驅動 **`A/D/WEB=0/CEB=0`** 寫入 macro；**`USE_REG_BUF`** 路徑同拍 **`out_buf[lat] <= din`** |
+
+- **禁止** 以 **`y_valid` 組合** 當 SRAM 寫入 enable（除非已證明 producer 的 `valid` 與 `data`／index **同拍穩定**，見下）。
+- **`y_o`（reg）** 比 **`y_sat_o`（comb）** 晚一拍；capture 以 **`y_sat_o` + 當拍 `feat_addr_o`** 為準，勿混用。
+- Producer 須在 port 註解或 **`out_beat_o`** 標示可 capture 的 beat（見 `layer_norm.v`）。
+
+**與 stream 寫入的區別**（勿套用同一條件）：
+
+| 來源 | 握手 | SRAM 寫入 |
+|------|------|-----------|
+| **`tb_y_valid` + `tok_wr_ptr`** 等 | `valid`、`data`、index **同拍穩定**；ptr **NBA** 遞增 | 組合 **`if (valid)`** 寫入 **通常 OK** |
+| **`layer_norm` → backbone norm** | `y_sat_o`／`feat_addr` comb；**`y_valid` reg 晚一拍** | **須 posedge latch + 延遲一拍寫**（上表） |
+
+##### 7.7.4 推薦 RTL 型態（擇一，註解對應契約）
+
+| 型態 | 作法 | 總 read latency |
+|------|------|-----------------|
+| **直接鎖 `Q`** | `posedge T` 送 addr；`posedge T+1`：`buf <= sram_q` | 1 |
+| **顯式 `data_r`** | 同上，MAC **只** 用 `data_r` | 1（消耗在 T+2 若 MAC 再晚一拍） |
+| **ADDR／USE 兩段** | FSM：`S_ADDR` 只改 addr；`S_USE` 才乘加 | 依 FSM 固定 |
+| **line／window buffer** | 連續多 addr 讀入 shift register 再 conv | 首元素 1 cycle，其後可 overlap |
+
+##### 7.7.5 與 golden 對拍
+
+- numpy／Python check **預設無 macro 延遲**；RTL 有 **T→T+1** read 時，須 **加暫存／錯拍** 或 **更新 golden 產生流程**（見 `numpy-trunk-to-verilog.mdc`），不可兩邊時間軸不同卻比最終 activation。
+- 除錯時依 **§16 前向對拍**：先確認 **第一個使用 `Q` 的節點** 與契約一致，再查量化。
+
+##### 7.7.6 明確禁止的反模式
+
+- **禁止** 1P macro 同拍 **`WEB=0` 寫入** 又讀 **`Q`** 做 MAC。
+- **禁止** `conv_cnt`（或同類 counter）在 **送 addr 拍** 與 **消耗 `Q` 拍** 使用 **同一計數值** 卻未錯開（off-by-one 窗口／權重）。
+- **禁止** 未寫 §7.7.2 契約就接 `Sram_*`；綜合能過但 golden 全錯。
+- **禁止** 對 **`layer_norm` 類 producer** 用 **`y_valid` 組合** 寫 SRAM，並以 **同拍 `feat_addr_o`** 當 **`A`**（见 §7.7.3.1）；典型症狀：**`flat=0` 未寫**、**`first_bad_idx=0`**、sim 中 **`s1_q@0` 為 X**。
+- **禁止** 因 **depth 相同** 就把 **不同語意／不同 flatten 公式** 的 activation 塞進 **同一顆 1P SRAM**（见 §7.7.7）。
+- **`RTSEL`／`WTSEL`** 若與 compiler 默認不同，須在模組頭注明 read/write cycle 是否仍為 1；變更時重新對拍。
+
+##### 7.7.7 同 depth、不同 flatten — 禁止共用一顆 1P SRAM
+
+當兩條 datapath **有效地址範圍相同**（例如皆為 `0 .. N*C-1`），但 **index 公式不同**（不同 tensor layout），**同一 flat index 可代表不同語意** 的資料。
+
+- **禁止** 假設「10240 深度夠大就可共用一顆 scratch SRAM」；**寫入 A 語意** 可能 **覆蓋 B 語意** 仍須讀取的元素（即使 index 數字相同）。
+- **症狀**：中間層 golden **部分 index 對、部分錯**；常見 **約一半 FAIL**（alias 週期性出現）。
+- **解法（擇一）**：
+  - **分離 macro**（各 layout 一顆）；
+  - **統一 flatten**（軟體與硬體同一公式）；
+  - **時間分割**（絕不 overlap 讀寫同一 layout 的生命週期）；
+  - **parent 單一 scratch + 子模組 port 讀**（子模組不再 `S_LOAD_X` 複製），並在 FSM 上保證 **覆寫前讀完**。
+
+模組頭應寫清 **每種 layout 的 flatten 公式** 與 **哪顆 SRAM 承載哪種 layout**。
+
+##### 7.7.8 子模組向 parent 請求 activation read（port + 2-phase）
+
+當子模組 **不再持有** 大型 `x_in_buf`，改由 **parent 的 scratch SRAM / reg** 供料時，建議介面（名稱可改，語意固定）：
+
+| 方向 | 訊號 | 說明 |
+|------|------|------|
+| child → parent | `*_rd_en` | **ADDR 拍** 為 1：請 parent 對 macro 送 read |
+| child → parent | `*_rd_flat` | token-major（或契約訂定）flat index |
+| parent → child | `*_x` | **USE 拍** 有效資料（`USE_REG_BUF`：comb `buf[flat]`；SRAM：`Q` @ T+1） |
+
+**時序（與 §7.7.2 一致）**：
+
+| 拍 | child | parent SRAM mux |
+|----|-------|-----------------|
+| T | `*_rd_en=1`，送出 `*_rd_flat` | `WEB=1`，`A=flat` |
+| T+1 | `*_rd_en=0`，鎖 `*_x <=` 讀出資料 | 消耗 `Q` |
+
+**禁止** 在 child 內用 **大 2D shadow reg** 取代 parent SRAM（见專案 `SRAM_suggestion.mdc` §5.1 #2）。
+
+**parent 多路請求**（norm capture 寫、子模組 FC1 讀、stream 寫出）須在 **combinational mux** 定義 **固定優先級**，並在 parent 模組頭列出；**禁止** 兩路同拍對 **同一 1P** 又讀又寫。
+
+##### 7.7.9 `ADDR`／`USE` phase 命名慣例（FSM）
+
+- 使用 **`_phase`、`_rd_phase`、`feed_phase`、`qkv_x_phase`** 等 **1-bit**：`0` = ADDR（送址），`1` = USE（消耗資料／寫回）。
+- **in-place read-modify-write** on 1P SRAM：**必須** 拆兩拍（或 shadow scalar + 寫回拍），不可依賴 reg 陣列「同拍讀舊寫新」語意。
+- 模組頭 **契約三行**（§7.7.2）須標明本模組採用哪種 phase 名稱。
 
 ## 驗證
 - 測試平台用 Verilog 撰寫，DUT 必須保持可合成
