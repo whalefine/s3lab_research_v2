@@ -10,7 +10,8 @@
 //                 -> [S_RES1]   x_buf    = residual(x_buf, tmp_buf)  // in-place
 //                 -> [S_NORM2]  tmp_buf  = norm2(x_buf)
 //                 -> [S_MLP_FEED + S_MLP_WAIT]
-//                       u_mlp streams tmp_buf in, emits mlp output into tmp_buf
+//                       S_MLP_FEED: pulse mlp_start; FC1 reads norm2 via 2-phase tmp
+//                       S_MLP_WAIT: capture mlp y into tmp
 //                 -> [S_RES2]   y_o      = residual(x_buf, tmp_buf)  // streamed
 //                 -> [S_DONE]
 //
@@ -143,14 +144,21 @@ wire               attn_yv;
 wire               attn_busy, attn_done;
 wire [12:0]        attn_wgt_addr;
 
-// MLP sub-block regs / wires
+// MLP sub-block (norm2 read: norm_rd_* -> tmp / u_sram_tmp, 2-phase)
 reg                mlp_start;
-reg  signed [15:0] mlp_x;
-reg                mlp_xv;
+wire               mlp_norm_rd_en;
+wire [13:0]        mlp_norm_rd_flat;
+wire signed [15:0] mlp_norm_x;
 wire signed [15:0] mlp_y;
 wire               mlp_yv;
 wire               mlp_busy, mlp_done;
 wire [15:0]        mlp_wgt_addr;
+
+`ifdef USE_REG_BUF
+assign mlp_norm_x = tmp_buf[mlp_norm_rd_flat];
+`else
+assign mlp_norm_x = st_q;
+`endif
 
 // Residual sub-block regs / wires
 reg  signed [15:0] res_a, res_b;
@@ -220,18 +228,19 @@ mlp #(
     .MLP_DIM  (MLP_DIM),
     .N_TOKENS (N_TOKENS)
 ) u_mlp (
-    .clk      (clk),
-    .reset    (reset),
-    .start    (mlp_start),
-    .x_i      (mlp_x),
-    .x_valid  (mlp_xv),
-    .wgt_i    (wgt_i),
-    .bias_i   (bias_i),
-    .wgt_addr_o(mlp_wgt_addr),
-    .busy     (mlp_busy),
-    .done     (mlp_done),
-    .y_o      (mlp_y),
-    .y_valid  (mlp_yv)
+    .clk          (clk),
+    .reset        (reset),
+    .start        (mlp_start),
+    .norm_rd_en   (mlp_norm_rd_en),
+    .norm_rd_flat (mlp_norm_rd_flat),
+    .norm_x       (mlp_norm_x),
+    .wgt_i        (wgt_i),
+    .bias_i       (bias_i),
+    .wgt_addr_o   (mlp_wgt_addr),
+    .busy         (mlp_busy),
+    .done         (mlp_done),
+    .y_o          (mlp_y),
+    .y_valid      (mlp_yv)
 );
 
 residual #(.WIDTH(16)) u_res (
@@ -304,12 +313,17 @@ always @(*) begin
         st_addr = tmp_wr_flat_lat;
         st_din  = tmp_wr_din_lat[15:0];
     end
-  // tmp: attn/mlp feed read (ADDR phase)
-    else if (((state == S_ATTN_FEED) || (state == S_MLP_FEED)) &&
-             feed_active && (feed_phase == 1'b0)) begin
+  // tmp: attn feed read (ADDR phase)
+    else if ((state == S_ATTN_FEED) && feed_active && (feed_phase == 1'b0)) begin
         st_ceb  = 1'b0;
         st_web  = 1'b1;
         st_addr = feed_ptr;
+    end
+  // tmp: mlp FC1 norm2 read (ADDR); USE next cycle via st_q (no overlap mlp_yv write)
+    else if (mlp_norm_rd_en) begin
+        st_ceb  = 1'b0;
+        st_web  = 1'b1;
+        st_addr = mlp_norm_rd_flat;
     end
   // tmp: attn/mlp capture write
     else if ((state == S_ATTN_WAIT) && attn_yv) begin
@@ -383,8 +397,7 @@ always @(*) begin
 
         S_RES1:      next_state = (res_wp == TOK_FLAT[13:0]) ? S_NORM2 : S_RES1;
 
-        S_MLP_FEED:  next_state = (feed_ptr == TOK_FLAT[13:0] - 14'd1 && feed_use)
-                                   ? S_MLP_WAIT : S_MLP_FEED;
+        S_MLP_FEED:  next_state = S_MLP_WAIT;
         S_MLP_WAIT:  next_state = mlp_done ? S_RES2 : S_MLP_WAIT;
 
         S_RES2:      next_state = (res_wp == TOK_FLAT[13:0]) ? S_DONE : S_RES2;
@@ -401,7 +414,6 @@ always @(posedge clk) begin
     attn_start <= 1'b0;
     attn_xv    <= 1'b0;
     mlp_start  <= 1'b0;
-    mlp_xv     <= 1'b0;
     res_v      <= 1'b0;
 
     if (reset) begin
@@ -416,7 +428,6 @@ always @(posedge clk) begin
         res_rp      <= 14'd0;
         res_wp      <= 14'd0;
         attn_x      <= 16'sd0;
-        mlp_x       <= 16'sd0;
         res_a       <= 16'sd0;
         res_b       <= 16'sd0;
         y_o         <= 16'sd0;
@@ -660,35 +671,11 @@ always @(posedge clk) begin
             end
 
             S_MLP_FEED: begin
-                if (!feed_active) begin
-                    mlp_start   <= 1'b1;
-                    feed_active <= 1'b1;
-                    feed_ptr    <= 14'd0;
-`ifndef USE_REG_BUF
-                    feed_phase  <= 1'b0;
-`endif
-                end else begin
-`ifdef USE_REG_BUF
-                    mlp_x  <= tmp_buf[feed_ptr];
-                    mlp_xv <= 1'b1;
-                    if (feed_ptr < TOK_FLAT[13:0] - 14'd1)
-                        feed_ptr <= feed_ptr + 14'd1;
-`else
-                    if (feed_phase == 1'b0)
-                        feed_phase <= 1'b1;
-                    else begin
-                        mlp_x  <= st_q;
-                        mlp_xv <= 1'b1;
-                        feed_phase <= 1'b0;
-                        if (feed_ptr < TOK_FLAT[13:0] - 14'd1)
-                            feed_ptr <= feed_ptr + 14'd1;
-                    end
-`endif
-                end
+                mlp_start <= 1'b1;
+                cap_ptr   <= 14'd0;
             end
 
             S_MLP_WAIT: begin
-                feed_active <= 1'b0;
 `ifdef USE_REG_BUF
                 if (mlp_yv) begin
                     tmp_buf[cap_ptr] <= mlp_y;
