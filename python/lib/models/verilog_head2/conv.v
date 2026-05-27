@@ -22,8 +22,7 @@ module conv (
     y_data   ,
     y_oc     ,
     y_oh     ,
-    y_ow     ,
-    mac_x_phase
+    y_ow
 );
 
 parameter IN_CH    = 32 ;
@@ -62,7 +61,6 @@ output [DATA_W-1:0]         y_data  ;
 output [OC_AW-1:0]          y_oc    ;
 output [HW_AW-1:0]          y_oh    ;
 output [HW_AW-1:0]          y_ow    ;
-output                      mac_x_phase ;
 
 parameter S_IDLE = 3'd0 ;
 parameter S_WPRE = 3'd1 ;
@@ -207,7 +205,6 @@ assign y_data  = y_data_r ;
 assign y_oc    = y_oc_r ;
 assign y_oh    = y_oh_r ;
 assign y_ow    = y_ow_r ;
-assign mac_x_phase = (CS == S_MAC) ? mac_phase : 1'b0 ;
 
 assign ow_last       = (ow_r == OUT_W - 1) ;
 assign oh_last       = (oh_r == OUT_H - 1) ;

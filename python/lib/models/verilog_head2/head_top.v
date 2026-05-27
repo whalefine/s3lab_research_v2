@@ -4,11 +4,6 @@
 // numpy: head_shared_trunk() + cal_bbox() in run_backbone_numpy_shared_trunk.py
 // Input: backbone token stream ; search -> x_buf[8192] ; Golden: bbox + activations
 // Weights in conv.v / tail.v ROM (memory/ at compile)
-// sh1 (conv1 out / conv2 in): Sram_q lo + Sram_k hi (12288x16 each, A[13:0] per macro)
-//   bank = flat >= SH1_HALF(12288); local = flat[13:0] or flat[13:0]-12288
-// Golden: Activation/box_head_shared_after_conv1_out_bi.txt
-// SRAM 1P CLK(~clk): posedge T A/WEB=1 -> posedge T+1 Q; conv2 .x_i(sh1_rd_q) on MAC phase1
-// Write: latch on c1_y_valid, drive WEB=0 next posedge (was negedge reg capture)
 // =============================================================================
 
 module head_top #(
@@ -44,7 +39,6 @@ localparam TOT_VALS_M1 = TOT_VALS - 1;
 localparam IN_LEN_HEAD = FEAT_SZ * IN_CH;
 localparam C1_LEN      = C_SH1 * FEAT_SZ;
 localparam C2_LEN      = C_SH2 * FEAT_SZ;
-localparam SH1_HALF    = C1_LEN >> 1;
 
 wire rst_n = ~reset;
 
@@ -66,6 +60,7 @@ wire        fill_search = (fill_cnt >= SKIP_VALS) && (fill_cnt < TOT_VALS);
 wire [13:0] fill_dst    = {fill_c, fill_n};
 
 reg [DATA_W-1:0] x_buf   [0:IN_LEN_HEAD-1];
+reg [DATA_W-1:0] sh1_buf [0:C1_LEN-1];
 reg [DATA_W-1:0] sh2_buf [0:C2_LEN-1];
 reg [DATA_W-1:0] bbox_reg [0:3];
 
@@ -80,13 +75,9 @@ reg  [DATA_W-1:0] c1_x_i_q;
 wire              c2_busy, c2_done, c2_y_valid;
 wire [DATA_W-1:0] c2_y_data;
 wire [14:0]       c2_x_addr;
-wire              c2_mac_x_phase;
-wire              c1_mac_x_phase_unused;
+reg  [DATA_W-1:0] c2_x_i_q;
 
-reg [14:0] c1_wr_idx;
-reg        c1_wr_do;
-reg [14:0] c1_wr_idx_lat;
-reg [15:0] c1_wr_din_lat;
+reg [31:0] c1_wr_idx;
 reg [31:0] c2_wr_idx;
 
 wire              t_busy, t_done;
@@ -99,81 +90,12 @@ wire              b_busy, b_done, b_valid;
 wire [DATA_W-1:0] b_data;
 wire [1:0]        b_idx;
 
-reg        s1q_ceb, s1q_web, s1k_ceb, s1k_web;
-reg [13:0] s1_addr;
-reg [15:0] s1_din;
-wire [15:0] s1q_q, s1k_q;
-wire [15:0] sh1_rd_q;
-wire        sh1_wr_en;
-wire        sh1_rd_en;
-wire [14:0] sh1_wr_flat;
-wire [14:0] sh1_rd_flat;
-wire        sh1_wr_bank;
-wire        sh1_rd_bank;
-wire [13:0] sh1_wr_local;
-wire [13:0] sh1_rd_local;
-
-assign sh1_wr_en    = c1_wr_do;
-assign sh1_wr_flat  = c1_wr_idx_lat;
-assign sh1_wr_bank  = (sh1_wr_flat >= SH1_HALF);
-assign sh1_wr_local = sh1_wr_bank ? (sh1_wr_flat[13:0] - SH1_HALF[13:0]) :
-                                     sh1_wr_flat[13:0];
-
-assign sh1_rd_en    = (CS == S_CONV2) && c2_busy && !c2_mac_x_phase;
-assign sh1_rd_flat  = c2_x_addr;
-assign sh1_rd_bank  = (sh1_rd_flat >= SH1_HALF);
-assign sh1_rd_local = sh1_rd_bank ? (sh1_rd_flat[13:0] - SH1_HALF[13:0]) :
-                                     sh1_rd_flat[13:0];
-
-assign sh1_rd_q     = sh1_rd_bank ? s1k_q : s1q_q;
-
-Sram_q u_sh1_sram_q (
-    .SLP    (1'b0),
-    .DSLP   (1'b0),
-    .SD     (1'b0),
-    .PUDELAY(),
-    .CLK    (~clk),
-    .CEB    (s1q_ceb),
-    .WEB    (s1q_web),
-    .BIST   (1'b0),
-    .CEBM   (),
-    .WEBM   (),
-    .A      (s1_addr),
-    .D      (s1_din),
-    .BWEB   (16'b0),
-    .AM     (),
-    .DM     (),
-    .BWEBM  (16'b0),
-    .RTSEL  (2'b01),
-    .WTSEL  (2'b00),
-    .Q      (s1q_q)
-);
-
-Sram_k u_sh1_sram_k (
-    .SLP    (1'b0),
-    .DSLP   (1'b0),
-    .SD     (1'b0),
-    .PUDELAY(),
-    .CLK    (~clk),
-    .CEB    (s1k_ceb),
-    .WEB    (s1k_web),
-    .BIST   (1'b0),
-    .CEBM   (),
-    .WEBM   (),
-    .A      (s1_addr),
-    .D      (s1_din),
-    .BWEB   (16'b0),
-    .AM     (),
-    .DM     (),
-    .BWEBM  (16'b0),
-    .RTSEL  (2'b01),
-    .WTSEL  (2'b00),
-    .Q      (s1k_q)
-);
-
-// x_buf / sh2_buf read (negedge sample)
+// input SRAM read (1-cycle latency, negedge sample)
 always @(negedge clk)
     c1_x_i_q <= x_buf[c1_x_addr];
+
+always @(negedge clk)
+    c2_x_i_q <= sh1_buf[c2_x_addr];
 
 always @(negedge clk)
     t_x_i_q <= sh2_buf[t_x_addr];
@@ -203,8 +125,7 @@ conv #(
     .y_data  (c1_y_data ),
     .y_oc    (           ),
     .y_oh    (           ),
-    .y_ow    (           ),
-    .mac_x_phase (c1_mac_x_phase_unused)
+    .y_ow    (           )
 );
 
 conv #(
@@ -227,64 +148,24 @@ conv #(
     .busy    (c2_busy   ),
     .done    (c2_done   ),
     .x_addr  (c2_x_addr ),
-    .x_i     (sh1_rd_q  ),
+    .x_i     (c2_x_i_q  ),
     .y_valid (c2_y_valid),
     .y_data  (c2_y_data ),
     .y_oc    (           ),
     .y_oh    (           ),
-    .y_ow    (           ),
-    .mac_x_phase (c2_mac_x_phase)
+    .y_ow    (           )
 );
 
-// sh1 SRAM port mux (1P: one bank read or write per cycle)
-always @(*) begin
-    s1q_ceb  = 1'b1;
-    s1q_web  = 1'b1;
-    s1k_ceb  = 1'b1;
-    s1k_web  = 1'b1;
-    s1_addr  = 14'd0;
-    s1_din   = 16'd0;
-
-    if (sh1_wr_en) begin
-        s1_addr = sh1_wr_local;
-        s1_din  = c1_wr_din_lat;
-        if (sh1_wr_bank) begin
-            s1k_ceb = 1'b0;
-            s1k_web = 1'b0;
-        end else begin
-            s1q_ceb = 1'b0;
-            s1q_web = 1'b0;
-        end
-    end else if (sh1_rd_en) begin
-        s1_addr = sh1_rd_local;
-        if (sh1_rd_bank) begin
-            s1k_ceb = 1'b0;
-            s1k_web = 1'b1;
-        end else begin
-            s1q_ceb = 1'b0;
-            s1q_web = 1'b1;
-        end
+// sh1_buf / sh2_buf capture (negedge, same as conv ROM data tick)
+always @(negedge clk) begin
+    if (!rst_n)
+        c1_wr_idx <= 32'd0;
+    else if (c1_y_valid) begin
+        sh1_buf[c1_wr_idx] <= c1_y_data;
+        c1_wr_idx <= c1_wr_idx + 32'd1;
     end
 end
 
-// sh1 SRAM write capture + index (1-cycle delayed write vs c1_y_valid)
-always @(posedge clk) begin
-    if (reset) begin
-        c1_wr_idx     <= 15'd0;
-        c1_wr_do      <= 1'b0;
-        c1_wr_idx_lat <= 15'd0;
-        c1_wr_din_lat <= 16'd0;
-    end else begin
-        c1_wr_do <= c1_y_valid && (CS == S_CONV1);
-        if (c1_y_valid && (CS == S_CONV1)) begin
-            c1_wr_idx_lat <= c1_wr_idx;
-            c1_wr_din_lat <= c1_y_data;
-            c1_wr_idx     <= c1_wr_idx + 15'd1;
-        end
-    end
-end
-
-// sh2_buf capture (negedge, same as conv ROM data tick)
 always @(negedge clk) begin
     if (!rst_n)
         c2_wr_idx <= 32'd0;
@@ -394,7 +275,7 @@ always @(posedge clk) begin
         c2_started <= 1'b0;
         t_started  <= 1'b0;
         b_started  <= 1'b0;
-        c1_wr_idx  <= 15'd0;
+        c1_wr_idx  <= 32'd0;
         c2_wr_idx  <= 32'd0;
     end else begin
         case (CS)
@@ -409,7 +290,7 @@ always @(posedge clk) begin
                 if (!c1_started) begin
                     c1_start   <= 1'b1;
                     c1_started <= 1'b1;
-                    c1_wr_idx  <= 15'd0;
+                    c1_wr_idx  <= 32'd0;
                 end
             end
 
