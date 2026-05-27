@@ -13,7 +13,7 @@
 //      -> [PROJ linear] -> y_o stream
 //
 // ============================================================================
-// SRAM activation buffers (inline macros under USE_SRAM_BUF):
+// SRAM activation buffers (inline macros):
 // ============================================================================
 //   q_buf  -> Sram_q  (12288 x 16, inline instantiated below)
 //   k_buf  -> Sram_k  (12288 x 16, inline instantiated below)
@@ -63,9 +63,7 @@
 //   S_QKV x read : qkv_x_phase on Sram_x (2-phase read for lin_qkv_x).
 //   S_Z_RECIP          : zr_phase on Sram_qkm (read qkm, write zr per index).
 //   S_ATTN zr          : at_zr_r shadow from Sram_qkm read at at_dk==0.
-//
-// ifdef USE_REG_BUF keeps the legacy reg-array path so the regression baseline
-// (no memory2/ macros) still passes the same golden.
+
 //
 // Golden activation files (Q8.8, one 16-bit binary per line, C-order flatten):
 //   backbone_blocks_<b>_attn_after_qkv_q_bi.txt   (H,N,d) = 4*320*8 = 10240
@@ -147,38 +145,14 @@ parameter PJ_USE   = 2'd2;
 parameter PJ_WAIT  = 2'd3;
 
 // ---------------------------------------------------------------------------
-// Reg storage
-//   q/k/v/ao + x_in + qkm + zr : USE_REG_BUF legacy arrays (x_in via x_snap_wr)
-//   km_buf / kv_buf : always reg (small)
+// Small reg scratch (km_buf / kv_buf; attention SRAM macros for q/k/v/ao/x)
 // ---------------------------------------------------------------------------
-`ifdef USE_REG_BUF
-reg signed [15:0] x_in_buf [0:X_ELEMS-1];
-reg signed [15:0] q_buf    [0:HD_ELEMS-1];
-reg signed [15:0] k_buf    [0:HD_ELEMS-1];
-reg signed [15:0] v_buf    [0:HD_ELEMS-1];
-reg signed [15:0] ao_buf   [0:X_ELEMS-1];
-reg signed [15:0] qkm_buf  [0:QKM_ELEMS-1];
-reg signed [15:0] zr_buf   [0:QKM_ELEMS-1];
-`endif
 reg signed [15:0] km_buf   [0:KM_ELEMS-1];
 reg signed [15:0] kv_buf   [0:KV_ELEMS-1];
 
 `ifndef SYNTHESIS
 integer ca_ii;
 initial begin
-`ifdef USE_REG_BUF
-    for (ca_ii = 0; ca_ii < X_ELEMS;  ca_ii = ca_ii + 1) x_in_buf[ca_ii] = 16'sd0;
-    for (ca_ii = 0; ca_ii < X_ELEMS;  ca_ii = ca_ii + 1) ao_buf  [ca_ii] = 16'sd0;
-    for (ca_ii = 0; ca_ii < HD_ELEMS; ca_ii = ca_ii + 1) begin
-        q_buf[ca_ii] = 16'sd0;
-        k_buf[ca_ii] = 16'sd0;
-        v_buf[ca_ii] = 16'sd0;
-    end
-    for (ca_ii = 0; ca_ii < QKM_ELEMS; ca_ii = ca_ii + 1) begin
-        qkm_buf[ca_ii] = 16'sd0;
-        zr_buf [ca_ii] = 16'sd0;
-    end
-`endif
     for (ca_ii = 0; ca_ii < KM_ELEMS;  ca_ii = ca_ii + 1) km_buf [ca_ii] = 16'sd0;
     for (ca_ii = 0; ca_ii < KV_ELEMS;  ca_ii = ca_ii + 1) kv_buf[ca_ii] = 16'sd0;
 end
@@ -194,12 +168,6 @@ reg [3:0] state, next_state;
 // ---------------------------------------------------------------------------
 reg [8:0]  qx_tok;
 reg [5:0]  qkv_stream_cnt;
-reg [1:0]  qkv_grp;
-reg [4:0]  neu_in_grp;
-reg [1:0]  cap_h;
-reg [2:0]  cap_d;
-reg [13:0] cap_flat;
-
 reg [13:0] sp_ptr;              // S_SPLIT pointer 0..HD_ELEMS-1
 
 reg [4:0]  km_oidx;             // S_K_MEAN outer (h*HEAD_DIM + d) 0..KM_ELEMS-1
@@ -440,7 +408,6 @@ recip_nr u_recip (
 //   memory2/Sram_x.v, Sram_q.v, Sram_k.v, Sram_v.v, Sram_qkm.v
 //   Sram_x: 12288x16 SP (use 10240 for norm1 x_in_buf; compile same as Sram_q)
 // ---------------------------------------------------------------------------
-`ifndef USE_REG_BUF
 Sram_x u_sram_x (
     .SLP    (1'b0),
     .DSLP   (1'b0),
@@ -550,20 +517,11 @@ Sram_qkm u_sram_qkm (
     .WTSEL  (2'b00),
     .Q      (s6_q)
 );
-`else
-// USE_REG_BUF: no macros. Tie Q wires to 0 so they have a defined value.
-assign s3_q = 16'sd0;
-assign s4_q = 16'sd0;
-assign s5_q = 16'sd0;
-assign s6_q = 16'sd0;
-assign s7_q = 16'sd0;
-`endif
 
 // ---------------------------------------------------------------------------
 // Index decoders (combinational)
 //   Source of data for accumulators:
-//     USE_REG_BUF=on : combinational read of reg arrays
-//     USE_REG_BUF=off: data comes from s3_q / s4_q / s5_q (1-cycle delayed read)
+//     Data from s3_q / s4_q / s5_q (1-cycle delayed read)
 //   In SRAM mode, the *_phase regs ensure compute happens on the USE cycle
 //   when the macro Q is stable.
 // ---------------------------------------------------------------------------
@@ -574,11 +532,7 @@ wire [13:0] km_k_flat =
     {12'd0, km_h} * (N_TOKENS * HEAD_DIM)
   + ({5'd0, km_n}) * HEAD_DIM
   + {11'd0, km_d};
-`ifdef USE_REG_BUF
-wire signed [15:0] km_k_data = k_buf[km_k_flat];
-`else
 wire signed [15:0] km_k_data = s4_q;
-`endif
 wire signed [32:0] km_acc_next =
     (km_n == 9'd0) ? $signed({{17{km_k_data[15]}}, km_k_data})
                    : km_acc + $signed({{17{km_k_data[15]}}, km_k_data});
@@ -592,11 +546,7 @@ wire [13:0] qk_q_flat =
   + ({5'd0, qk_n_reg}) * HEAD_DIM
   + {11'd0, qk_d};
 wire [4:0] qk_km_flat = {qk_h_reg, qk_d};   // h*HEAD_DIM + d (HEAD_DIM=8)
-`ifdef USE_REG_BUF
-wire signed [15:0] qk_q_data = q_buf[qk_q_flat];
-`else
 wire signed [15:0] qk_q_data = s3_q;
-`endif
 wire signed [31:0] qk_term =
     $signed(qk_q_data) * $signed(km_buf[qk_km_flat]);
 wire signed [32:0] qk_acc_next =
@@ -618,13 +568,8 @@ wire [13:0] kv_v_flat =
     {12'd0, kv_h} * (N_TOKENS * HEAD_DIM)
   + ({5'd0, kv_n}) * HEAD_DIM
   + {11'd0, kv_d2};
-`ifdef USE_REG_BUF
-wire signed [15:0] kv_k_data = k_buf[kv_k_flat];
-wire signed [15:0] kv_v_data = v_buf[kv_v_flat];
-`else
 wire signed [15:0] kv_k_data = s4_q;
 wire signed [15:0] kv_v_data = s5_q;
-`endif
 wire signed [31:0] kv_term = $signed(kv_k_data) * $signed(kv_v_data);
 wire signed [48:0] kv_acc_next =
     (kv_n == 9'd0) ? $signed({{17{kv_term[31]}}, kv_term})
@@ -643,11 +588,7 @@ wire [7:0] at_kv_flat =
   + {5'd0, at_dk} * HEAD_DIM
   + {5'd0, at_dout_reg};
 wire [10:0] at_zr_idx = ({2'd0, at_h_reg} * N_TOKENS) + {2'd0, at_n_reg};
-`ifdef USE_REG_BUF
-wire signed [15:0] at_q_data = q_buf[at_q_flat];
-`else
 wire signed [15:0] at_q_data = s3_q;
-`endif
 wire signed [31:0] at_term =
     $signed(at_q_data) * $signed(kv_buf[at_kv_flat]);
 wire signed [48:0] at_acc_next =
@@ -656,11 +597,7 @@ wire signed [48:0] at_acc_next =
 // fp #1: round dot sum once
 wire signed [15:0] at_dot_sat = sat16_q88_49((at_acc_next + 49'sd128) >>> 8);
 // fp #2: rnd_shr8(dot_sat * zr[h*N + n])
-`ifdef USE_REG_BUF
-wire signed [15:0] at_zr_data = zr_buf[at_zr_idx];
-`else
 wire signed [15:0] at_zr_data = at_zr_r;
-`endif
 wire signed [31:0] at_zprod = $signed(at_dot_sat) * $signed(at_zr_data);
 wire signed [15:0] at_ao_val = rnd_shr8_q88(at_zprod);
 // destination flat in ao_buf
@@ -751,8 +688,7 @@ end
 //   S_ATTN takes 2 cycles: phase 0 (ADDR) drives the read addr via the mux
 //   block below and does NOT advance counters; phase 1 (USE) consumes
 //   s3_q / s4_q / s5_q and advances counters. Reg-array writes (where they
-//   still exist under USE_REG_BUF) happen on phase 1 too, keeping arithmetic
-//   bit-accurate to the legacy path (just slower).
+//   happen on phase 1 (USE), when macro Q is stable.
 // ---------------------------------------------------------------------------
 always @(posedge clk) begin
     // Defaults each cycle
@@ -833,7 +769,7 @@ always @(posedge clk) begin
             end
 
             // -----------------------------------------------------------
-            // S_QKV: 2-phase read x from Sram_x (USE_SRAM_BUF) or x_in_buf reg.
+            // S_QKV: 2-phase read x from Sram_x; q/k/v capture via SRAM mux.
             // q/k/v capture writes still via SRAM mux on lin_qkv_yv.
             // -----------------------------------------------------------
             S_QKV: begin
@@ -842,12 +778,6 @@ always @(posedge clk) begin
                     qkv_stream_cnt <= 6'd1;
                     qkv_x_phase    <= 1'b0;
                 end else if (qkv_stream_cnt <= EMBED_DIM[5:0]) begin
-`ifdef USE_REG_BUF
-                    lin_qkv_x  <= x_in_buf[{5'd0, qx_tok} * EMBED_DIM +
-                                           {9'd0, qkv_stream_cnt - 6'd1}];
-                    lin_qkv_xv <= 1'b1;
-                    qkv_stream_cnt <= qkv_stream_cnt + 6'd1;
-`else
                     if (qkv_x_phase == 1'b0)
                         qkv_x_phase <= 1'b1;
                     else begin
@@ -856,7 +786,6 @@ always @(posedge clk) begin
                         qkv_stream_cnt <= qkv_stream_cnt + 6'd1;
                         qkv_x_phase    <= 1'b0;
                     end
-`endif
                 end
 
                 if (lin_qkv_done) begin
@@ -877,21 +806,12 @@ always @(posedge clk) begin
             //   phase 0 (ADDR): SRAM mux drives read addr = sp_ptr
             //   phase 1 (USE) : SRAM mux drives write addr = sp_ptr with
             //                    relu6(rnd_shr8(sp_q_r * S_Q88)). Advance sp_ptr.
-            // Under USE_REG_BUF, reg arrays are updated on phase 1 too, using
-            // the *current* q_buf[sp_ptr] value (combinational read of reg).
+            // Phase 1 writes scaled q/k back to Sram_q / Sram_k (via mux).
             // -----------------------------------------------------------
             S_SPLIT: begin
                 if (sp_phase == 1'b0) begin
                     sp_phase <= 1'b1;
                 end else begin
-`ifdef USE_REG_BUF
-                    if (sp_ptr < HD_ELEMS[13:0]) begin
-                        q_buf[sp_ptr] <= relu6_q88(rnd_shr8_q88(
-                            $signed(q_buf[sp_ptr]) * S_Q88));
-                        k_buf[sp_ptr] <= relu6_q88(rnd_shr8_q88(
-                            $signed(k_buf[sp_ptr]) * S_Q88));
-                    end
-`endif
                     if (sp_ptr < HD_ELEMS[13:0] - 14'd1) begin
                         sp_ptr   <= sp_ptr + 14'd1;
                         sp_phase <= 1'b0;
@@ -951,9 +871,6 @@ always @(posedge clk) begin
                 end else begin
                     qk_acc <= qk_acc_next;
                     if (qk_d == HEAD_DIM[2:0] - 3'd1) begin
-`ifdef USE_REG_BUF
-                        qkm_buf[qk_oidx] <= qkm_wr_val;
-`endif
                         qk_d <= 3'd0;
                         if (qk_oidx == QKM_ELEMS[10:0] - 11'd1) begin
                             qk_oidx  <= 11'd0;
@@ -985,9 +902,6 @@ always @(posedge clk) begin
             // -----------------------------------------------------------
             S_Z_RECIP: begin
                 if (recip_done) begin
-`ifdef USE_REG_BUF
-                    zr_buf[zr_idx] <= recip_y;
-`endif
                     if (zr_idx == QKM_ELEMS[10:0] - 11'd1) begin
                         zr_idx <= 11'd0;
                     end else begin
@@ -999,11 +913,7 @@ always @(posedge clk) begin
                         zr_phase <= 1'b1;
                     else begin
                         recip_start <= 1'b1;
-`ifdef USE_REG_BUF
-                        recip_x     <= qkm_buf[zr_idx];
-`else
                         recip_x     <= zr_qkm_r;
-`endif
                     end
                 end
                 if (next_state == S_KV) begin
@@ -1052,7 +962,7 @@ always @(posedge clk) begin
             // HEAD_DIM-1, also write ao to Sram_v at at_ao_flat (cross-SRAM,
             // no R+W conflict on either macro since q-read and ao-write target
             // different macros).
-            // Under USE_REG_BUF, ao_buf reg is updated on the same phase.
+            // Phase 1: write attention output ao to Sram_v (mux).
             // -----------------------------------------------------------
             S_ATTN: begin
                 if (at_phase == 1'b0) begin
@@ -1060,9 +970,6 @@ always @(posedge clk) begin
                 end else begin
                     at_acc <= at_acc_next;
                     if (at_dk == HEAD_DIM[2:0] - 3'd1) begin
-`ifdef USE_REG_BUF
-                        ao_buf[at_ao_flat] <= at_ao_val;
-`endif
                         at_dk <= 3'd0;
                         if (at_oidx == HD_ELEMS[13:0] - 14'd1) begin
                             at_oidx     <= 14'd0;
@@ -1114,12 +1021,7 @@ always @(posedge clk) begin
                         pj_sub <= PJ_USE;
                     end
                     PJ_USE: begin
-`ifdef USE_REG_BUF
-                        lin_proj_x <= ao_buf[{5'd0, px_tok} * EMBED_DIM +
-                                             {9'd0, proj_stream_cnt}];
-`else
                         lin_proj_x <= s5_q;
-`endif
                         lin_proj_xv <= 1'b1;
                         if (proj_stream_cnt == EMBED_DIM[5:0] - 6'd1) begin
                             pj_sub <= PJ_WAIT;
@@ -1163,40 +1065,10 @@ always @(posedge clk) begin
 end
 
 // ---------------------------------------------------------------------------
-// Capture u_lin_qkv outputs into legacy reg arrays under USE_REG_BUF only.
-// SRAM-mode writes are emitted by the mux block below on the same lin_qkv_yv
-// pulse (different driver, same data path).
-// ---------------------------------------------------------------------------
-always @(posedge clk) begin
-    if (x_snap_wr) begin
-`ifdef USE_REG_BUF
-        x_in_buf[x_snap_flat] <= x_snap_din;
-`endif
-    end
-end
-
-always @(posedge clk) begin
-    if (state == S_QKV && lin_qkv_yv) begin
-        qkv_grp    = lin_qkv_neu[6:5];
-        neu_in_grp = lin_qkv_neu[4:0];
-        cap_h      = neu_in_grp[4:3];
-        cap_d      = neu_in_grp[2:0];
-        cap_flat   = {12'd0, cap_h} * (N_TOKENS * HEAD_DIM)
-                   + ({5'd0, qx_tok}) * HEAD_DIM
-                   + {11'd0, cap_d};
-`ifdef USE_REG_BUF
-        case (qkv_grp)
-            2'b00: q_buf[cap_flat] <= lin_qkv_y;
-            2'b01: k_buf[cap_flat] <= lin_qkv_y;
-            2'b10: v_buf[cap_flat] <= lin_qkv_y;
-            default: ;
-        endcase
-`endif
-    end
-end
-
-// ---------------------------------------------------------------------------
 // SRAM port mux (combinational).
+//   QKV capture: lin_qkv_yv writes q/k/v via mux below (same lin_qkv_yv pulse).
+//   x_snap_wr: parent norm1 preload into Sram_x (see mux).
+// ---------------------------------------------------------------------------
 //   Defaults: deselect all 3 macros (CEB = 1).
 //   Per state, drive read or write as needed. At most one operation per macro
 //   per cycle (single-port discipline). Phase regs ensure same-macro R and W
@@ -1210,7 +1082,6 @@ always @(*) begin
     s6_ceb = 1'b1; s6_web = 1'b1; s6_addr = 11'd0; s6_din = 16'd0;
     s7_ceb = 1'b1; s7_web = 1'b1; s7_addr = 14'd0; s7_din = 16'd0;
 
-`ifndef USE_REG_BUF
     // Golden: parent norm1 tmp (backbone_blocks_<b>_after_norm1_out_bi.txt) via x_snap_wr
     if (x_snap_wr) begin
         s7_ceb  = 1'b0;
@@ -1333,7 +1204,6 @@ always @(*) begin
 
         default: ;
     endcase
-`endif
 end
 
 assign busy = (state != S_IDLE);

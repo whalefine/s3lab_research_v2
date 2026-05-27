@@ -15,9 +15,7 @@
 //                 -> [S_RES2]   y_o      = residual(x_buf, tmp_buf)  // streamed
 //                 -> [S_DONE]
 //
-// Buffers:
-//   USE_REG_BUF  : x_buf / tmp_buf reg arrays (10240 x 16 each)
-//   USE_SRAM_BUF : Sram_tok1 u_sram_x + u_sram_tmp inside this module (no top ports)
+// Buffers: Sram_tok1 u_sram_x + u_sram_tmp (internal, no top ports).
 //
 // SRAM read contract (CLK = ~clk, both macros):
 //   posedge T:   drive A, CEB=0, WEB=1
@@ -54,10 +52,6 @@ module transformer_block #(
 parameter LN_RCP   = 65536 / EMBED_DIM;
 parameter TOK_FLAT = N_TOKENS * EMBED_DIM;   // 10240
 
-`ifdef USE_REG_BUF
-reg signed [15:0] x_buf   [0:TOK_FLAT-1];
-reg signed [15:0] tmp_buf [0:TOK_FLAT-1];
-`else
 // ---- Internal activation SRAM (12288x16 macro; use 10240 entries) ----
 reg        sx_ceb;
 reg        sx_web;
@@ -97,7 +91,6 @@ reg [1:0]  res_subphase;   // S_RES1/S_RES2: 0=RD, 1=FEED, 2=WR or OUT
 reg [13:0]       tmp_wr_flat_lat;
 reg signed [15:0] tmp_wr_din_lat;
 reg              tmp_wr_do;
-`endif
 
 // 4-bit FSM (11 states)
 parameter S_IDLE      = 4'd0;
@@ -130,9 +123,7 @@ wire ln1_yv;
 wire [9:0]  ln1_addr;
 wire        ln1_out_beat;
 
-`ifndef USE_REG_BUF
 wire [13:0] tmp_cap_flat = tok_cnt * EMBED_DIM + {9'b0, ln1_addr[4:0]};
-`endif
 
 // Attention sub-block regs / wires
 reg                attn_start;
@@ -154,11 +145,7 @@ wire               mlp_yv;
 wire               mlp_busy, mlp_done;
 wire [15:0]        mlp_wgt_addr;
 
-`ifdef USE_REG_BUF
-assign mlp_norm_x = tmp_buf[mlp_norm_rd_flat];
-`else
 assign mlp_norm_x = st_q;
-`endif
 
 // Residual sub-block regs / wires
 reg  signed [15:0] res_a, res_b;
@@ -174,25 +161,14 @@ reg [13:0] res_wp;
 wire in_norm_phase = (state == S_NORM1) || (state == S_NORM2);
 wire [13:0] xbuf_rp_addr = tok_cnt * EMBED_DIM + {9'b0, rp_feat};
 
-`ifdef USE_REG_BUF
-wire signed [15:0] xbuf_rp_data = x_buf[xbuf_rp_addr];
-wire               x_norm_use    = 1'b1;
-`else
 wire signed [15:0] xbuf_rp_data = sx_q;
 wire               x_norm_use    = x_norm_phase;
-`endif
 
 wire ln1_xv = rp_stream && in_norm_phase && x_norm_use;
 
-`ifdef USE_REG_BUF
-assign x_snap_wr   = (state == S_NORM1) && ln1_yv;
-assign x_snap_flat = tok_cnt * EMBED_DIM + {9'b0, ln1_addr[4:0]};
-assign x_snap_din  = ln1_y_sat;
-`else
 assign x_snap_wr   = (state == S_NORM1) && tmp_wr_do;
 assign x_snap_flat = tmp_wr_flat_lat;
 assign x_snap_din  = tmp_wr_din_lat;
-`endif
 
 layer_norm #(
     .FEAT_DIM (EMBED_DIM),
@@ -269,7 +245,6 @@ assign wgt_addr_o =
     (state == S_MLP_FEED  || state == S_MLP_WAIT)   ? mlp_wgt_addr                   :
                                                        16'b0;
 
-`ifndef USE_REG_BUF
 // ---- SRAM port mux (x_buf / tmp_buf); one R or W per macro per cycle ----
 always @(*) begin
     sx_ceb  = 1'b1;
@@ -369,7 +344,6 @@ always @(posedge clk) begin
         end
     end
 end
-`endif
 
 always @(posedge clk) begin
     if (reset)
@@ -429,10 +403,8 @@ always @(posedge clk) begin
         res_a       <= 16'sd0;
         res_b       <= 16'sd0;
         y_o         <= 16'sd0;
-`ifndef USE_REG_BUF
         x_norm_phase <= 1'b0;
         res_subphase <= 2'd0;
-`endif
     end else begin
         case (state)
             S_IDLE: begin
@@ -444,27 +416,17 @@ always @(posedge clk) begin
                 cap_ptr     <= 14'd0;
                 res_rp      <= 14'd0;
                 res_wp      <= 14'd0;
-`ifndef USE_REG_BUF
                 x_norm_phase <= 1'b0;
                 res_subphase <= 2'd0;
-`endif
             end
 
             S_LOAD_X: begin
-`ifdef USE_REG_BUF
-                if (x_valid && (buf_addr < TOK_FLAT[13:0])) begin
-                    x_buf[buf_addr] <= x_i;
-                    buf_addr <= buf_addr + 14'd1;
-                end
-`else
                 if (x_valid && (buf_addr < TOK_FLAT[13:0]))
                     buf_addr <= buf_addr + 14'd1;
-`endif
             end
 
             S_NORM1: begin
                 if (rp_stream) begin
-`ifndef USE_REG_BUF
                     if (x_norm_phase == 1'b0)
                         x_norm_phase <= 1'b1;
                     else begin
@@ -475,33 +437,14 @@ always @(posedge clk) begin
                         end else
                             rp_feat <= rp_feat + 5'd1;
                     end
-`else
-                    if (rp_feat == EMBED_DIM-1) begin
-                        rp_stream <= 1'b0;
-                        rp_feat   <= 5'd0;
-                    end else
-                        rp_feat <= rp_feat + 5'd1;
-`endif
                 end
 
                 if (ln1_start_r) begin
                     rp_stream <= 1'b1;
                     rp_feat   <= 5'd0;
-`ifndef USE_REG_BUF
                     x_norm_phase <= 1'b0;
-`endif
                 end
 
-`ifdef USE_REG_BUF
-                if (ln1_yv) begin
-                    tmp_buf[tok_cnt * EMBED_DIM + ln1_addr[4:0]] <= ln1_y_sat;
-                    feat_cnt <= feat_cnt + 5'd1;
-                    if (feat_cnt == EMBED_DIM-1) begin
-                        feat_cnt <= 5'd0;
-                        tok_cnt  <= tok_cnt + 9'd1;
-                    end
-                end
-`endif
 
                 if (ln1_done && tok_cnt < N_TOKENS)
                     ln1_start <= 1'b1;
@@ -522,39 +465,17 @@ always @(posedge clk) begin
             end
 
             S_ATTN_WAIT: begin
-`ifdef USE_REG_BUF
-                if (attn_yv) begin
-                    tmp_buf[cap_ptr] <= attn_y;
-                    if (cap_ptr < TOK_FLAT[13:0] - 14'd1)
-                        cap_ptr <= cap_ptr + 14'd1;
-                end
-`else
                 if (attn_yv && (cap_ptr < TOK_FLAT[13:0] - 14'd1))
                     cap_ptr <= cap_ptr + 14'd1;
-`endif
                 if (attn_done) begin
                     res_rp  <= 14'd0;
                     res_wp  <= 14'd0;
                     cap_ptr <= 14'd0;
-`ifndef USE_REG_BUF
                     res_subphase <= 2'd0;
-`endif
                 end
             end
 
             S_RES1: begin
-`ifdef USE_REG_BUF
-                if (res_rp < TOK_FLAT[13:0]) begin
-                    res_a  <= x_buf[res_rp];
-                    res_b  <= tmp_buf[res_rp];
-                    res_v  <= 1'b1;
-                    res_rp <= res_rp + 14'd1;
-                end
-                if (res_v_o && res_wp < TOK_FLAT[13:0]) begin
-                    x_buf[res_wp] <= res_y;
-                    res_wp <= res_wp + 14'd1;
-                end
-`else
                 case (res_subphase)
                     2'd0: res_subphase <= 2'd1;
                     2'd1: begin
@@ -573,21 +494,17 @@ always @(posedge clk) begin
                     end
                     default: res_subphase <= 2'd0;
                 endcase
-`endif
                 if (next_state == S_NORM2) begin
                     tok_cnt   <= 9'd0;
                     feat_cnt  <= 5'd0;
                     rp_feat   <= 5'd0;
                     rp_stream <= 1'b0;
-`ifndef USE_REG_BUF
                     x_norm_phase <= 1'b0;
-`endif
                 end
             end
 
             S_NORM2: begin
                 if (rp_stream) begin
-`ifndef USE_REG_BUF
                     if (x_norm_phase == 1'b0)
                         x_norm_phase <= 1'b1;
                     else begin
@@ -598,33 +515,14 @@ always @(posedge clk) begin
                         end else
                             rp_feat <= rp_feat + 5'd1;
                     end
-`else
-                    if (rp_feat == EMBED_DIM-1) begin
-                        rp_stream <= 1'b0;
-                        rp_feat   <= 5'd0;
-                    end else
-                        rp_feat <= rp_feat + 5'd1;
-`endif
                 end
 
                 if (ln1_start_r) begin
                     rp_stream <= 1'b1;
                     rp_feat   <= 5'd0;
-`ifndef USE_REG_BUF
                     x_norm_phase <= 1'b0;
-`endif
                 end
 
-`ifdef USE_REG_BUF
-                if (ln1_yv) begin
-                    tmp_buf[tok_cnt * EMBED_DIM + ln1_addr[4:0]] <= ln1_y_sat;
-                    feat_cnt <= feat_cnt + 5'd1;
-                    if (feat_cnt == EMBED_DIM-1) begin
-                        feat_cnt <= 5'd0;
-                        tok_cnt  <= tok_cnt + 9'd1;
-                    end
-                end
-`endif
 
                 if (ln1_done && tok_cnt < N_TOKENS)
                     ln1_start <= 1'b1;
@@ -642,40 +540,17 @@ always @(posedge clk) begin
             end
 
             S_MLP_WAIT: begin
-`ifdef USE_REG_BUF
-                if (mlp_yv) begin
-                    tmp_buf[cap_ptr] <= mlp_y;
-                    if (cap_ptr < TOK_FLAT[13:0] - 14'd1)
-                        cap_ptr <= cap_ptr + 14'd1;
-                end
-`else
                 if (mlp_yv && (cap_ptr < TOK_FLAT[13:0] - 14'd1))
                     cap_ptr <= cap_ptr + 14'd1;
-`endif
                 if (mlp_done) begin
                     res_rp <= 14'd0;
                     res_wp <= 14'd0;
                     cap_ptr <= 14'd0;
-`ifndef USE_REG_BUF
                     res_subphase <= 2'd0;
-`endif
                 end
             end
 
             S_RES2: begin
-`ifdef USE_REG_BUF
-                if (res_rp < TOK_FLAT[13:0]) begin
-                    res_a  <= x_buf[res_rp];
-                    res_b  <= tmp_buf[res_rp];
-                    res_v  <= 1'b1;
-                    res_rp <= res_rp + 14'd1;
-                end
-                if (res_v_o && res_wp < TOK_FLAT[13:0]) begin
-                    y_o     <= res_y;
-                    y_valid <= 1'b1;
-                    res_wp  <= res_wp + 14'd1;
-                end
-`else
                 case (res_subphase)
                     2'd0: res_subphase <= 2'd1;
                     2'd1: begin
@@ -696,7 +571,6 @@ always @(posedge clk) begin
                     end
                     default: res_subphase <= 2'd0;
                 endcase
-`endif
             end
 
             S_DONE: begin

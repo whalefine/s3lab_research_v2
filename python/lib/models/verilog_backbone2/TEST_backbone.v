@@ -12,21 +12,22 @@
 // Golden: ./TXT_File/Activation/backbone_after_norm_backbone_out_bi.txt
 // Run simv from a directory where ./TXT_File/Activation/ resolves.
 //
-// VCS examples (add memory/ ROM list per your flow):
+// VCS (run from directory where ./TXT_File/Activation/ resolves):
 //
-//   Reg arrays (+define+USE_REG_BUF):
-//     vcs verilog_backbone2/*.v memory/*.v \
-//       +define+TSMC_CM_NO_WARNING +define+USE_REG_BUF | tee runvcs.log
-//
-//   SP SRAM macros (+define+USE_SRAM_BUF):
-//     vcs verilog_backbone2/*.v memory/*.v \
-//       <path>/Sram_tok1.v <path>/Sram_tok2.v \
-//       <path>/Sram_x.v <path>/Sram_q.v <path>/Sram_k.v <path>/Sram_v.v <path>/Sram_qkm.v \
-//       +define+TSMC_CM_NO_WARNING +define+USE_SRAM_BUF | tee runvcs.log
-//     Note: Sram_tok1 is instanced 4x (backbone s1 + transformer_block u_sram_x/tmp x2).
-//     care_attention per u_attn: Sram_x + Sram_q + Sram_k + Sram_v + Sram_qkm.
+//   vcs verilog_backbone2/*.v memory/*.v \
+//     <path>/Sram_tok1.v <path>/Sram_tok2.v \
+//     <path>/Sram_x.v <path>/Sram_q.v <path>/Sram_k.v <path>/Sram_v.v <path>/Sram_qkm.v \
+//     +lint=TFIPC-L +define+TSMC_CM_NO_WARNING | tee runvcs.log
 //
 //   ./simv | tee simv.log
+//
+// SRAM macro instances (activation buffers only):
+//   backbone_top:     Sram_tok2 (inter-block), Sram_tok1 (norm out / S_OUT)
+//   transformer_block: Sram_tok1 x2 per block (u_sram_x, u_sram_tmp)
+//   care_attention:   Sram_x, Sram_q, Sram_k, Sram_v, Sram_qkm
+//   Sram_tok1 total: 1 (backbone) + 2 x 7 blocks = 15; plus tok2, q/k/v/x/qkm.
+//
+//   grep -E '\\[PASS\\]|\\[FAIL\\]|TIMEOUT|backbone_top done' simv.log
 //
 //   A1 linear debug (ROM addr vs w_i / acc / y_o):
 //     add +define+DUMP_LINEAR_DEBUG; grep simv.log LIN_DBG
