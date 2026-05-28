@@ -1,12 +1,12 @@
 `timescale 1ns/10ps
 
 // =============================================================================
-// TEST_backbone.v -- backbone_top end-to-end test (blocks 0..6 + backbone_norm)
+// TEST_backbone.v -- sglatrack_top(backbone-only) end-to-end test
 //
 // Flow:
 //   1. Load template + search post-embedding from TXT_File/Activation/
 //   2. reset; sel_block_i = 6; pulse start
-//   3. backbone_top runs blocks 0..START_LAYER, adaptive block 6, backbone_norm
+//   3. sglatrack_top(backbone-only) runs blocks 0..START_LAYER, adaptive block 6, backbone_norm
 //   4. Compare y_o stream vs golden; print [PASS] or [FAIL] at done
 //   5. On done (or timeout): $toggle_stop / $toggle_report -> backbone_top_rtl.saif
 //
@@ -52,7 +52,7 @@ wire        done;
 wire signed [15:0] y_o;
 wire        y_valid;
 
-backbone_top #(
+sglatrack_top #(
     .EMBED_DIM (EMBED_DIM),
     .N_TOKENS  (N_TOKENS)
 ) u_DUT (
@@ -60,17 +60,17 @@ backbone_top #(
     .reset      (reset),
     .start      (start),
     .sel_block_i(sel_block_i),
-    .x_i        (data_in),
-    .x_valid    (data_valid),
+    .data_in    (data_in),
+    .data_valid (data_valid),
     .busy       (busy),
     .done       (done),
-    .y_o        (y_o),
-    .y_valid    (y_valid)
+    .data_o     (y_o),
+    .data_o_valid(y_valid)
 );
 
 wire tb_stream_gate =
-    !u_DUT.tok_replay &&
-    (u_DUT.u_tb.state == 4'd1);
+    !u_DUT.u_backbone.tok_replay &&
+    (u_DUT.u_backbone.u_tb.state == 4'd1);
 
 reg [15:0] GOLD_BB [0:TOK_TOTAL-1];
 reg [13:0] rtl_bb_cnt;

@@ -1,7 +1,7 @@
 // =============================================================================
-// TEST_head.v -- verilog_head2 head-only test via head_top
+// TEST_head.v -- verilog_head2 head-only test via sglatrack_top
 //
-// Streams backbone_after_norm token order into head_top (skip template in RTL).
+// Streams backbone_after_norm token order into sglatrack_top (skip template in RTL).
 // Compares final bbox vs box_head_after_cal_bbox_bbox_bi.txt only.
 //
 // VCS (x/sh1/sh2/wgt + cal_bbox size/off; 6 macro .v files):
@@ -58,27 +58,25 @@ wire              head_busy ;
 wire              head_done ;
 wire [15:0]       cx_o, cy_o, w_o, h_o ;
 
-head_top #(
+sglatrack_top #(
+    .DATA_W   (DATA_W  ),
     .IN_CH    (IN_CH   ),
-    .C_SH1    (96      ),
-    .C_SH2    (48      ),
     .FEAT_H   (FEAT_H  ),
     .FEAT_W   (FEAT_W  ),
     .N_TOKENS (N_TOKENS),
-    .LENS_Z   (LENS_Z  ),
-    .DATA_W   (DATA_W  )
-) u_head (
-    .clk     (clk       ),
-    .reset   (~rst_n    ),
-    .start   (head_start),
-    .a_i     (a_i       ),
-    .a_valid (a_valid   ),
-    .busy    (head_busy ),
-    .done    (head_done ),
-    .cx_o    (cx_o      ),
-    .cy_o    (cy_o      ),
-    .w_o     (w_o       ),
-    .h_o     (h_o       )
+    .LENS_Z   (LENS_Z  )
+) u_head_top (
+    .clk       (clk       ),
+    .reset     (~rst_n    ),
+    .start     (head_start),
+    .busy      (head_busy ),
+    .done      (head_done ),
+    .data_in   (a_i       ),
+    .data_valid(a_valid   ),
+    .cx_o      (cx_o      ),
+    .cy_o      (cy_o      ),
+    .w_o       (w_o       ),
+    .h_o       (h_o       )
 );
 
 reg [31:0] cycle_cnt ;
