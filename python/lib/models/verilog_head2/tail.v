@@ -23,7 +23,9 @@ module tail_unit (
     y_data   ,
     y_oc     ,
     y_oh     ,
-    y_ow
+    y_ow     ,
+    mac_phase_o   ,
+    x_addr_mac_rd
 );
 
 parameter IN_CH       = 48 ;
@@ -59,6 +61,8 @@ output signed [DATA_W-1:0]  y_data  ;
 output [OC_AW-1:0]          y_oc    ;
 output [HW_AW-1:0]          y_oh    ;
 output [HW_AW-1:0]          y_ow    ;
+output                      mac_phase_o   ;
+output [X_AW-1:0]           x_addr_mac_rd ;
 
 parameter S_IDLE = 3'd0 ;
 parameter S_WPRE = 3'd1 ;
@@ -124,6 +128,10 @@ assign y_data  = y_data_r ;
 assign y_oc    = y_oc_r ;
 assign y_oh    = y_oh_r ;
 assign y_ow    = y_ow_r ;
+
+assign mac_phase_o   = mac_phase ;
+assign x_addr_mac_rd = (CS == S_MAC && !mac_done && (mac_phase == 1'b0))
+                       ? x_addr_nxt : x_addr_r ;
 
 assign ow_last       = (ow_r == IN_W - 1) ;
 assign oh_last       = (oh_r == IN_H - 1) ;
@@ -349,6 +357,8 @@ module tail (
     done          ,
     x_addr        ,
     x_i           ,
+    mac_phase_o   ,
+    x_addr_mac_rd ,
     ctr_raw_y_valid ,
     ctr_raw_y_data  ,
     ctr_raw_y_oh    ,
@@ -386,6 +396,8 @@ output                      busy            ;
 output                      done            ;
 output [X_AW-1:0]           x_addr          ;
 input  signed [DATA_W-1:0]  x_i             ;
+output                      mac_phase_o     ;
+output [X_AW-1:0]           x_addr_mac_rd   ;
 
 output                      ctr_raw_y_valid ;
 output signed [DATA_W-1:0]  ctr_raw_y_data  ;
@@ -445,6 +457,13 @@ wire [X_AW-1:0]             off_x_addr ;
 wire [X_AW-1:0]             siz_x_addr ;
 wire [X_AW-1:0]             x_addr_r ;
 
+wire                        ctr_mac_phase ;
+wire                        off_mac_phase ;
+wire                        siz_mac_phase ;
+wire [X_AW-1:0]             ctr_x_addr_mac ;
+wire [X_AW-1:0]             off_x_addr_mac ;
+wire [X_AW-1:0]             siz_x_addr_mac ;
+
 wire                        ctr_busy, ctr_done, ctr_yv ;
 wire signed [DATA_W-1:0]    ctr_yd ;
 wire [1:0]                  ctr_yc ;
@@ -503,6 +522,14 @@ assign rom_b_a = (TS == T_CTR) ? {3'b000, ctr_b_addr} :
 assign x_addr_r = (TS == T_CTR) ? ctr_x_addr :
                   (TS == T_OFF) ? off_x_addr :
                   (TS == T_SIZE) ? siz_x_addr : {X_AW{1'b0}} ;
+
+assign mac_phase_o = (TS == T_CTR) ? ctr_mac_phase :
+                     (TS == T_OFF) ? off_mac_phase :
+                     (TS == T_SIZE) ? siz_mac_phase : 1'b0 ;
+
+assign x_addr_mac_rd = (TS == T_CTR) ? ctr_x_addr_mac :
+                       (TS == T_OFF) ? off_x_addr_mac :
+                       (TS == T_SIZE) ? siz_x_addr_mac : {X_AW{1'b0}};
 
 assign rom_ceb_w = !(ctr_busy || off_busy || siz_busy) ;
 assign rom_ceb_b = !(ctr_busy || off_busy || siz_busy) ;
@@ -591,7 +618,9 @@ tail_unit #(
     .y_data  (ctr_yd        ),
     .y_oc    (ctr_yc        ),
     .y_oh    (ctr_yh        ),
-    .y_ow    (ctr_yw        )
+    .y_ow    (ctr_yw        ),
+    .mac_phase_o   (ctr_mac_phase   ),
+    .x_addr_mac_rd (ctr_x_addr_mac  )
 );
 
 tail_unit #(
@@ -626,7 +655,9 @@ tail_unit #(
     .y_data  (off_yd        ),
     .y_oc    (off_yc        ),
     .y_oh    (off_yh        ),
-    .y_ow    (off_yw        )
+    .y_ow    (off_yw        ),
+    .mac_phase_o   (off_mac_phase   ),
+    .x_addr_mac_rd (off_x_addr_mac  )
 );
 
 tail_unit #(
@@ -661,7 +692,9 @@ tail_unit #(
     .y_data  (siz_yd        ),
     .y_oc    (siz_yc        ),
     .y_oh    (siz_yh        ),
-    .y_ow    (siz_yw        )
+    .y_ow    (siz_yw        ),
+    .mac_phase_o   (siz_mac_phase   ),
+    .x_addr_mac_rd (siz_x_addr_mac  )
 );
 
 sigmoid_lut #(.DATA_W(DATA_W)) u_sig_ctr (

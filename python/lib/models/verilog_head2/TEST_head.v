@@ -3,6 +3,15 @@
 //
 // Streams backbone_after_norm token order into head_top (skip template in RTL).
 // Compares final bbox vs box_head_after_cal_bbox_bbox_bi.txt only.
+//
+// VCS (x/sh1/sh2/wgt + cal_bbox size/off; 6 macro .v files):
+//   vcs verilog_head2/*.v \
+//     memory/Sram_tok1.v memory/Sram_q.v memory/Sram_k.v memory/Sram_tok2.v \
+//     memory/Sram_v.v memory/Sram_qkm.v \
+//   (sim stubs if needed under verilog_head2/memory/)
+//     +lint=TFIPC-L +define+TSMC_CM_NO_WARNING \
+//     +define+DUMP_HEAD_SH1_DEBUG | tee runvcs.log
+//   ./simv | tee simv.log
 // =============================================================================
 
 `timescale 1ns/1ps

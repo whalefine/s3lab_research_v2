@@ -5,24 +5,33 @@
 //
 // ROM read contract (verilog_rule.mdc §7.1 ; ROM macro CLK(~clk)) :
 //   posedge T   : 送 w_addr / b_addr
-//   posedge T+1 : w_i / b_i 有效；本拍鎖 wgt_buf[k] / bias_r (negedge)
+//   posedge T+1 : w_i / b_i 有效；本拍寫 parent Sram_v (wgt) / bias_r (negedge)
+// wgt_buf: parent Sram_v in head_top. WPRE phase1 write; MAC phase0 read, phase1 comb wgt_rd_i.
 //
 // WPRE/MAC 各 2-phase；語意同前版，組合邏輯用 wire，時序按功能分組 always。
 // =============================================================================
 
 module conv (
-    clk      ,
-    rst_n    ,
-    start    ,
-    busy     ,
-    done     ,
-    x_addr   ,
-    x_i      ,
-    y_valid  ,
-    y_data   ,
-    y_oc     ,
-    y_oh     ,
-    y_ow
+    clk           ,
+    rst_n         ,
+    start         ,
+    busy          ,
+    done          ,
+    x_addr        ,
+    x_i           ,
+    y_valid       ,
+    y_data        ,
+    y_oc          ,
+    y_oh          ,
+    y_ow          ,
+    mac_phase_o   ,
+    x_addr_mac_rd ,
+    wgt_wr_en     ,
+    wgt_wr_addr   ,
+    wgt_wr_data   ,
+    wgt_rd_req    ,
+    wgt_rd_addr   ,
+    wgt_rd_i
 );
 
 parameter IN_CH    = 32 ;
@@ -61,6 +70,14 @@ output [DATA_W-1:0]         y_data  ;
 output [OC_AW-1:0]          y_oc    ;
 output [HW_AW-1:0]          y_oh    ;
 output [HW_AW-1:0]          y_ow    ;
+output                      mac_phase_o   ;
+output [X_AW-1:0]           x_addr_mac_rd ;
+output                      wgt_wr_en     ;
+output [FEAT_AW-1:0]        wgt_wr_addr   ;
+output [DATA_W-1:0]         wgt_wr_data   ;
+output                      wgt_rd_req    ;
+output [FEAT_AW-1:0]        wgt_rd_addr   ;
+input  [DATA_W-1:0]         wgt_rd_i      ;
 
 parameter S_IDLE = 3'd0 ;
 parameter S_WPRE = 3'd1 ;
@@ -81,7 +98,6 @@ reg                      mac_phase ;
 reg  [FEAT_AW-1:0]       mac_feat ;
 reg                      mac_done ;
 
-reg  signed [DATA_W-1:0] wgt_buf [0:FEAT_PER_OC-1] ;
 reg  signed [DATA_W-1:0] bias_r ;
 reg  signed [ACC_W-1:0]  acc_r ;
 reg  signed [ACC_W-1:0]  acc_sat_r ;
@@ -197,9 +213,18 @@ rom_box_head_shared_conv1_2_folded_bias u_rom_c12b (
     .RTSEL(2'b01), .PTSEL(2'b01), .TRB(2'b01), .TM(1'b0),
     .Q(rom_c12b_q));
 
-assign busy    = busy_r ;
-assign done    = done_r ;
-assign x_addr  = x_addr_r ;
+assign busy          = busy_r ;
+assign done          = done_r ;
+assign x_addr        = x_addr_r ;
+assign mac_phase_o   = mac_phase ;
+// MAC phase0 posedge: prefetch x for phase1 MAC (parent SRAM read addr)
+assign x_addr_mac_rd = (CS == S_MAC && !mac_done && (mac_phase == 1'b0))
+                       ? x_addr_nxt : x_addr_r ;
+assign wgt_wr_en   = (CS == S_WPRE) && (wpre_phase == 1'b1) ;
+assign wgt_wr_addr = wpre_feat ;
+assign wgt_wr_data = w_i ;
+assign wgt_rd_req  = (CS == S_MAC) && !mac_done && (mac_phase == 1'b0) ;
+assign wgt_rd_addr = mac_feat ;
 assign y_valid = y_valid_r ;
 assign y_data  = y_data_r ;
 assign y_oc    = y_oc_r ;
@@ -220,7 +245,7 @@ assign x_addr_nxt    = pad_nxt ? {X_AW{1'b0}} :
 assign mac_feat_last = (mac_feat == FEAT_PER_OC - 1) ;
 
 assign mac_x_op  = x_in_pad ? {DATA_W{1'b0}} : $signed(x_i) ;
-assign mac_w_op  = wgt_buf[mac_feat] ;
+assign mac_w_op  = (CS == S_MAC && mac_phase) ? $signed(wgt_rd_i) : {DATA_W{1'b0}} ;
 assign mac_prod  = mac_x_op * mac_w_op ;
 assign acc_next  = acc_r + mac_prod ;
 
@@ -329,12 +354,6 @@ always @(posedge clk) begin
             default : ;
         endcase
     end
-end
-
-// wgt_buf
-always @(posedge clk) begin
-    if (CS == S_WPRE && wpre_phase == 1'b1)
-        wgt_buf[wpre_feat] <= w_i ;
 end
 
 // bias_r
