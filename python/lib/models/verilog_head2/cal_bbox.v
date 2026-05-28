@@ -22,6 +22,11 @@ module cal_bbox (
     off_in_valid  ,
     off_in_data   ,
     off_in_sub    ,
+    so_ceb_o      ,
+    so_web_o      ,
+    so_addr_o     ,
+    so_din_o      ,
+    so_q_i        ,
     bbox_valid    ,
     bbox_data     ,
     bbox_idx
@@ -50,6 +55,12 @@ input                       size_in_sub   ;
 input                       off_in_valid  ;
 input  signed [DATA_W-1:0]  off_in_data   ;
 input                       off_in_sub    ;
+
+output                      so_ceb_o      ;
+output                      so_web_o      ;
+output [QKM_AW-1:0]         so_addr_o     ;
+output [DATA_W-1:0]         so_din_o      ;
+input  [DATA_W-1:0]         so_q_i        ;
 
 output                      bbox_valid    ;
 output signed [DATA_W-1:0]  bbox_data     ;
@@ -97,8 +108,6 @@ reg        so_web_n ;
 reg [QKM_AW-1:0] so_addr_n ;
 reg [DATA_W-1:0] so_din_n ;
 
-wire [DATA_W-1:0] so_q ;
-
 `ifdef DUMP_BBOX_DEBUG
 reg [10:0] dbg_size_seen_cnt ;
 reg [10:0] dbg_off_seen_cnt ;
@@ -129,16 +138,18 @@ wire signed [16:0]          cy_shr ;
 wire signed [DATA_W-1:0]    cx_q88 ;
 wire signed [DATA_W-1:0]    cy_q88 ;
 
-wire        so_ceb_mac ;
-wire        so_web_mac ;
-wire [QKM_AW-1:0] so_addr_mac ;
-wire [DATA_W-1:0] so_din_mac ;
+wire [DATA_W-1:0] so_q ;
 
 assign busy       = busy_r ;
 assign done       = done_r ;
 assign bbox_valid = bbox_valid_r ;
 assign bbox_data  = bbox_data_r ;
 assign bbox_idx   = bbox_idx_r ;
+assign so_ceb_o   = so_ceb ;
+assign so_web_o   = so_web ;
+assign so_addr_o  = so_addr ;
+assign so_din_o   = so_din ;
+assign so_q       = so_q_i ;
 
 assign _unused_sub = size_in_sub | off_in_sub ;
 
@@ -169,41 +180,6 @@ assign cx_q88 = (cx_shr >  17'sd32767) ? 16'sh7fff :
 
 assign cy_q88 = (cy_shr >  17'sd32767) ? 16'sh7fff :
                 (cy_shr < -17'sd32768) ? 16'sh8000 : cy_shr[DATA_W-1:0] ;
-
-`ifdef SYNTHESIS
-assign so_ceb_mac  = so_ceb ;
-assign so_web_mac  = so_web ;
-assign so_addr_mac = so_addr ;
-assign so_din_mac  = so_din ;
-`else
-assign #1 so_ceb_mac  = so_ceb ;
-assign #1 so_web_mac  = so_web ;
-assign so_addr_mac    = so_addr ;
-assign #1 so_din_mac  = so_din ;
-`endif
-
-// Golden-Weight: compiler Sram_qkm 1280x16 (head-only instance u_sram_size_off)
-Sram_qkm u_sram_size_off (
-    .SLP    (1'b0),
-    .DSLP   (1'b0),
-    .SD     (1'b0),
-    .PUDELAY(),
-    .CLK    (~clk),
-    .CEB    (so_ceb_mac),
-    .WEB    (so_web_mac),
-    .BIST   (1'b0),
-    .CEBM   (),
-    .WEBM   (),
-    .A      (so_addr_mac),
-    .D      (so_din_mac),
-    .BWEB   (16'b0),
-    .AM     (),
-    .DM     (),
-    .BWEBM  (16'b0),
-    .RTSEL  (2'b01),
-    .WTSEL  (2'b00),
-    .Q      (so_q)
-);
 
 // FSM CS
 always @(posedge clk) begin

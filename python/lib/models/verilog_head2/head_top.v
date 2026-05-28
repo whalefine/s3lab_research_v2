@@ -49,7 +49,44 @@ module head_top #(
     output wire [DATA_W-1:0] cx_o,
     output wire [DATA_W-1:0] cy_o,
     output wire [DATA_W-1:0] w_o,
-    output wire [DATA_W-1:0] h_o
+    output wire [DATA_W-1:0] h_o,
+
+    // SRAM macro interfaces (instantiated in sglatrack_top; cal_bbox's Sram_qkm stays in cal_bbox)
+    output wire                    sram_x_ceb_o,
+    output wire                    sram_x_web_o,
+    output wire [13:0]             sram_x_addr_o,
+    output wire [DATA_W-1:0]       sram_x_din_o,
+    input  wire [DATA_W-1:0]       sram_x_q_i,
+
+    output wire                    sram_sh1_lo_ceb_o,
+    output wire                    sram_sh1_lo_web_o,
+    output wire [13:0]             sram_sh1_lo_addr_o,
+    output wire [DATA_W-1:0]       sram_sh1_lo_din_o,
+    input  wire [DATA_W-1:0]       sram_sh1_lo_q_i,
+
+    output wire                    sram_sh1_hi_ceb_o,
+    output wire                    sram_sh1_hi_web_o,
+    output wire [13:0]             sram_sh1_hi_addr_o,
+    output wire [DATA_W-1:0]       sram_sh1_hi_din_o,
+    input  wire [DATA_W-1:0]       sram_sh1_hi_q_i,
+
+    output wire                    sram_sh2_ceb_o,
+    output wire                    sram_sh2_web_o,
+    output wire [13:0]             sram_sh2_addr_o,
+    output wire [DATA_W-1:0]       sram_sh2_din_o,
+    input  wire [DATA_W-1:0]       sram_sh2_q_i,
+
+    output wire                    sram_wgt_ceb_o,
+    output wire                    sram_wgt_web_o,
+    output wire [13:0]             sram_wgt_addr_o,
+    output wire [DATA_W-1:0]       sram_wgt_din_o,
+    input  wire [DATA_W-1:0]       sram_wgt_q_i,
+
+    output wire                    sram_bbox_ceb_o,
+    output wire                    sram_bbox_web_o,
+    output wire [10:0]             sram_bbox_addr_o,
+    output wire [DATA_W-1:0]       sram_bbox_din_o,
+    input  wire [DATA_W-1:0]       sram_bbox_q_i
 );
 
 localparam FEAT_SZ     = FEAT_H * FEAT_W;
@@ -155,28 +192,11 @@ assign #1 x_din_mac  = x_din;
 `endif
 
 assign x_addr_mac_p = {{(SH1_BANK_AW-X_BUF_AW){1'b0}}, x_addr_mac};
-
-Sram_tok1 u_sram_x_buf (
-    .SLP   (1'b0),
-    .DSLP  (1'b0),
-    .SD    (1'b0),
-    .PUDELAY(),
-    .CLK   (~clk),
-    .CEB   (x_ceb_mac),
-    .WEB   (x_web_mac),
-    .BIST  (1'b0),
-    .CEBM  (),
-    .WEBM  (),
-    .A     (x_addr_mac_p),
-    .D     (x_din_mac),
-    .BWEB  (16'b0),
-    .AM    (),
-    .DM    (),
-    .BWEBM (16'b0),
-    .RTSEL (2'b01),
-    .WTSEL (2'b00),
-    .Q     (x_q)
-);
+assign sram_x_ceb_o  = x_ceb_mac;
+assign sram_x_web_o  = x_web_mac;
+assign sram_x_addr_o = x_addr_mac_p;
+assign sram_x_din_o  = x_din_mac;
+assign x_q           = sram_x_q_i;
 
 // sh1 SRAM (conv1 capture -> conv2 read); flat[14:0] -> bank + 14b local (split at C1_HALF)
 // Macro ports are posedge-registered (_n comb -> reg) so A is stable at macro negedge sample.
@@ -244,50 +264,17 @@ assign #1 sh1_hi_web_mac  = sh1_hi_web;
 assign sh1_hi_addr_mac    = sh1_hi_addr;
 assign #1 sh1_hi_din_mac  = sh1_hi_din;
 `endif
+assign sram_sh1_lo_ceb_o  = sh1_lo_ceb_mac;
+assign sram_sh1_lo_web_o  = sh1_lo_web_mac;
+assign sram_sh1_lo_addr_o = sh1_lo_addr_mac;
+assign sram_sh1_lo_din_o  = sh1_lo_din_mac;
+assign sh1_lo_q           = sram_sh1_lo_q_i;
 
-Sram_q u_sram_sh1_lo (
-    .SLP   (1'b0),
-    .DSLP  (1'b0),
-    .SD    (1'b0),
-    .PUDELAY(),
-    .CLK   (~clk),
-    .CEB   (sh1_lo_ceb_mac),
-    .WEB   (sh1_lo_web_mac),
-    .BIST  (1'b0),
-    .CEBM  (),
-    .WEBM  (),
-    .A     (sh1_lo_addr_mac),
-    .D     (sh1_lo_din_mac),
-    .BWEB  (16'b0),
-    .AM    (),
-    .DM    (),
-    .BWEBM (16'b0),
-    .RTSEL (2'b01),
-    .WTSEL (2'b00),
-    .Q     (sh1_lo_q)
-);
-
-Sram_k u_sram_sh1_hi (
-    .SLP   (1'b0),
-    .DSLP  (1'b0),
-    .SD    (1'b0),
-    .PUDELAY(),
-    .CLK   (~clk),
-    .CEB   (sh1_hi_ceb_mac),
-    .WEB   (sh1_hi_web_mac),
-    .BIST  (1'b0),
-    .CEBM  (),
-    .WEBM  (),
-    .A     (sh1_hi_addr_mac),
-    .D     (sh1_hi_din_mac),
-    .BWEB  (16'b0),
-    .AM    (),
-    .DM    (),
-    .BWEBM (16'b0),
-    .RTSEL (2'b01),
-    .WTSEL (2'b00),
-    .Q     (sh1_hi_q)
-);
+assign sram_sh1_hi_ceb_o  = sh1_hi_ceb_mac;
+assign sram_sh1_hi_web_o  = sh1_hi_web_mac;
+assign sram_sh1_hi_addr_o = sh1_hi_addr_mac;
+assign sram_sh1_hi_din_o  = sh1_hi_din_mac;
+assign sh1_hi_q           = sram_sh1_hi_q_i;
 
 wire              t_busy, t_done;
 wire [14:0]       t_x_addr;
@@ -327,28 +314,11 @@ assign #1 sh2_web_mac  = sh2_web;
 assign sh2_addr_mac    = sh2_addr;
 assign #1 sh2_din_mac  = sh2_din;
 `endif
-
-Sram_tok2 u_sram_sh2 (
-    .SLP   (1'b0),
-    .DSLP  (1'b0),
-    .SD    (1'b0),
-    .PUDELAY(),
-    .CLK   (~clk),
-    .CEB   (sh2_ceb_mac),
-    .WEB   (sh2_web_mac),
-    .BIST  (1'b0),
-    .CEBM  (),
-    .WEBM  (),
-    .A     (sh2_addr_mac),
-    .D     (sh2_din_mac),
-    .BWEB  (16'b0),
-    .AM    (),
-    .DM    (),
-    .BWEBM (16'b0),
-    .RTSEL (2'b01),
-    .WTSEL (2'b00),
-    .Q     (sh2_q)
-);
+assign sram_sh2_ceb_o  = sh2_ceb_mac;
+assign sram_sh2_web_o  = sh2_web_mac;
+assign sram_sh2_addr_o = sh2_addr_mac;
+assign sram_sh2_din_o  = sh2_din_mac;
+assign sh2_q           = sram_sh2_q_i;
 
 // wgt_buf SRAM (Sram_v; shared conv1/conv2 — S_CONV1 vs S_CONV2 mutually exclusive)
 reg        wgt_ceb;
@@ -383,28 +353,11 @@ assign #1 wgt_web_mac  = wgt_web;
 assign wgt_addr_mac    = wgt_addr;
 assign #1 wgt_din_mac  = wgt_din;
 `endif
-
-Sram_v u_sram_wgt (
-    .SLP   (1'b0),
-    .DSLP  (1'b0),
-    .SD    (1'b0),
-    .PUDELAY(),
-    .CLK   (~clk),
-    .CEB   (wgt_ceb_mac),
-    .WEB   (wgt_web_mac),
-    .BIST  (1'b0),
-    .CEBM  (),
-    .WEBM  (),
-    .A     (wgt_addr_mac),
-    .D     (wgt_din_mac),
-    .BWEB  (16'b0),
-    .AM    (),
-    .DM    (),
-    .BWEBM (16'b0),
-    .RTSEL (2'b01),
-    .WTSEL (2'b00),
-    .Q     (wgt_q)
-);
+assign sram_wgt_ceb_o  = wgt_ceb_mac;
+assign sram_wgt_web_o  = wgt_web_mac;
+assign sram_wgt_addr_o = wgt_addr_mac;
+assign sram_wgt_din_o  = wgt_din_mac;
+assign wgt_q           = sram_wgt_q_i;
 
 always @(*) begin
     wgt_ceb_n  = 1'b1;
@@ -701,6 +654,11 @@ cal_bbox #(.DATA_W(DATA_W)) u_bbox (
     .off_in_valid  (to_v    ),
     .off_in_data   (to_d    ),
     .off_in_sub    (1'b0    ),
+    .so_ceb_o      (sram_bbox_ceb_o ),
+    .so_web_o      (sram_bbox_web_o ),
+    .so_addr_o     (sram_bbox_addr_o),
+    .so_din_o      (sram_bbox_din_o ),
+    .so_q_i        (sram_bbox_q_i   ),
     .bbox_valid    (b_valid ),
     .bbox_data     (b_data  ),
     .bbox_idx      (b_idx   )
