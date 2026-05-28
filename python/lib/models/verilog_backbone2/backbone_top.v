@@ -33,7 +33,7 @@
 //   Sram_tok2 captures each transformer_block output; replayed to next block.
 //   Block 0 reads external x_i/x_valid; blocks 1+ replay from Sram_tok2.
 //
-// Activation buffers: Sram_tok2 (inter-block) + Sram_tok1 (norm out).
+// Activation SRAM macros in sglatrack_top; port mux in backbone_top / transformer_block.
 //   S_OUT 2-phase: phase0=ADDR read, phase1=USE y_valid/y_o=s1_q.
 //
 // =============================================================================
@@ -61,7 +61,63 @@ module backbone_top #(
 
     // Output token stream (backbone norm output)
     output wire signed [15:0] y_o,
-    output wire        y_valid
+    output wire        y_valid,
+
+    // Sram_tok2 inter-block tok_buf; Sram_tok1 backbone norm out (macros in sglatrack_top)
+    output wire        sram_tok2_ceb_o,
+    output wire        sram_tok2_web_o,
+    output wire [13:0] sram_tok2_addr_o,
+    output wire [15:0] sram_tok2_din_o,
+    input  wire [15:0] sram_tok2_q_i,
+
+    output wire        sram_tok1_ceb_o,
+    output wire        sram_tok1_web_o,
+    output wire [13:0] sram_tok1_addr_o,
+    output wire [15:0] sram_tok1_din_o,
+    input  wire [15:0] sram_tok1_q_i,
+
+    // transformer_block x_buf / tmp_buf (Sram_tok3 / Sram_tok4)
+    output wire        sram_x_ceb_o,
+    output wire        sram_x_web_o,
+    output wire [13:0] sram_x_addr_o,
+    output wire [15:0] sram_x_din_o,
+    input  wire [15:0] sram_x_q_i,
+
+    output wire        sram_tmp_ceb_o,
+    output wire        sram_tmp_web_o,
+    output wire [13:0] sram_tmp_addr_o,
+    output wire [15:0] sram_tmp_din_o,
+    input  wire [15:0] sram_tmp_q_i,
+
+    output wire        sram_snap_x_ceb_o,
+    output wire        sram_snap_x_web_o,
+    output wire [13:0] sram_snap_x_addr_o,
+    output wire [15:0] sram_snap_x_din_o,
+    input  wire [15:0] sram_snap_x_q_i,
+
+    output wire        sram_q_ceb_o,
+    output wire        sram_q_web_o,
+    output wire [13:0] sram_q_addr_o,
+    output wire [15:0] sram_q_din_o,
+    input  wire [15:0] sram_q_q_i,
+
+    output wire        sram_k_ceb_o,
+    output wire        sram_k_web_o,
+    output wire [13:0] sram_k_addr_o,
+    output wire [15:0] sram_k_din_o,
+    input  wire [15:0] sram_k_q_i,
+
+    output wire        sram_v_ceb_o,
+    output wire        sram_v_web_o,
+    output wire [13:0] sram_v_addr_o,
+    output wire [15:0] sram_v_din_o,
+    input  wire [15:0] sram_v_q_i,
+
+    output wire        sram_qkm_ceb_o,
+    output wire        sram_qkm_web_o,
+    output wire [13:0] sram_qkm_addr_o,
+    output wire [15:0] sram_qkm_din_o,
+    input  wire [15:0] sram_qkm_q_i
 );
 
 // ---------------------------------------------------------------------------
@@ -93,6 +149,12 @@ reg        bt_s2_web;
 reg [13:0] bt_s2_addr;
 reg [15:0] bt_s2_din;
 wire [15:0] s2_q;
+
+reg        bt_s1_ceb;
+reg        bt_s1_web;
+reg [13:0] bt_s1_addr;
+reg [15:0] bt_s1_din;
+wire [15:0] s1_q;
 
 // transformer_block status (must precede tok_rp_active — uses tb_busy)
 wire tb_busy, tb_done;
@@ -130,7 +192,42 @@ transformer_block #(
     .wgt_addr_o(tb_wgt_addr),
     .block_idx (block_idx),
     .busy(tb_busy), .done(tb_done),
-    .y_o(tb_y), .y_valid(tb_y_valid)
+    .y_o(tb_y), .y_valid(tb_y_valid),
+    .sram_x_ceb_o   (sram_x_ceb_o),
+    .sram_x_web_o   (sram_x_web_o),
+    .sram_x_addr_o  (sram_x_addr_o),
+    .sram_x_din_o   (sram_x_din_o),
+    .sram_x_q_i     (sram_x_q_i),
+    .sram_tmp_ceb_o (sram_tmp_ceb_o),
+    .sram_tmp_web_o (sram_tmp_web_o),
+    .sram_tmp_addr_o(sram_tmp_addr_o),
+    .sram_tmp_din_o (sram_tmp_din_o),
+    .sram_tmp_q_i   (sram_tmp_q_i),
+    .sram_snap_x_ceb_o  (sram_snap_x_ceb_o),
+    .sram_snap_x_web_o  (sram_snap_x_web_o),
+    .sram_snap_x_addr_o (sram_snap_x_addr_o),
+    .sram_snap_x_din_o  (sram_snap_x_din_o),
+    .sram_snap_x_q_i    (sram_snap_x_q_i),
+    .sram_q_ceb_o       (sram_q_ceb_o),
+    .sram_q_web_o       (sram_q_web_o),
+    .sram_q_addr_o      (sram_q_addr_o),
+    .sram_q_din_o       (sram_q_din_o),
+    .sram_q_q_i         (sram_q_q_i),
+    .sram_k_ceb_o       (sram_k_ceb_o),
+    .sram_k_web_o       (sram_k_web_o),
+    .sram_k_addr_o      (sram_k_addr_o),
+    .sram_k_din_o       (sram_k_din_o),
+    .sram_k_q_i         (sram_k_q_i),
+    .sram_v_ceb_o       (sram_v_ceb_o),
+    .sram_v_web_o       (sram_v_web_o),
+    .sram_v_addr_o      (sram_v_addr_o),
+    .sram_v_din_o       (sram_v_din_o),
+    .sram_v_q_i         (sram_v_q_i),
+    .sram_qkm_ceb_o     (sram_qkm_ceb_o),
+    .sram_qkm_web_o     (sram_qkm_web_o),
+    .sram_qkm_addr_o    (sram_qkm_addr_o),
+    .sram_qkm_din_o     (sram_qkm_din_o),
+    .sram_qkm_q_i       (sram_qkm_q_i)
 );
 
 // ---------------------------------------------------------------------------
@@ -189,12 +286,20 @@ reg               s1_wr_do;
 reg [13:0] out_rd_addr;
 
 reg        out_rd_phase;    // 0=ADDR (s1 read out_rd_addr), 1=USE (y_valid, consume s1_q)
-reg        bt_s1_ceb;
-reg        bt_s1_web;
-reg [13:0] bt_s1_addr;
-reg [15:0] bt_s1_din;
-wire [15:0] s1_q;
-wire        s1_out_rdy = (state == S_OUT) && out_rd_phase;
+wire       s1_out_rdy = (state == S_OUT) && out_rd_phase;
+
+// Sram_tok1 / Sram_tok2 port mux -> macros in sglatrack_top
+assign sram_tok2_ceb_o  = bt_s2_ceb;
+assign sram_tok2_web_o  = bt_s2_web;
+assign sram_tok2_addr_o = bt_s2_addr;
+assign sram_tok2_din_o  = bt_s2_din;
+assign s2_q             = sram_tok2_q_i;
+
+assign sram_tok1_ceb_o  = bt_s1_ceb;
+assign sram_tok1_web_o  = bt_s1_web;
+assign sram_tok1_addr_o = bt_s1_addr;
+assign sram_tok1_din_o  = bt_s1_din;
+assign s1_q             = sram_tok1_q_i;
 
 // ---------------------------------------------------------------------------
 // ROM Q wires (per weight type)
@@ -414,58 +519,6 @@ rom_backbone_norm_bias u_rom_bnb (
     .A(addr_bnorm), .AM(), .CEBM(), .BIST(1'b0), .CEB(ceb_bnb),
     .CLK(~clk), .SD(1'b0), .PUDELAY(),
     .RTSEL(2'b01), .PTSEL(2'b01), .TRB(2'b01), .TM(1'b0), .Q(q_bnorm_b));
-
-// ---------------------------------------------------------------------------
-// Activation SRAM (SHC-SPMBSRAM: Sram_tok2 / Sram_tok1, 12288x16; use 10240 entries)
-//   u_sram_tok2 : inter-block tok_buf + backbone norm read source
-//   u_sram_tok1 : backbone norm capture + S_OUT stream read
-// SRAM read contract (CLK = ~clk): posedge T drive A/CEB/WEB; posedge T+1 Q valid
-// Golden: Activation/backbone_after_norm_backbone_out_bi.txt (out via s1)
-// Compile: Sram_tok1 12288 16 16 s ; Sram_tok2 12288 16 16 s
-// ---------------------------------------------------------------------------
-Sram_tok2 u_sram_tok2 (
-    .SLP   (1'b0),
-    .DSLP  (1'b0),
-    .SD    (1'b0),
-    .PUDELAY(),
-    .CLK   (~clk),
-    .CEB   (bt_s2_ceb),
-    .WEB   (bt_s2_web),
-    .BIST  (1'b0),
-    .CEBM  (),
-    .WEBM  (),
-    .A     (bt_s2_addr),
-    .D     (bt_s2_din),
-    .BWEB  (16'b0),
-    .AM    (),
-    .DM    (),
-    .BWEBM (16'b0),
-    .RTSEL (2'b01),
-    .WTSEL (2'b00),
-    .Q     (s2_q)
-);
-
-Sram_tok1 u_sram_tok1 (
-    .SLP   (1'b0),
-    .DSLP  (1'b0),
-    .SD    (1'b0),
-    .PUDELAY(),
-    .CLK   (~clk),
-    .CEB   (bt_s1_ceb),
-    .WEB   (bt_s1_web),
-    .BIST  (1'b0),
-    .CEBM  (),
-    .WEBM  (),
-    .A     (bt_s1_addr),
-    .D     (bt_s1_din),
-    .BWEB  (16'b0),
-    .AM    (),
-    .DM    (),
-    .BWEBM (16'b0),
-    .RTSEL (2'b01),
-    .WTSEL (2'b00),
-    .Q     (s1_q)
-);
 
 // ---------------------------------------------------------------------------
 // FSM segment 1: state register

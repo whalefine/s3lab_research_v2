@@ -16,7 +16,7 @@
 // VCS (run from directory where ./TXT_File/Activation/ resolves):
 //
 //   vcs verilog_backbone2/*.v memory/*.v \
-//     <path>/Sram_tok1.v <path>/Sram_tok2.v \
+//     <path>/Sram_tok1.v <path>/Sram_tok2.v <path>/Sram_tok3.v <path>/Sram_tok4.v \
 //     <path>/Sram_x.v <path>/Sram_q.v <path>/Sram_k.v <path>/Sram_v.v <path>/Sram_qkm.v \
 //     +lint=TFIPC-L +define+TSMC_CM_NO_WARNING | tee runvcs.log
 //
@@ -26,6 +26,7 @@
 //   grep -E '\\[PASS\\]|\\[FAIL\\]|TIMEOUT|backbone_top done' simv.log
 //
 //   Block0 only (fast debug): +define+CHECK_BLOCK0_ONLY
+//   SRAM hoist debug: +define+DUMP_BACKBONE_SRAM_DBG (first writes/reads + first y_o mismatch)
 // =============================================================================
 
 module TEST_backbone;
@@ -118,8 +119,17 @@ always @(posedge clk) begin
     end else if (y_valid) begin
         if (GOLD_BB[rtl_bb_cnt] !== y_o[15:0]) begin
             bb_mism <= bb_mism + 32'd1;
-            if (bb_first_bad == 32'hFFFF_FFFF)
+            if (bb_first_bad == 32'hFFFF_FFFF) begin
                 bb_first_bad <= {18'b0, rtl_bb_cnt};
+`ifdef DUMP_BACKBONE_SRAM_DBG
+                $display("[TB_BB_MISMATCH] idx=%0d rtl=%h gold=%h blk=%0d tb_st=%0d",
+                         rtl_bb_cnt, y_o[15:0], GOLD_BB[rtl_bb_cnt],
+                         u_DUT.u_backbone.block_idx, u_DUT.u_backbone.state);
+                $display("  in0=%h tok_wr=%0d s2_q@0=%h s1_q@0=%h",
+                         data_in, u_DUT.u_backbone.tok_wr_ptr,
+                         u_DUT.u_backbone.s2_q, u_DUT.u_backbone.s1_q);
+`endif
+            end
         end
         rtl_bb_cnt <= rtl_bb_cnt + 14'd1;
     end

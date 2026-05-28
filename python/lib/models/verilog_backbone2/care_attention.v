@@ -1,5 +1,5 @@
 // =============================================================================
-// care_attention.v  (SRAM: x_in Sram_x + q/ao Sram_q + k Sram_k + v/ao Sram_v + qkm Sram_qkm)
+// care_attention.v  (SRAM macros in sglatrack_top: snap_x/q/k/v/qkm port mux here)
 //
 // CARE multi-head attention (Softmax-free, O(N), Q8.8 fixed-point).
 // Bit-accurate mirror of attention_forward() in
@@ -13,11 +13,11 @@
 //      -> [PROJ linear] -> y_o stream
 //
 // ============================================================================
-// SRAM activation buffers (inline macros):
+// SRAM activation buffers (macros in sglatrack_top; names match head2 sram_* style):
 // ============================================================================
-//   q_buf  -> Sram_q  (12288 x 16, inline instantiated below)
-//   k_buf  -> Sram_k  (12288 x 16, inline instantiated below)
-//   v_buf  -> Sram_v  (12288 x 16, inline instantiated below)
+//   q_buf  -> sram_q_*   (Sram_q  12288 x 16)
+//   k_buf  -> sram_k_*   (Sram_k  12288 x 16)
+//   v_buf  -> sram_v_*   (Sram_v  12288 x 16)
 //                     also hosts ao_buf in time-multiplex (deviation from
 //                     python/md/SRAM_suggestion.md 5.3: ao_buf was planned in
 //                     Sram_q, but moved to Sram_v to avoid same-cycle read q +
@@ -26,18 +26,12 @@
 //                     temporal overlap.)
 //   ao_buf -> Sram_v  (S_ATTN write, S_PROJ read; non-overlapping with v role)
 //
-//   x_in_buf [10240]   -> Sram_x (x_snap_wr during parent norm1, S_QKV 2-phase read)
+//   x_in_buf [10240]   -> sram_snap_x_* (Sram_x; x_snap_wr during parent norm1)
 //   q layout           -> Sram_q only (QKV capture, SPLIT, QK_MEAN, ATTN; no x)
 //   qkm_buf  [ 1280]   -> Sram_qkm (S_QK_MEAN write, S_Z_RECIP read/write zr)
 //   zr_buf   [ 1280]   -> same Sram_qkm (non-overlapping states vs qkm role)
 //   km_buf   [   32]   (reg; S_K_MEAN / S_QK_MEAN)
 //   kv_buf   [  256]   (reg; S_KV / S_ATTN)
-//
-// Macro placement (deviation from SRAM_suggestion.md 5.3):
-//   Per user "Option A" decision in chat: macros are inline instantiated *here*
-//   instead of at backbone_top.v, to keep Phase 1 changes confined to one file.
-//   When the full 6-macro refactor proceeds (Phase 2), macros should be moved
-//   to backbone_top.v per 5.3 and ports routed through transformer_block.
 //
 // SRAM read contract (verilog_rule.mdc 7.7, also matches existing ROM convention):
 //   posedge T  : drive A, D, WEB, CEB=0 to macro
@@ -112,7 +106,38 @@ module care_attention #(
 
     // Streaming output to next stage (after PROJ linear)
     output reg  signed [15:0] y_o,
-    output reg         y_valid
+    output reg         y_valid,
+
+    // 1P SRAM port mux -> sglatrack_top (head2-style sram_*_ceb_o / sram_*_q_i)
+    output wire        sram_snap_x_ceb_o,
+    output wire        sram_snap_x_web_o,
+    output wire [13:0] sram_snap_x_addr_o,
+    output wire [15:0] sram_snap_x_din_o,
+    input  wire [15:0] sram_snap_x_q_i,
+
+    output wire        sram_q_ceb_o,
+    output wire        sram_q_web_o,
+    output wire [13:0] sram_q_addr_o,
+    output wire [15:0] sram_q_din_o,
+    input  wire [15:0] sram_q_q_i,
+
+    output wire        sram_k_ceb_o,
+    output wire        sram_k_web_o,
+    output wire [13:0] sram_k_addr_o,
+    output wire [15:0] sram_k_din_o,
+    input  wire [15:0] sram_k_q_i,
+
+    output wire        sram_v_ceb_o,
+    output wire        sram_v_web_o,
+    output wire [13:0] sram_v_addr_o,
+    output wire [15:0] sram_v_din_o,
+    input  wire [15:0] sram_v_q_i,
+
+    output wire        sram_qkm_ceb_o,
+    output wire        sram_qkm_web_o,
+    output wire [13:0] sram_qkm_addr_o,
+    output wire [15:0] sram_qkm_din_o,
+    input  wire [15:0] sram_qkm_q_i
 );
 
 // ---------------------------------------------------------------------------
@@ -248,6 +273,36 @@ reg         s7_ceb, s7_web;
 reg [13:0]  s7_addr;
 reg [15:0]  s7_din;
 wire [15:0] s7_q;
+
+assign sram_snap_x_ceb_o  = s7_ceb;
+assign sram_snap_x_web_o  = s7_web;
+assign sram_snap_x_addr_o = s7_addr;
+assign sram_snap_x_din_o  = s7_din;
+assign s7_q               = sram_snap_x_q_i;
+
+assign sram_q_ceb_o   = s3_ceb;
+assign sram_q_web_o   = s3_web;
+assign sram_q_addr_o  = s3_addr;
+assign sram_q_din_o   = s3_din;
+assign s3_q           = sram_q_q_i;
+
+assign sram_k_ceb_o   = s4_ceb;
+assign sram_k_web_o   = s4_web;
+assign sram_k_addr_o  = s4_addr;
+assign sram_k_din_o   = s4_din;
+assign s4_q           = sram_k_q_i;
+
+assign sram_v_ceb_o   = s5_ceb;
+assign sram_v_web_o   = s5_web;
+assign sram_v_addr_o  = s5_addr;
+assign sram_v_din_o   = s5_din;
+assign s5_q           = sram_v_q_i;
+
+assign sram_qkm_ceb_o  = s6_ceb;
+assign sram_qkm_web_o  = s6_web;
+assign sram_qkm_addr_o = {3'b000, s6_addr};
+assign sram_qkm_din_o  = s6_din;
+assign s6_q            = sram_qkm_q_i;
 
 // ---------------------------------------------------------------------------
 // recip_nr driver regs (small)
@@ -397,125 +452,6 @@ recip_nr u_recip (
     .busy (recip_busy),
     .done (recip_done),
     .y_o  (recip_y)
-);
-
-// ---------------------------------------------------------------------------
-// Inline SRAM macro instantiations (Option A: macros live in this module).
-//   Direct port list per SRAM_suggestion.md 5.2 (no wrapper). Macro CLK = ~clk
-//   to match existing ROM convention (read latched at internal negedge clk).
-//   Per rule 7: full datasheet port list -- note BWEBM (not BWEM).
-// Macros pulled from memory2/ at compile time:
-//   memory2/Sram_x.v, Sram_q.v, Sram_k.v, Sram_v.v, Sram_qkm.v
-//   Sram_x: 12288x16 SP (use 10240 for norm1 x_in_buf; compile same as Sram_q)
-// ---------------------------------------------------------------------------
-Sram_x u_sram_x (
-    .SLP    (1'b0),
-    .DSLP   (1'b0),
-    .SD     (1'b0),
-    .PUDELAY(),
-    .CLK    (~clk),
-    .CEB    (s7_ceb),
-    .WEB    (s7_web),
-    .BIST   (1'b0),
-    .CEBM   (),
-    .WEBM   (),
-    .A      (s7_addr),
-    .D      (s7_din),
-    .BWEB   (16'b0),
-    .AM     (),
-    .DM     (),
-    .BWEBM  (16'b0),
-    .RTSEL  (2'b01),
-    .WTSEL  (2'b00),
-    .Q      (s7_q)
-);
-
-Sram_q u_sram_q (
-    .SLP    (1'b0),
-    .DSLP   (1'b0),
-    .SD     (1'b0),
-    .PUDELAY(),
-    .CLK    (~clk),
-    .CEB    (s3_ceb),
-    .WEB    (s3_web),
-    .BIST   (1'b0),
-    .CEBM   (),
-    .WEBM   (),
-    .A      (s3_addr),
-    .D      (s3_din),
-    .BWEB   (16'b0),
-    .AM     (),
-    .DM     (),
-    .BWEBM  (16'b0),
-    .RTSEL  (2'b01),
-    .WTSEL  (2'b00),
-    .Q      (s3_q)
-);
-
-Sram_k u_sram_k (
-    .SLP    (1'b0),
-    .DSLP   (1'b0),
-    .SD     (1'b0),
-    .PUDELAY(),
-    .CLK    (~clk),
-    .CEB    (s4_ceb),
-    .WEB    (s4_web),
-    .BIST   (1'b0),
-    .CEBM   (),
-    .WEBM   (),
-    .A      (s4_addr),
-    .D      (s4_din),
-    .BWEB   (16'b0),
-    .AM     (),
-    .DM     (),
-    .BWEBM  (16'b0),
-    .RTSEL  (2'b01),
-    .WTSEL  (2'b00),
-    .Q      (s4_q)
-);
-
-Sram_v u_sram_v (
-    .SLP    (1'b0),
-    .DSLP   (1'b0),
-    .SD     (1'b0),
-    .PUDELAY(),
-    .CLK    (~clk),
-    .CEB    (s5_ceb),
-    .WEB    (s5_web),
-    .BIST   (1'b0),
-    .CEBM   (),
-    .WEBM   (),
-    .A      (s5_addr),
-    .D      (s5_din),
-    .BWEB   (16'b0),
-    .AM     (),
-    .DM     (),
-    .BWEBM  (16'b0),
-    .RTSEL  (2'b01),
-    .WTSEL  (2'b00),
-    .Q      (s5_q)
-);
-
-Sram_qkm u_sram_qkm (
-    .SLP    (1'b0),
-    .DSLP   (1'b0),
-    .SD     (1'b0),
-    .PUDELAY(),
-    .CLK    (~clk),
-    .CEB    (s6_ceb),
-    .WEB    (s6_web),
-    .BIST   (1'b0),
-    .CEBM   (),
-    .WEBM   (),
-    .A      (s6_addr),
-    .D      (s6_din),
-    .BWEB   (16'b0),
-    .AM     (),
-    .DM     (),
-    .BWEBM  (16'b0),
-    .RTSEL  (2'b01),
-    .WTSEL  (2'b00),
-    .Q      (s6_q)
 );
 
 // ---------------------------------------------------------------------------

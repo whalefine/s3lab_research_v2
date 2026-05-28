@@ -3,7 +3,7 @@
 //
 // Pipeline (matches block_forward in run_backbone_numpy_shared_trunk.py L526-560):
 //   external x_i  -> [S_LOAD_X] x_buf
-//                 -> [S_NORM1]  tmp_buf  = norm1(x_buf); x_snap -> u_attn Sram_x
+//                 -> [S_NORM1]  tmp_buf  = norm1(x_buf); x_snap -> sram_snap_x
 //                 -> [S_ATTN_FEED + S_ATTN_WAIT]
 //                       S_ATTN_FEED: pulse attn_start (x preloaded during norm1)
 //                       S_ATTN_WAIT: capture attn y into tmp_buf
@@ -15,7 +15,7 @@
 //                 -> [S_RES2]   y_o      = residual(x_buf, tmp_buf)  // streamed
 //                 -> [S_DONE]
 //
-// Buffers: Sram_tok1 u_sram_x + u_sram_tmp (internal, no top ports).
+// Buffers: Sram_tok3 u_sram_x + Sram_tok4 u_sram_tmp (instantiated in sglatrack_top).
 //
 // SRAM read contract (CLK = ~clk, both macros):
 //   posedge T:   drive A, CEB=0, WEB=1
@@ -46,13 +46,57 @@ module transformer_block #(
     output reg         done,
 
     output reg  signed [15:0] y_o,
-    output reg         y_valid
+    output reg         y_valid,
+
+    // 1P SRAM port mux -> macros in sglatrack_top (12288x16; use 10240 entries)
+    output wire        sram_x_ceb_o,
+    output wire        sram_x_web_o,
+    output wire [13:0] sram_x_addr_o,
+    output wire [15:0] sram_x_din_o,
+    input  wire [15:0] sram_x_q_i,
+
+    output wire        sram_tmp_ceb_o,
+    output wire        sram_tmp_web_o,
+    output wire [13:0] sram_tmp_addr_o,
+    output wire [15:0] sram_tmp_din_o,
+    input  wire [15:0] sram_tmp_q_i,
+
+    // care_attention SRAM macros in sglatrack_top (head2-style sram_* ports)
+    output wire        sram_snap_x_ceb_o,
+    output wire        sram_snap_x_web_o,
+    output wire [13:0] sram_snap_x_addr_o,
+    output wire [15:0] sram_snap_x_din_o,
+    input  wire [15:0] sram_snap_x_q_i,
+
+    output wire        sram_q_ceb_o,
+    output wire        sram_q_web_o,
+    output wire [13:0] sram_q_addr_o,
+    output wire [15:0] sram_q_din_o,
+    input  wire [15:0] sram_q_q_i,
+
+    output wire        sram_k_ceb_o,
+    output wire        sram_k_web_o,
+    output wire [13:0] sram_k_addr_o,
+    output wire [15:0] sram_k_din_o,
+    input  wire [15:0] sram_k_q_i,
+
+    output wire        sram_v_ceb_o,
+    output wire        sram_v_web_o,
+    output wire [13:0] sram_v_addr_o,
+    output wire [15:0] sram_v_din_o,
+    input  wire [15:0] sram_v_q_i,
+
+    output wire        sram_qkm_ceb_o,
+    output wire        sram_qkm_web_o,
+    output wire [13:0] sram_qkm_addr_o,
+    output wire [15:0] sram_qkm_din_o,
+    input  wire [15:0] sram_qkm_q_i
 );
 
 parameter LN_RCP   = 65536 / EMBED_DIM;
 parameter TOK_FLAT = N_TOKENS * EMBED_DIM;   // 10240
 
-// ---- Internal activation SRAM (12288x16 macro; use 10240 entries) ----
+// ---- Activation SRAM control (macros in sglatrack_top) ----
 reg        sx_ceb;
 reg        sx_web;
 reg [13:0] sx_addr;
@@ -65,24 +109,17 @@ reg [13:0] st_addr;
 reg [15:0] st_din;
 wire [15:0] st_q;
 
-// Compile (reuse same macro module as backbone): Sram_tok1 12288 16 16 s
-Sram_tok1 u_sram_x (
-    .SLP   (1'b0), .DSLP  (1'b0), .SD    (1'b0), .PUDELAY(),
-    .CLK   (~clk), .CEB   (sx_ceb), .WEB   (sx_web), .BIST  (1'b0),
-    .CEBM  (), .WEBM  (),
-    .A     (sx_addr), .D     (sx_din), .BWEB  (16'b0),
-    .AM    (), .DM    (), .BWEBM (16'b0),
-    .RTSEL (2'b01), .WTSEL (2'b00), .Q     (sx_q)
-);
+assign sram_x_ceb_o   = sx_ceb;
+assign sram_x_web_o   = sx_web;
+assign sram_x_addr_o  = sx_addr;
+assign sram_x_din_o   = sx_din;
+assign sx_q           = sram_x_q_i;
 
-Sram_tok1 u_sram_tmp (
-    .SLP   (1'b0), .DSLP  (1'b0), .SD    (1'b0), .PUDELAY(),
-    .CLK   (~clk), .CEB   (st_ceb), .WEB   (st_web), .BIST  (1'b0),
-    .CEBM  (), .WEBM  (),
-    .A     (st_addr), .D     (st_din), .BWEB  (16'b0),
-    .AM    (), .DM    (), .BWEBM (16'b0),
-    .RTSEL (2'b01), .WTSEL (2'b00), .Q     (st_q)
-);
+assign sram_tmp_ceb_o  = st_ceb;
+assign sram_tmp_web_o  = st_web;
+assign sram_tmp_addr_o = st_addr;
+assign sram_tmp_din_o  = st_din;
+assign st_q            = sram_tmp_q_i;
 
 // 2-phase / multi-phase helpers (SRAM only)
 reg        x_norm_phase;   // norm1/2 x read: 0=ADDR, 1=USE -> u_norm1
@@ -205,7 +242,32 @@ care_attention #(
     .busy     (attn_busy),
     .done     (attn_done),
     .y_o      (attn_y),
-    .y_valid  (attn_yv)
+    .y_valid  (attn_yv),
+    .sram_snap_x_ceb_o  (sram_snap_x_ceb_o),
+    .sram_snap_x_web_o  (sram_snap_x_web_o),
+    .sram_snap_x_addr_o (sram_snap_x_addr_o),
+    .sram_snap_x_din_o  (sram_snap_x_din_o),
+    .sram_snap_x_q_i    (sram_snap_x_q_i),
+    .sram_q_ceb_o       (sram_q_ceb_o),
+    .sram_q_web_o       (sram_q_web_o),
+    .sram_q_addr_o      (sram_q_addr_o),
+    .sram_q_din_o       (sram_q_din_o),
+    .sram_q_q_i         (sram_q_q_i),
+    .sram_k_ceb_o       (sram_k_ceb_o),
+    .sram_k_web_o       (sram_k_web_o),
+    .sram_k_addr_o      (sram_k_addr_o),
+    .sram_k_din_o       (sram_k_din_o),
+    .sram_k_q_i         (sram_k_q_i),
+    .sram_v_ceb_o       (sram_v_ceb_o),
+    .sram_v_web_o       (sram_v_web_o),
+    .sram_v_addr_o      (sram_v_addr_o),
+    .sram_v_din_o       (sram_v_din_o),
+    .sram_v_q_i         (sram_v_q_i),
+    .sram_qkm_ceb_o     (sram_qkm_ceb_o),
+    .sram_qkm_web_o     (sram_qkm_web_o),
+    .sram_qkm_addr_o    (sram_qkm_addr_o),
+    .sram_qkm_din_o     (sram_qkm_din_o),
+    .sram_qkm_q_i       (sram_qkm_q_i)
 );
 
 mlp #(
@@ -585,5 +647,43 @@ always @(posedge clk) begin
 end
 
 assign busy = (state != S_IDLE);
+
+// Debug: +define+DUMP_BACKBONE_SRAM_DBG — block0 first x/tmp SRAM beats (negedge ~ macro CLK)
+`ifdef DUMP_BACKBONE_SRAM_DBG
+reg [7:0] dbg_x_wr_cnt;
+reg [7:0] dbg_x_rd_cnt;
+reg [7:0] dbg_tmp_wr_cnt;
+
+always @(posedge clk) begin
+    if (reset) begin
+        dbg_x_wr_cnt   <= 8'd0;
+        dbg_x_rd_cnt   <= 8'd0;
+        dbg_tmp_wr_cnt <= 8'd0;
+    end else if (block_idx == 4'd0) begin
+        if ((state == S_LOAD_X) && x_valid && (sx_ceb == 1'b0) && (sx_web == 1'b0) &&
+            (dbg_x_wr_cnt < 8'd8))
+            dbg_x_wr_cnt <= dbg_x_wr_cnt + 8'd1;
+        if (in_norm_phase && rp_stream && (x_norm_phase == 1'b1) && (dbg_x_rd_cnt < 8'd8))
+            dbg_x_rd_cnt <= dbg_x_rd_cnt + 8'd1;
+        if (tmp_wr_do && (dbg_tmp_wr_cnt < 8'd8))
+            dbg_tmp_wr_cnt <= dbg_tmp_wr_cnt + 8'd1;
+    end
+end
+
+always @(negedge clk) begin
+    if (block_idx != 4'd0)
+        ;
+    else if ((state == S_LOAD_X) && x_valid && (sx_ceb == 1'b0) && (sx_web == 1'b0) &&
+             (dbg_x_wr_cnt <= 8'd8))
+        $display("[TB_X_WR] t=%0d addr=%0d din=%h Q_after=%h cnt=%0d",
+                 $time, sx_addr, sx_din, sx_q, dbg_x_wr_cnt);
+    else if (in_norm_phase && rp_stream && (x_norm_phase == 1'b1) && (dbg_x_rd_cnt <= 8'd8))
+        $display("[TB_X_RD_USE] t=%0d rp_addr=%0d sx_q=%h cnt=%0d",
+                 $time, xbuf_rp_addr, sx_q, dbg_x_rd_cnt);
+    else if (tmp_wr_do && (dbg_tmp_wr_cnt <= 8'd8))
+        $display("[TB_TMP_WR] t=%0d flat=%0d din=%h st_q@%0d=%h cnt=%0d",
+                 $time, tmp_wr_flat_lat, tmp_wr_din_lat, tmp_wr_flat_lat, st_q, dbg_tmp_wr_cnt);
+end
+`endif
 
 endmodule
