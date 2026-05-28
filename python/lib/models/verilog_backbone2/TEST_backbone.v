@@ -8,6 +8,7 @@
 //   2. reset; sel_block_i = 6; pulse start
 //   3. backbone_top runs blocks 0..START_LAYER, adaptive block 6, backbone_norm
 //   4. Compare y_o stream vs golden; print [PASS] or [FAIL] at done
+//   5. On done (or timeout): $toggle_stop / $toggle_report -> backbone_top_rtl.saif
 //
 // Golden: ./TXT_File/Activation/backbone_after_norm_backbone_out_bi.txt
 // Run simv from a directory where ./TXT_File/Activation/ resolves.
@@ -20,30 +21,16 @@
 //     +lint=TFIPC-L +define+TSMC_CM_NO_WARNING | tee runvcs.log
 //
 //   ./simv | tee simv.log
-//
-// SRAM macro instances (activation buffers only):
-//   backbone_top:     Sram_tok2 (inter-block), Sram_tok1 (norm out / S_OUT)
-//   transformer_block: Sram_tok1 x2 per block (u_sram_x, u_sram_tmp)
-//   care_attention:   Sram_x, Sram_q, Sram_k, Sram_v, Sram_qkm
-//   Sram_tok1 total: 1 (backbone) + 2 x 7 blocks = 15; plus tok2, q/k/v/x/qkm.
+//   # -> backbone_top_rtl.saif, backbone_tb.fsdb
 //
 //   grep -E '\\[PASS\\]|\\[FAIL\\]|TIMEOUT|backbone_top done' simv.log
 //
-//   A1 linear debug (ROM addr vs w_i / acc / y_o):
-//     add +define+DUMP_LINEAR_DEBUG; grep simv.log LIN_DBG
-//     pass0 neu0: full 32 MAC lines; compare first "Y ... neu=0 y_next=" vs golden qkv q[0]
-//     A2 fc2: grep 'LIN_DBG.*u_fc2.* Y pass=0' vs backbone_blocks_0_mlp_after_mlp_out_bi.txt
-//   Full end-to-end (default): sel_block_i=6, runs blocks 0..5 + adaptive block 6 + norm
-//     grep -E '\\[PASS\\]|\\[FAIL\\]|TIMEOUT|backbone_top done' simv.log
-//
 //   Block0 only (fast debug): +define+CHECK_BLOCK0_ONLY
-//     early stop after block0; sel_block_i ignored
 // =============================================================================
 
 module TEST_backbone;
 
 parameter CYCLE = 2.0;
-parameter [31:0] FSDB_START_MULT = 32'd00_000_000;
 
 parameter EMBED_DIM   = 32;
 parameter FEAT_H      = 16;
@@ -139,13 +126,6 @@ always @(posedge clk) begin
 end
 
 always @(negedge clk) begin
-`ifdef CHECK_BLOCK0_ONLY
-    if (!reset && (u_DUT.state == 3'd1) && (u_DUT.block_idx == 4'd0) && u_DUT.u_tb.done) begin
-        $display("\n---- early stop after block0 @ cycle %0d ----", cycle_cnt);
-        $display("  sel_block_i = %0d (CHECK_BLOCK0_ONLY)", sel_block_i);
-        $finish;
-    end
-`endif
 
     if (done) begin
         $display("\n---- backbone_top done @ cycle %0d ----", cycle_cnt);
@@ -159,27 +139,20 @@ always @(negedge clk) begin
         else
             $display("  [FAIL] backbone_after_norm_backbone_out mismatches = %0d / %0d  first_bad_idx = %0d",
                      bb_mism, TOK_TOTAL, bb_first_bad);
+        $toggle_stop();
+        $toggle_report("backbone_top_rtl.saif", 1.0e-9, "u_DUT");
         $finish;
     end
 end
 
-// initial begin
-//     $fsdbDumpfile("backbone_tb.fsdb");
-//     $fsdbDumpvars(0, TEST_backbone.u_DUT);
-//     $fsdbDumpoff;
-// end
-
-// initial begin
-//     #(CYCLE * FSDB_START_MULT);
-//     $fsdbDumpon;
-// end
-
-// initial begin
-//     $set_toggle_region("u_DUT");
-//     $toggle_start();
-// end
-
 initial begin
+    // $fsdbDumpfile("backbone_tb.fsdb");
+    // $fsdbDumpvars;
+    // $fsdbDumpMDA;
+
+    $set_toggle_region("u_DUT");
+
+    $toggle_start();
     $readmemb("./TXT_File/Activation/backbone_after_norm_backbone_out_bi.txt", GOLD_BB);
     $readmemb("./TXT_File/Activation/template_post_embed_input_bi.txt", TEMPL_MEM);
     $readmemb("./TXT_File/Activation/search_post_embed_input_bi.txt", SRCH_MEM);
@@ -197,11 +170,7 @@ initial begin
     bb_mism    = 0;
     bb_first_bad = 32'hFFFF_FFFF;
 
-`ifdef CHECK_BLOCK0_ONLY
-    sel_block_i = 4'd0;
-`else
     sel_block_i = 4'd6;
-`endif
 
     #(CYCLE) reset = 1;
     #(CYCLE) reset = 0;
@@ -211,8 +180,10 @@ initial begin
     @(negedge clk);
     start = 0;
 
-    #(CYCLE * 800_000_000);
+    #(CYCLE * 500_000_000);
     $display("[TB] TIMEOUT: backbone_top did not finish (cycle %0d)", cycle_cnt);
+    $toggle_stop();
+    $toggle_report("backbone_top_rtl.saif", 1.0e-9, "u_DUT");
     $finish;
 end
 
