@@ -133,11 +133,7 @@ reg [13:0] bt_s2_addr;
 reg [15:0] bt_s2_din;
 wire [15:0] s2_q;
 
-// transformer_block status (must precede tok_rp_active — uses tb_busy)
 wire tb_busy, tb_done;
-
-// tok_rp_active: legacy name; replay uses tok_rp_phase 2-beat read (2-beat read)
-wire tok_rp_active = tok_replay && tb_busy && (tok_rd_ptr < N_TOKENS*EMBED_DIM);
 
 // ---------------------------------------------------------------------------
 // transformer_block control / data
@@ -176,7 +172,6 @@ transformer_block #(
     .wgt_i   (bb_wgt_mux),
     .bias_i  (bb_bias_mux),
     .wgt_addr_o(tb_wgt_addr),
-    .block_idx (block_idx),
     .busy(tb_busy), .done(tb_done),
     .y_o(tb_y), .y_valid(tb_y_valid),
     .sram_x_ceb_o   (sram_x_ceb_o),

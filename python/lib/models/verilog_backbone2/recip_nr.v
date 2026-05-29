@@ -44,12 +44,11 @@ reg signed [15:0] y_reg;
 
 // Seed
 wire signed [15:0] seed_y0;
-wire        [3:0]  seed_k_unused;
 
 recip_lut_seed u_seed (
     .x_i (x_i),
     .y0_o(seed_y0),
-    .k_o (seed_k_unused)
+    .k_o ()
 );
 
 // NR combinational chain (matches numpy):

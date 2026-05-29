@@ -86,10 +86,6 @@ module care_attention #(
     input  wire        reset,
     input  wire        start,
 
-    // Legacy stream ports (unused; parent supplies norm1 via norm_rd_*)
-    input  wire signed [15:0] x_i,
-    input  wire        x_valid,
-
     // 2-phase read of parent norm1 buffer (backbone Sram_tok1 staging)
     output reg         norm_rd_en,
     output reg  [13:0] norm_rd_flat,

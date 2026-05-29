@@ -39,8 +39,6 @@ module transformer_block #(
     input  wire signed [15:0] bias_i,
     output wire [15:0] wgt_addr_o,
 
-    input  wire [3:0]  block_idx,
-
     output wire        busy,
     output reg         done,
 
@@ -149,16 +147,13 @@ reg [3:0] state, next_state;
 // Shared norm streaming regs (used by both S_NORM1 and S_NORM2)
 reg [13:0] buf_addr;
 reg [8:0]  tok_cnt;
-reg [4:0]  feat_cnt;
 reg [4:0]  rp_feat;
 reg        rp_stream;
 reg        ln1_start_r;
 
 reg  ln1_start;
 wire ln1_busy, ln1_done;
-wire signed [15:0] ln1_y;
 wire signed [15:0] ln1_y_sat;
-wire ln1_yv;
 wire [9:0]  ln1_addr;
 wire        ln1_out_beat;
 
@@ -166,8 +161,6 @@ wire [13:0] tmp_cap_flat = tok_cnt * EMBED_DIM + {9'b0, ln1_addr[4:0]};
 
 // Attention sub-block regs / wires
 reg                attn_start;
-wire               attn_norm_rd_en;
-wire [13:0]        attn_norm_rd_flat;
 wire signed [15:0] attn_norm_x;
 wire signed [15:0] attn_y;
 wire               attn_yv;
@@ -202,9 +195,6 @@ reg [13:0] cap_ptr;
 reg [13:0] res_rp;
 reg [13:0] res_wp;
 
-assign norm1_stg_rd_en   = attn_norm_rd_en;
-assign norm1_stg_rd_flat = attn_norm_rd_flat;
-
 assign tb_q_mux_sel =
     tmp_wr_do ||
     ((state == S_ATTN_WAIT) && attn_yv) ||
@@ -231,7 +221,8 @@ layer_norm #(
     .w_i(wgt_i), .b_i(bias_i),
     .feat_addr_o(ln1_addr),
     .busy(ln1_busy), .done(ln1_done),
-    .y_o(ln1_y), .y_valid(ln1_yv),
+    .y_o(),
+    .y_valid(),
     .y_sat_o(ln1_y_sat),
     .out_beat_o(ln1_out_beat)
 );
@@ -245,10 +236,8 @@ care_attention #(
     .clk      (clk),
     .reset    (reset),
     .start    (attn_start),
-    .x_i      (16'sd0),
-    .x_valid  (1'b0),
-    .norm_rd_en   (attn_norm_rd_en),
-    .norm_rd_flat (attn_norm_rd_flat),
+    .norm_rd_en   (norm1_stg_rd_en),
+    .norm_rd_flat (norm1_stg_rd_flat),
     .norm_x       (attn_norm_x),
     .wgt_i    (wgt_i),
     .bias_i   (bias_i),
@@ -416,21 +405,15 @@ always @(posedge clk) begin
             norm1_stg_wr_flat_lat <= tmp_cap_flat;
             norm1_stg_wr_din_lat  <= ln1_y_sat;
             norm1_stg_wr_do_lat   <= 1'b1;
-            feat_cnt              <= feat_cnt + 5'd1;
-            if (feat_cnt == EMBED_DIM-1) begin
-                feat_cnt <= 5'd0;
-                tok_cnt  <= tok_cnt + 9'd1;
-            end
+            if (ln1_addr == (EMBED_DIM - 1))
+                tok_cnt <= tok_cnt + 9'd1;
         end
         if (state == S_NORM2 && ln1_out_beat) begin
             tmp_wr_flat_lat <= tmp_cap_flat;
             tmp_wr_din_lat  <= ln1_y_sat;
             tmp_wr_do       <= 1'b1;
-            feat_cnt        <= feat_cnt + 5'd1;
-            if (feat_cnt == EMBED_DIM-1) begin
-                feat_cnt <= 5'd0;
-                tok_cnt  <= tok_cnt + 9'd1;
-            end
+            if (ln1_addr == (EMBED_DIM - 1))
+                tok_cnt <= tok_cnt + 9'd1;
         end
     end
 end
@@ -484,7 +467,6 @@ always @(posedge clk) begin
     if (reset) begin
         buf_addr    <= 14'd0;
         tok_cnt     <= 9'd0;
-        feat_cnt    <= 5'd0;
         rp_feat     <= 5'd0;
         rp_stream   <= 1'b0;
         cap_ptr     <= 14'd0;
@@ -500,7 +482,6 @@ always @(posedge clk) begin
             S_IDLE: begin
                 buf_addr    <= 14'd0;
                 tok_cnt     <= 9'd0;
-                feat_cnt    <= 5'd0;
                 rp_feat     <= 5'd0;
                 rp_stream   <= 1'b0;
                 cap_ptr     <= 14'd0;
@@ -544,7 +525,6 @@ always @(posedge clk) begin
                 if (ln1_done && tok_cnt == N_TOKENS) begin
                     cap_ptr     <= 14'd0;
                     tok_cnt     <= 9'd0;
-                    feat_cnt    <= 5'd0;
                     rp_feat     <= 5'd0;
                 end
             end
@@ -586,7 +566,6 @@ always @(posedge clk) begin
                 endcase
                 if (next_state == S_NORM2) begin
                     tok_cnt   <= 9'd0;
-                    feat_cnt  <= 5'd0;
                     rp_feat   <= 5'd0;
                     rp_stream <= 1'b0;
                     x_norm_phase <= 1'b0;
@@ -664,9 +643,8 @@ always @(posedge clk) begin
             end
 
             S_DONE: begin
-                done     <= 1'b1;
-                tok_cnt  <= 9'd0;
-                feat_cnt <= 5'd0;
+                done    <= 1'b1;
+                tok_cnt <= 9'd0;
             end
 
             default: ;

@@ -1,5 +1,5 @@
 `timescale 1ns/10ps
-
+`include "sglatrack_top.v"
 // =============================================================================
 // TEST_backbone.v -- sglatrack_top(backbone-only) end-to-end test
 //
@@ -138,19 +138,19 @@ always @(negedge clk) begin
             $display("  [FAIL] backbone_after_norm_backbone_out mismatches = %0d / %0d  first_bad_idx = %0d",
                      bb_mism, TOK_TOTAL, bb_first_bad);
         $toggle_stop();
-        $toggle_report("backbone_top_rtl.saif", 1.0e-9, "u_DUT");
+        $toggle_report("sglatrack_top_rtl.saif", 1.0e-9, "u_DUT");
         $finish;
     end
 end
 
 initial begin
-    // $fsdbDumpfile("backbone_tb.fsdb");
+    // $fsdbDumpfile("sglatrack_top.fsdb");
     // $fsdbDumpvars;
     // $fsdbDumpMDA;
 
     $set_toggle_region("u_DUT");
-
     $toggle_start();
+    
     $readmemb("./TXT_File/Activation/backbone_after_norm_backbone_out_bi.txt", GOLD_BB);
     $readmemb("./TXT_File/Activation/template_post_embed_input_bi.txt", TEMPL_MEM);
     $readmemb("./TXT_File/Activation/search_post_embed_input_bi.txt", SRCH_MEM);
@@ -181,7 +181,7 @@ initial begin
     #(CYCLE * 500_000_000);
     $display("[TB] TIMEOUT: backbone_top did not finish (cycle %0d)", cycle_cnt);
     $toggle_stop();
-    $toggle_report("backbone_top_rtl.saif", 1.0e-9, "u_DUT");
+    $toggle_report("sglatrack_top_rtl.saif", 1.0e-9, "u_DUT");
     $finish;
 end
 

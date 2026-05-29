@@ -1,15 +1,33 @@
 // =============================================================================
 // sglatrack_top.v -- verilog_backbone2 wrapper (backbone-only)
 //
-// SRAM macros (port mux in child; head2-style sram_*_ceb / sram_*_q wires):
-//   Sram_tok1  u_sram_tok2    inter-block tok_buf + backbone norm in-place + S_OUT
-//   Sram_tok2  u_sram_x       transformer_block x_buf
-//   Sram_q     u_sram_q       care q/k/v + tmp-on-q (attn/norm2/mlp staging)
-//   Sram_k/v/qkm             care_attention
-//   norm1 staging on tok2 during block (NORM1 write + QKV read)
+// RTL below: `include dependency order (leaf -> top). Same-directory paths.
+// IDE: .vscode/settings.json adds this folder to verilog.includePaths.
+// VCS: also pass memory/rom_*.v, Sram_*.v, TEST_backbone.v (do not duplicate RTL
+//      .v on cmd line if using only this file + includes).
 //
 // Input: template/search post-embed (Q8.8) -> backbone_top output stream.
+//
+// SRAM macros (port mux in child):
+//   Sram_tok1  u_sram_tok2    inter-block / norm1 / backbone norm / S_OUT
+//   Sram_tok2  u_sram_x       transformer_block x_buf
+//   Sram_q     u_sram_q       care q + tmp-on-q
+//   Sram_k/v/qkm             care_attention
 // =============================================================================
+
+`include "inv_sqrt_lut_seed.v"
+`include "inv_sqrt_nr.v"
+`include "recip_lut_seed.v"
+`include "recip_nr.v"
+`include "linear.v"
+`include "linear_wide.v"
+`include "residual.v"
+`include "layer_norm.v"
+`include "care_attention.v"
+`include "mlp.v"
+`include "transformer_block.v"
+`include "backbone_top.v"
+
 
 module sglatrack_top #(
     parameter EMBED_DIM = 32,
