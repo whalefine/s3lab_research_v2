@@ -5,8 +5,8 @@
 //
 // ROM read contract (verilog_rule.mdc §7.1 ; ROM macro CLK(~clk)) :
 //   posedge T   : 送 w_addr / b_addr
-//   posedge T+1 : w_i / b_i 有效；本拍寫 parent Sram_v (wgt) / bias_r (negedge)
-// wgt_buf: parent Sram_v in head_top. WPRE phase1 write; MAC phase0 read, phase1 comb wgt_rd_i.
+//   posedge T+1 : w_i / b_i 有效；本拍寫 parent Sram_tok1 (wgt) / bias_r (negedge)
+// wgt_buf: parent Sram_tok1 in head_top. WPRE phase1 write; MAC phase0 read, phase1 comb wgt_rd_i.
 //
 // WPRE/MAC 各 2-phase；語意同前版，組合邏輯用 wire，時序按功能分組 always。
 // =============================================================================

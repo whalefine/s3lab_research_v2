@@ -3,10 +3,10 @@
 // cal_bbox: size/off maps in u_bbox.u_sram_size_off (Sram_qkm), not head_top SRAM pool
 // -----------------------------------------------------------------------------
 // numpy: head_shared_trunk() + cal_bbox() in run_backbone_numpy_shared_trunk.py
-// Input: backbone token stream -> x_buf (Sram_tok1 8192x16) ; Golden: bbox + activations
+// Input: backbone token stream -> x_buf (Sram_v 8192x16) ; Golden: bbox + activations
 // Weights in conv.v / tail.v ROM (memory/ at compile)
 //
-// x_buf (search NCHW in S_FILL, conv1 in S_CONV1): Sram_tok1 12288x16 macro, use depth 8192
+// x_buf (search NCHW in S_FILL, conv1 in S_CONV1): Sram_v 12288x16 macro, use depth 8192
 //   write: S_FILL fill_search -> fill_dst, a_i
 //   read:  S_CONV1 conv MAC phase0 comb mux; phase1 comb x_q -> c1_x_i_mac
 //
@@ -16,12 +16,12 @@
 //     (head2 matches conv/tail 2-phase; not the same cycle as backbone comb-only mux)
 // Golden: Activation/box_head_shared_conv1_* (conv1 out map)
 // sh2_buf (conv2 out / tail in): Sram_tok2 12288x16 (C2_LEN=12288)
-// wgt_buf (conv1/conv2 weight prefetch): Sram_v 12288x16 (use addr 0..287 conv1, 0..863 conv2)
+// wgt_buf (conv1/conv2 weight prefetch): Sram_tok1 12288x16 (use addr 0..287 conv1, 0..863 conv2)
 //   WPRE phase1 write w_i; MAC phase0 read mac_feat, phase1 comb wgt_q -> wgt_rd_i
 // Compile (5 macros, 5 .v files — do not substitute one file for all):
-//   Sram_tok1 12288 16 16 s (x_buf)
+//   Sram_v 12288 16 16 s (x_buf)
 //   Sram_q / Sram_k / Sram_tok2 (sh1/sh2)
-//   Sram_v 12288 16 16 s (wgt_buf)
+//   Sram_tok1 12288 16 16 s (wgt_buf)
 // =============================================================================
 
 module head_top #(
@@ -98,7 +98,7 @@ localparam C1_HALF     = C1_LEN >> 1;  // 12288: bank boundary (not a power-of-2
 localparam X_BUF_AW    = 13;           // IN_LEN_HEAD=8192 -> addr 0..8191
 localparam SH1_BANK_AW = 14;           // per-bank index 0..12287; Sram_q / Sram_k .A width
 localparam SH2_AW      = 14;           // sh2 flat 0..C2_LEN-1 (12288)
-localparam WGT_AW     = 14;           // Sram_v depth 12288; wgt uses low 10b from conv
+localparam WGT_AW     = 14;           // Sram_tok1 depth 12288; wgt uses low 10b from conv
 
 wire rst_n = ~reset;
 
@@ -252,7 +252,7 @@ assign sram_sh2_addr_o = sh2_addr;
 assign sram_sh2_din_o  = sh2_din;
 assign sh2_q           = sram_sh2_q_i;
 
-// wgt_buf SRAM (Sram_v; shared conv1/conv2 — S_CONV1 vs S_CONV2 mutually exclusive)
+// wgt_buf SRAM (Sram_tok1; shared conv1/conv2 — S_CONV1 vs S_CONV2 mutually exclusive)
 reg        wgt_ceb;
 reg        wgt_web;
 reg [WGT_AW-1:0] wgt_addr;

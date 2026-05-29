@@ -2,6 +2,7 @@
 // sglatrack_top.v -- verilog_head2 wrapper (head-only)
 //
 // SRAM macros: port mux in head_top; macro pins direct connect (no skew A/CEB/WEB/D)
+// x_buf -> Sram_v, wgt_buf -> Sram_tok1 (frees Sram_tok1 for e2e merge with backbone tok2)
 // Input stream: post-backbone tokens (Q8.8) -> head_top -> bbox (Q8.8)
 //
 // Sources below: `include` dependency order (leaf -> head_top).
@@ -128,7 +129,7 @@ head_top #(
     .sram_bbox_q_i     (sram_bbox_q)
 );
 
-Sram_tok1 u_sram_x_buf (
+Sram_v u_sram_x_buf (
     .SLP   (1'b0),
     .DSLP  (1'b0),
     .SD    (1'b0),
@@ -216,7 +217,7 @@ Sram_tok2 u_sram_sh2 (
     .Q     (sram_sh2_q)
 );
 
-Sram_v u_sram_wgt (
+Sram_tok1 u_sram_wgt (
     .SLP   (1'b0),
     .DSLP  (1'b0),
     .SD    (1'b0),
