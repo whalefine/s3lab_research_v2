@@ -46,6 +46,7 @@ reg  signed [15:0] data_in;
 reg                data_valid;
 
 wire        busy;
+wire        x_ready;
 wire        done;
 wire signed [15:0] y_o;
 wire        y_valid;
@@ -61,14 +62,11 @@ sglatrack_top #(
     .data_in    (data_in),
     .data_valid (data_valid),
     .busy       (busy),
+    .x_ready    (x_ready),
     .done       (done),
     .data_o     (y_o),
     .data_o_valid(y_valid)
 );
-
-wire tb_stream_gate =
-    !u_DUT.u_backbone.tok_replay &&
-    (u_DUT.u_backbone.u_tb.state == 4'd1);
 
 reg [15:0] GOLD_BB [0:TOK_TOTAL-1];
 reg [13:0] rtl_bb_cnt;
@@ -89,7 +87,7 @@ always @(posedge clk) begin
         tok_cnt    <= 14'd0;
         data_in    <= 16'sd0;
         data_valid <= 1'b0;
-    end else if ((start || busy) && tb_stream_gate) begin
+    end else if ((start || busy) && x_ready) begin
         if (tok_cnt < TEMPL_TOT) begin
             data_valid <= 1'b1;
             data_in    <= TEMPL_MEM[tok_cnt];

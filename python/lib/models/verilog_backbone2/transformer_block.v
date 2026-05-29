@@ -40,6 +40,7 @@ module transformer_block #(
     output wire [15:0] wgt_addr_o,
 
     output wire        busy,
+    output wire        x_ready,   // 1 while S_LOAD_X accepts external x_valid
     output reg         done,
 
     output reg  signed [15:0] y_o,
@@ -652,6 +653,7 @@ always @(posedge clk) begin
     end
 end
 
-assign busy = (state != S_IDLE);
+assign busy    = (state != S_IDLE);
+assign x_ready = (state == S_LOAD_X);
 
 endmodule

@@ -58,6 +58,7 @@ module backbone_top #(
 
     // Status
     output wire        busy,
+    output wire        x_ready,   // 1 when external x_valid is consumed (block 0 S_LOAD_X)
     output reg         done,
 
     // Output token stream (backbone norm output)
@@ -134,6 +135,7 @@ reg [15:0] bt_s2_din;
 wire [15:0] s2_q;
 
 wire tb_busy, tb_done;
+wire tb_x_ready;
 
 // ---------------------------------------------------------------------------
 // transformer_block control / data
@@ -172,7 +174,7 @@ transformer_block #(
     .wgt_i   (bb_wgt_mux),
     .bias_i  (bb_bias_mux),
     .wgt_addr_o(tb_wgt_addr),
-    .busy(tb_busy), .done(tb_done),
+    .busy(tb_busy), .x_ready(tb_x_ready), .done(tb_done),
     .y_o(tb_y), .y_valid(tb_y_valid),
     .sram_x_ceb_o   (sram_x_ceb_o),
     .sram_x_web_o   (sram_x_web_o),
@@ -744,5 +746,6 @@ end
 assign y_o     = s2_q;
 assign y_valid = out_stream_rdy;
 assign busy    = (state != S_IDLE);
+assign x_ready = !tok_replay && tb_x_ready;
 
 endmodule
