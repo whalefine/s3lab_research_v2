@@ -1,13 +1,12 @@
 // =============================================================================
-// care_attention.v  (SRAM macros in sglatrack_top: snap_x/q/k/v/qkm port mux here)
+// care_attention.v  (SRAM macros in sglatrack_top; QKV reads parent norm1 via norm_rd_*)
 //
 // CARE multi-head attention (Softmax-free, O(N), Q8.8 fixed-point).
 // Bit-accurate mirror of attention_forward() in
 // python/tracking/run_backbone_numpy_shared_trunk.py (Q8.8 CARE path).
 //
 // Pipeline (per block):
-//   parent norm1 x_snap -> Sram_x / x_in_buf -> [QKV linear] -> [SPLIT: scale + ReLU6 on q,k]
-//   (no S_LOAD_X: x preloaded by transformer_block during S_NORM1)
+//   parent norm1 on Sram_tok1 (token-major) -> 2-phase read -> [QKV linear] -> [SPLIT...]
 //      -> [K_MEAN] -> [QK_MEAN] -> [Z_RECIP via NR]
 //      -> [KV outer mean] -> [ATTN: q@kv*zr]
 //      -> [PROJ linear] -> y_o stream
@@ -26,8 +25,8 @@
 //                     temporal overlap.)
 //   ao_buf -> Sram_v  (S_ATTN write, S_PROJ read; non-overlapping with v role)
 //
-//   x_in_buf [10240]   -> sram_snap_x_* (Sram_x; x_snap_wr during parent norm1)
-//   q layout           -> Sram_q only (QKV capture, SPLIT, QK_MEAN, ATTN; no x)
+//   norm1 x            -> parent Sram_tok1 (block staging; same flatten as norm2 tmp-on-q)
+//   q layout           -> sram_q only (QKV capture, SPLIT, QK_MEAN, ATTN; no x)
 //   qkm_buf  [ 1280]   -> Sram_qkm (S_QK_MEAN write, S_Z_RECIP read/write zr)
 //   zr_buf   [ 1280]   -> same Sram_qkm (non-overlapping states vs qkm role)
 //   km_buf   [   32]   (reg; S_K_MEAN / S_QK_MEAN)
@@ -54,7 +53,7 @@
 //                       * 2 = 20480.
 //   S_PROJ streaming : pj_sub (4-state: START/USE/ADDR/WAIT). Reads ao via Sram_v
 //                       to feed lin_proj_x; ~2 cycles per beat.
-//   S_QKV x read : qkv_x_phase on Sram_x (2-phase read for lin_qkv_x).
+//   S_QKV x read : qkv_x_phase + norm_rd_* (2-phase read parent tok2 norm1 staging).
 //   S_Z_RECIP          : zr_phase on Sram_qkm (read qkm, write zr per index).
 //   S_ATTN zr          : at_zr_r shadow from Sram_qkm read at at_dk==0.
 
@@ -87,14 +86,14 @@ module care_attention #(
     input  wire        reset,
     input  wire        start,
 
-    // Legacy stream ports (tie off; parent preloads x via x_snap_* during norm1)
+    // Legacy stream ports (unused; parent supplies norm1 via norm_rd_*)
     input  wire signed [15:0] x_i,
     input  wire        x_valid,
 
-    // Parent norm1 capture (same beat / data as transformer_block tmp write)
-    input  wire        x_snap_wr,
-    input  wire [13:0] x_snap_flat,
-    input  wire signed [15:0] x_snap_din,
+    // 2-phase read of parent norm1 buffer (backbone Sram_tok1 staging)
+    output reg         norm_rd_en,
+    output reg  [13:0] norm_rd_flat,
+    input  wire signed [15:0] norm_x,
 
     // ROM weight / bias (1-cycle latency from wgt_addr_o)
     input  wire signed [15:0] wgt_i,
@@ -109,12 +108,6 @@ module care_attention #(
     output reg         y_valid,
 
     // 1P SRAM port mux -> sglatrack_top (head2-style sram_*_ceb_o / sram_*_q_i)
-    output wire        sram_snap_x_ceb_o,
-    output wire        sram_snap_x_web_o,
-    output wire [13:0] sram_snap_x_addr_o,
-    output wire [15:0] sram_snap_x_din_o,
-    input  wire [15:0] sram_snap_x_q_i,
-
     output wire        sram_q_ceb_o,
     output wire        sram_q_web_o,
     output wire [13:0] sram_q_addr_o,
@@ -228,7 +221,7 @@ reg               qk_phase;     // S_QK_MEAN: 0 = ADDR, 1 = USE
 reg               kv_phase;     // S_KV     : 0 = ADDR, 1 = USE
 reg               at_phase;     // S_ATTN   : 0 = ADDR, 1 = USE
 reg [1:0]         pj_sub;       // S_PROJ streaming sub-FSM (PJ_*)
-reg               qkv_x_phase;  // S_QKV    : 0 = ADDR read x from Sram_x, 1 = USE
+reg               qkv_x_phase;  // S_QKV    : 0 = ADDR read norm1 (parent tmp), 1 = USE
 reg               zr_phase;     // S_Z_RECIP: 0 = ADDR read qkm, 1 = launch recip
 reg signed [15:0] zr_qkm_r;     // S_Z_RECIP: latched qkm read for recip_x
 reg signed [15:0] at_zr_r;      // S_ATTN   : latched zr read (at_dk==0 ADDR beat)
@@ -268,17 +261,6 @@ reg         s6_ceb, s6_web;
 reg [10:0]  s6_addr;
 reg [15:0]  s6_din;
 wire [15:0] s6_q;
-
-reg         s7_ceb, s7_web;
-reg [13:0]  s7_addr;
-reg [15:0]  s7_din;
-wire [15:0] s7_q;
-
-assign sram_snap_x_ceb_o  = s7_ceb;
-assign sram_snap_x_web_o  = s7_web;
-assign sram_snap_x_addr_o = s7_addr;
-assign sram_snap_x_din_o  = s7_din;
-assign s7_q               = sram_snap_x_q_i;
 
 assign sram_q_ceb_o   = s3_ceb;
 assign sram_q_web_o   = s3_web;
@@ -542,7 +524,7 @@ wire [13:0] at_ao_flat =
   + {12'd0, at_h_reg} * HEAD_DIM
   + {11'd0, at_dout_reg};
 
-// S_QKV norm1 input flat (token-major, same as legacy x_in_buf)
+// S_QKV norm1 input flat (token-major, parent tok2 staging)
 wire [13:0] qkv_x_flat =
     ({5'd0, qx_tok}) * EMBED_DIM + {9'd0, qkv_stream_cnt - 6'd1};
 
@@ -635,6 +617,8 @@ always @(posedge clk) begin
     recip_start    <= 1'b0;
     lin_qkv_xv     <= 1'b0;
     lin_proj_xv    <= 1'b0;
+    norm_rd_en     <= 1'b0;
+    norm_rd_flat   <= 14'd0;
 
     if (reset) begin
         qx_tok          <= 9'd0;
@@ -705,8 +689,8 @@ always @(posedge clk) begin
             end
 
             // -----------------------------------------------------------
-            // S_QKV: 2-phase read x from Sram_x; q/k/v capture via SRAM mux.
-            // q/k/v capture writes still via SRAM mux on lin_qkv_yv.
+            // S_QKV: 2-phase read norm1 from parent tok2; q/k/v -> SRAM.
+            // Must finish before S_PROJ (parent overwrites tmp with attn out).
             // -----------------------------------------------------------
             S_QKV: begin
                 if (qkv_stream_cnt == 6'd0) begin
@@ -714,13 +698,15 @@ always @(posedge clk) begin
                     qkv_stream_cnt <= 6'd1;
                     qkv_x_phase    <= 1'b0;
                 end else if (qkv_stream_cnt <= EMBED_DIM[5:0]) begin
-                    if (qkv_x_phase == 1'b0)
-                        qkv_x_phase <= 1'b1;
-                    else begin
-                        lin_qkv_x  <= s7_q;
-                        lin_qkv_xv <= 1'b1;
-                        qkv_stream_cnt <= qkv_stream_cnt + 6'd1;
-                        qkv_x_phase    <= 1'b0;
+                    if (qkv_x_phase == 1'b0) begin
+                        norm_rd_en   <= 1'b1;
+                        norm_rd_flat <= qkv_x_flat;
+                        qkv_x_phase  <= 1'b1;
+                    end else begin
+                        lin_qkv_x        <= norm_x;
+                        lin_qkv_xv       <= 1'b1;
+                        qkv_stream_cnt   <= qkv_stream_cnt + 6'd1;
+                        qkv_x_phase      <= 1'b0;
                     end
                 end
 
@@ -1001,9 +987,7 @@ always @(posedge clk) begin
 end
 
 // ---------------------------------------------------------------------------
-// SRAM port mux (combinational).
-//   QKV capture: lin_qkv_yv writes q/k/v via mux below (same lin_qkv_yv pulse).
-//   x_snap_wr: parent norm1 preload into Sram_x (see mux).
+// SRAM port mux (combinational). Norm1 read is parent tok2 (norm_rd_*).
 // ---------------------------------------------------------------------------
 //   Defaults: deselect all 3 macros (CEB = 1).
 //   Per state, drive read or write as needed. At most one operation per macro
@@ -1016,16 +1000,9 @@ always @(*) begin
     s4_ceb = 1'b1; s4_web = 1'b1; s4_addr = 14'd0; s4_din = 16'd0;
     s5_ceb = 1'b1; s5_web = 1'b1; s5_addr = 14'd0; s5_din = 16'd0;
     s6_ceb = 1'b1; s6_web = 1'b1; s6_addr = 11'd0; s6_din = 16'd0;
-    s7_ceb = 1'b1; s7_web = 1'b1; s7_addr = 14'd0; s7_din = 16'd0;
 
-    // Golden: parent norm1 tmp (backbone_blocks_<b>_after_norm1_out_bi.txt) via x_snap_wr
-    if (x_snap_wr) begin
-        s7_ceb  = 1'b0;
-        s7_web  = 1'b0;
-        s7_addr = x_snap_flat;
-        s7_din  = x_snap_din[15:0];
-    end else case (state)
-        // ---- S_QKV: read x from Sram_x; capture q/k/v to s3/s4/s5 ----
+    case (state)
+        // ---- S_QKV: capture q/k/v to s3/s4/s5 (norm1 read via parent tmp) ----
         S_QKV: begin
             if (lin_qkv_yv) begin
                 case (lin_qkv_neu[6:5])
@@ -1049,12 +1026,6 @@ always @(*) begin
                     end
                     default: ;
                 endcase
-            end else if ((qkv_stream_cnt >= 6'd1) &&
-                         (qkv_stream_cnt <= EMBED_DIM[5:0]) &&
-                         (qkv_x_phase == 1'b0)) begin
-                s7_ceb  = 1'b0;
-                s7_web  = 1'b1;
-                s7_addr = qkv_x_flat;
             end
         end
 
@@ -1143,24 +1114,5 @@ always @(*) begin
 end
 
 assign busy = (state != S_IDLE);
-
-// -----------------------------------------------------------------------------
-// Simulation-only: B2 x_snap / Sram_x preload spot-check (first 4 writes).
-// Enable: +define+DUMP_ATTN_X_SNAP  (grep ATTN_X_SNAP simv.log)
-// Not synthesizable.
-// -----------------------------------------------------------------------------
-`ifdef DUMP_ATTN_X_SNAP
-reg [15:0] dbg_xsnap_cnt;
-
-always @(posedge clk) begin
-    if (reset)
-        dbg_xsnap_cnt <= 16'd0;
-    else if (x_snap_wr && (dbg_xsnap_cnt < 16'd4)) begin
-        $display("ATTN_X_SNAP %m idx=%0d flat=%0d din=%h",
-            dbg_xsnap_cnt, x_snap_flat, x_snap_din);
-        dbg_xsnap_cnt <= dbg_xsnap_cnt + 16'd1;
-    end
-end
-`endif
 
 endmodule

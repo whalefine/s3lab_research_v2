@@ -3,10 +3,9 @@
 //
 // Pipeline (matches block_forward in run_backbone_numpy_shared_trunk.py L526-560):
 //   external x_i  -> [S_LOAD_X] x_buf
-//                 -> [S_NORM1]  tmp_buf  = norm1(x_buf); x_snap -> sram_snap_x
+//                 -> [S_NORM1]  norm1 -> tok2 (parent); attn QKV 2-phase read tok2
 //                 -> [S_ATTN_FEED + S_ATTN_WAIT]
-//                       S_ATTN_FEED: pulse attn_start (x preloaded during norm1)
-//                       S_ATTN_WAIT: capture attn y into tmp_buf
+//                       S_ATTN_WAIT: capture attn into tmp-on-q (Sram_q macro)
 //                 -> [S_RES1]   x_buf    = residual(x_buf, tmp_buf)  // in-place
 //                 -> [S_NORM2]  tmp_buf  = norm2(x_buf)
 //                 -> [S_MLP_FEED + S_MLP_WAIT]
@@ -15,7 +14,7 @@
 //                 -> [S_RES2]   y_o      = residual(x_buf, tmp_buf)  // streamed
 //                 -> [S_DONE]
 //
-// Buffers: Sram_tok3 u_sram_x + Sram_tok4 u_sram_tmp (instantiated in sglatrack_top).
+// Buffers: Sram_tok2 x_buf; tmp-on-q (Sram_q, time-shared with care q/k/v capture).
 //
 // SRAM read contract (CLK = ~clk, both macros):
 //   posedge T:   drive A, CEB=0, WEB=1
@@ -55,19 +54,15 @@ module transformer_block #(
     output wire [15:0] sram_x_din_o,
     input  wire [15:0] sram_x_q_i,
 
-    output wire        sram_tmp_ceb_o,
-    output wire        sram_tmp_web_o,
-    output wire [13:0] sram_tmp_addr_o,
-    output wire [15:0] sram_tmp_din_o,
-    input  wire [15:0] sram_tmp_q_i,
+    // norm1 staging on parent Sram_tok1 (NORM1 write; care QKV read)
+    output wire        norm1_stg_wr_do,
+    output wire [13:0] norm1_stg_wr_flat,
+    output wire [15:0] norm1_stg_wr_din,
+    output wire        norm1_stg_rd_en,
+    output wire [13:0] norm1_stg_rd_flat,
+    input  wire signed [15:0] norm1_stg_x,
 
     // care_attention SRAM macros in sglatrack_top (head2-style sram_* ports)
-    output wire        sram_snap_x_ceb_o,
-    output wire        sram_snap_x_web_o,
-    output wire [13:0] sram_snap_x_addr_o,
-    output wire [15:0] sram_snap_x_din_o,
-    input  wire [15:0] sram_snap_x_q_i,
-
     output wire        sram_q_ceb_o,
     output wire        sram_q_web_o,
     output wire [13:0] sram_q_addr_o,
@@ -103,11 +98,18 @@ reg [13:0] sx_addr;
 reg [15:0] sx_din;
 wire [15:0] sx_q;
 
-reg        st_ceb;
-reg        st_web;
-reg [13:0] st_addr;
-reg [15:0] st_din;
-wire [15:0] st_q;
+reg        tq_ceb;
+reg        tq_web;
+reg [13:0] tq_addr;
+reg [15:0] tq_din;
+wire [15:0] tq_q;
+
+wire        ca_q_ceb;
+wire        ca_q_web;
+wire [13:0] ca_q_addr;
+wire [15:0] ca_q_din;
+
+wire tb_q_mux_sel;
 
 assign sram_x_ceb_o   = sx_ceb;
 assign sram_x_web_o   = sx_web;
@@ -115,15 +117,15 @@ assign sram_x_addr_o  = sx_addr;
 assign sram_x_din_o   = sx_din;
 assign sx_q           = sram_x_q_i;
 
-assign sram_tmp_ceb_o  = st_ceb;
-assign sram_tmp_web_o  = st_web;
-assign sram_tmp_addr_o = st_addr;
-assign sram_tmp_din_o  = st_din;
-assign st_q            = sram_tmp_q_i;
+assign tq_q           = sram_q_q_i;
 
 // 2-phase / multi-phase helpers (SRAM only)
 reg        x_norm_phase;   // norm1/2 x read: 0=ADDR, 1=USE -> u_norm1
 reg [1:0]  res_subphase;   // S_RES1/S_RES2: 0=RD, 1=FEED, 2=WR or OUT
+
+reg [13:0]        norm1_stg_wr_flat_lat;
+reg signed [15:0] norm1_stg_wr_din_lat;
+reg               norm1_stg_wr_do_lat;
 
 reg [13:0]       tmp_wr_flat_lat;
 reg signed [15:0] tmp_wr_din_lat;
@@ -164,15 +166,15 @@ wire [13:0] tmp_cap_flat = tok_cnt * EMBED_DIM + {9'b0, ln1_addr[4:0]};
 
 // Attention sub-block regs / wires
 reg                attn_start;
-wire               x_snap_wr;
-wire [13:0]        x_snap_flat;
-wire signed [15:0] x_snap_din;
+wire               attn_norm_rd_en;
+wire [13:0]        attn_norm_rd_flat;
+wire signed [15:0] attn_norm_x;
 wire signed [15:0] attn_y;
 wire               attn_yv;
 wire               attn_busy, attn_done;
 wire [12:0]        attn_wgt_addr;
 
-// MLP sub-block (norm2 read: norm_rd_* -> tmp / u_sram_tmp, 2-phase)
+// MLP sub-block (norm2 read: norm_rd_* -> tmp-on-q / Sram_q, 2-phase)
 reg                mlp_start;
 wire               mlp_norm_rd_en;
 wire [13:0]        mlp_norm_rd_flat;
@@ -182,7 +184,12 @@ wire               mlp_yv;
 wire               mlp_busy, mlp_done;
 wire [15:0]        mlp_wgt_addr;
 
-assign mlp_norm_x = st_q;
+assign mlp_norm_x   = tq_q;
+assign attn_norm_x  = norm1_stg_x;
+
+assign norm1_stg_wr_do   = norm1_stg_wr_do_lat;
+assign norm1_stg_wr_flat = norm1_stg_wr_flat_lat;
+assign norm1_stg_wr_din  = norm1_stg_wr_din_lat;
 
 // Residual sub-block regs / wires
 reg  signed [15:0] res_a, res_b;
@@ -195,6 +202,17 @@ reg [13:0] cap_ptr;
 reg [13:0] res_rp;
 reg [13:0] res_wp;
 
+assign norm1_stg_rd_en   = attn_norm_rd_en;
+assign norm1_stg_rd_flat = attn_norm_rd_flat;
+
+assign tb_q_mux_sel =
+    tmp_wr_do ||
+    ((state == S_ATTN_WAIT) && attn_yv) ||
+    ((state == S_MLP_WAIT) && mlp_yv) ||
+    mlp_norm_rd_en ||
+    ((state == S_RES1) && (res_subphase == 2'd0)) ||
+    ((state == S_RES2) && (res_subphase == 2'd0) && (res_rp < TOK_FLAT[13:0]));
+
 wire in_norm_phase = (state == S_NORM1) || (state == S_NORM2);
 wire [13:0] xbuf_rp_addr = tok_cnt * EMBED_DIM + {9'b0, rp_feat};
 
@@ -202,10 +220,6 @@ wire signed [15:0] xbuf_rp_data = sx_q;
 wire               x_norm_use    = x_norm_phase;
 
 wire ln1_xv = rp_stream && in_norm_phase && x_norm_use;
-
-assign x_snap_wr   = (state == S_NORM1) && tmp_wr_do;
-assign x_snap_flat = tmp_wr_flat_lat;
-assign x_snap_din  = tmp_wr_din_lat;
 
 layer_norm #(
     .FEAT_DIM (EMBED_DIM),
@@ -233,9 +247,9 @@ care_attention #(
     .start    (attn_start),
     .x_i      (16'sd0),
     .x_valid  (1'b0),
-    .x_snap_wr   (x_snap_wr),
-    .x_snap_flat (x_snap_flat),
-    .x_snap_din  (x_snap_din),
+    .norm_rd_en   (attn_norm_rd_en),
+    .norm_rd_flat (attn_norm_rd_flat),
+    .norm_x       (attn_norm_x),
     .wgt_i    (wgt_i),
     .bias_i   (bias_i),
     .wgt_addr_o(attn_wgt_addr),
@@ -243,15 +257,10 @@ care_attention #(
     .done     (attn_done),
     .y_o      (attn_y),
     .y_valid  (attn_yv),
-    .sram_snap_x_ceb_o  (sram_snap_x_ceb_o),
-    .sram_snap_x_web_o  (sram_snap_x_web_o),
-    .sram_snap_x_addr_o (sram_snap_x_addr_o),
-    .sram_snap_x_din_o  (sram_snap_x_din_o),
-    .sram_snap_x_q_i    (sram_snap_x_q_i),
-    .sram_q_ceb_o       (sram_q_ceb_o),
-    .sram_q_web_o       (sram_q_web_o),
-    .sram_q_addr_o      (sram_q_addr_o),
-    .sram_q_din_o       (sram_q_din_o),
+    .sram_q_ceb_o       (ca_q_ceb),
+    .sram_q_web_o       (ca_q_web),
+    .sram_q_addr_o      (ca_q_addr),
+    .sram_q_din_o       (ca_q_din),
     .sram_q_q_i         (sram_q_q_i),
     .sram_k_ceb_o       (sram_k_ceb_o),
     .sram_k_web_o       (sram_k_web_o),
@@ -307,17 +316,17 @@ assign wgt_addr_o =
     (state == S_MLP_FEED  || state == S_MLP_WAIT)   ? mlp_wgt_addr                   :
                                                        16'b0;
 
-// ---- SRAM port mux (x_buf / tmp_buf); one R or W per macro per cycle ----
+// ---- SRAM port mux: x_buf; tmp-on-q merged with care q at sram_q_* ----
 always @(*) begin
     sx_ceb  = 1'b1;
     sx_web  = 1'b1;
     sx_addr = 14'd0;
     sx_din  = 16'd0;
 
-    st_ceb  = 1'b1;
-    st_web  = 1'b1;
-    st_addr = 14'd0;
-    st_din  = 16'd0;
+    tq_ceb  = 1'b1;
+    tq_web  = 1'b1;
+    tq_addr = 14'd0;
+    tq_din  = 16'd0;
 
   // x: load write
     if (state == S_LOAD_X && x_valid && (buf_addr < TOK_FLAT[13:0])) begin
@@ -352,49 +361,68 @@ always @(*) begin
         sx_addr = res_rp;
     end
 
-  // tmp: norm capture write (latched 1 cycle after out_beat_o)
+  // tmp-on-q: norm2 capture write (latched 1 cycle after out_beat_o)
     if (tmp_wr_do) begin
-        st_ceb  = 1'b0;
-        st_web  = 1'b0;
-        st_addr = tmp_wr_flat_lat;
-        st_din  = tmp_wr_din_lat[15:0];
+        tq_ceb  = 1'b0;
+        tq_web  = 1'b0;
+        tq_addr = tmp_wr_flat_lat;
+        tq_din  = tmp_wr_din_lat[15:0];
     end
-  // tmp: mlp FC1 norm2 read (ADDR); USE next cycle via st_q (no overlap mlp_yv write)
+  // tmp-on-q: mlp FC1 norm2 read (ADDR); USE next cycle via tq_q
     else if (mlp_norm_rd_en) begin
-        st_ceb  = 1'b0;
-        st_web  = 1'b1;
-        st_addr = mlp_norm_rd_flat;
+        tq_ceb  = 1'b0;
+        tq_web  = 1'b1;
+        tq_addr = mlp_norm_rd_flat;
     end
-  // tmp: attn/mlp capture write
+  // tmp-on-q: attn/mlp capture write
     else if ((state == S_ATTN_WAIT) && attn_yv) begin
-        st_ceb  = 1'b0;
-        st_web  = 1'b0;
-        st_addr = cap_ptr;
-        st_din  = attn_y[15:0];
+        tq_ceb  = 1'b0;
+        tq_web  = 1'b0;
+        tq_addr = cap_ptr;
+        tq_din  = attn_y[15:0];
     end else if ((state == S_MLP_WAIT) && mlp_yv) begin
-        st_ceb  = 1'b0;
-        st_web  = 1'b0;
-        st_addr = cap_ptr;
-        st_din  = mlp_y[15:0];
+        tq_ceb  = 1'b0;
+        tq_web  = 1'b0;
+        tq_addr = cap_ptr;
+        tq_din  = mlp_y[15:0];
     end
-  // tmp: residual read (with x read in S_RES1 phase 0; with x in S_RES2 phase 0)
+  // tmp-on-q: residual read
     else if (((state == S_RES1) && (res_subphase == 2'd0)) ||
              ((state == S_RES2) && (res_subphase == 2'd0) && (res_rp < TOK_FLAT[13:0]))) begin
-        st_ceb  = 1'b0;
-        st_web  = 1'b1;
-        st_addr = res_rp;
+        tq_ceb  = 1'b0;
+        tq_web  = 1'b1;
+        tq_addr = res_rp;
     end
 end
 
-// norm y_sat_o posedge latch -> tmp SRAM (layer_norm out_beat_o; see verilog_rule §7.7.3.1)
+assign sram_q_ceb_o  = tb_q_mux_sel ? tq_ceb  : ca_q_ceb;
+assign sram_q_web_o  = tb_q_mux_sel ? tq_web  : ca_q_web;
+assign sram_q_addr_o = tb_q_mux_sel ? tq_addr : ca_q_addr;
+assign sram_q_din_o  = tb_q_mux_sel ? tq_din  : ca_q_din;
+
+// norm1 -> tok2; norm2/attn/mlp -> tmp-on-q (layer_norm out_beat_o; see verilog_rule §7.7.3.1)
 always @(posedge clk) begin
     if (reset) begin
+        norm1_stg_wr_flat_lat <= 14'd0;
+        norm1_stg_wr_din_lat  <= 16'd0;
+        norm1_stg_wr_do_lat   <= 1'b0;
         tmp_wr_flat_lat <= 14'd0;
         tmp_wr_din_lat  <= 16'd0;
         tmp_wr_do       <= 1'b0;
     end else begin
-        tmp_wr_do <= 1'b0;
-        if (in_norm_phase && ln1_out_beat) begin
+        norm1_stg_wr_do_lat <= 1'b0;
+        tmp_wr_do           <= 1'b0;
+        if (state == S_NORM1 && ln1_out_beat) begin
+            norm1_stg_wr_flat_lat <= tmp_cap_flat;
+            norm1_stg_wr_din_lat  <= ln1_y_sat;
+            norm1_stg_wr_do_lat   <= 1'b1;
+            feat_cnt              <= feat_cnt + 5'd1;
+            if (feat_cnt == EMBED_DIM-1) begin
+                feat_cnt <= 5'd0;
+                tok_cnt  <= tok_cnt + 9'd1;
+            end
+        end
+        if (state == S_NORM2 && ln1_out_beat) begin
             tmp_wr_flat_lat <= tmp_cap_flat;
             tmp_wr_din_lat  <= ln1_y_sat;
             tmp_wr_do       <= 1'b1;
@@ -542,7 +570,7 @@ always @(posedge clk) begin
                     2'd0: res_subphase <= 2'd1;
                     2'd1: begin
                         res_a  <= sx_q;
-                        res_b  <= st_q;
+                        res_b  <= tq_q;
                         res_v  <= 1'b1;
                         res_subphase <= 2'd2;
                     end
@@ -617,7 +645,7 @@ always @(posedge clk) begin
                     2'd0: res_subphase <= 2'd1;
                     2'd1: begin
                         res_a  <= sx_q;
-                        res_b  <= st_q;
+                        res_b  <= tq_q;
                         res_v  <= 1'b1;
                         res_subphase <= 2'd2;
                     end
@@ -647,43 +675,5 @@ always @(posedge clk) begin
 end
 
 assign busy = (state != S_IDLE);
-
-// Debug: +define+DUMP_BACKBONE_SRAM_DBG — block0 first x/tmp SRAM beats (negedge ~ macro CLK)
-`ifdef DUMP_BACKBONE_SRAM_DBG
-reg [7:0] dbg_x_wr_cnt;
-reg [7:0] dbg_x_rd_cnt;
-reg [7:0] dbg_tmp_wr_cnt;
-
-always @(posedge clk) begin
-    if (reset) begin
-        dbg_x_wr_cnt   <= 8'd0;
-        dbg_x_rd_cnt   <= 8'd0;
-        dbg_tmp_wr_cnt <= 8'd0;
-    end else if (block_idx == 4'd0) begin
-        if ((state == S_LOAD_X) && x_valid && (sx_ceb == 1'b0) && (sx_web == 1'b0) &&
-            (dbg_x_wr_cnt < 8'd8))
-            dbg_x_wr_cnt <= dbg_x_wr_cnt + 8'd1;
-        if (in_norm_phase && rp_stream && (x_norm_phase == 1'b1) && (dbg_x_rd_cnt < 8'd8))
-            dbg_x_rd_cnt <= dbg_x_rd_cnt + 8'd1;
-        if (tmp_wr_do && (dbg_tmp_wr_cnt < 8'd8))
-            dbg_tmp_wr_cnt <= dbg_tmp_wr_cnt + 8'd1;
-    end
-end
-
-always @(negedge clk) begin
-    if (block_idx != 4'd0)
-        ;
-    else if ((state == S_LOAD_X) && x_valid && (sx_ceb == 1'b0) && (sx_web == 1'b0) &&
-             (dbg_x_wr_cnt <= 8'd8))
-        $display("[TB_X_WR] t=%0d addr=%0d din=%h Q_after=%h cnt=%0d",
-                 $time, sx_addr, sx_din, sx_q, dbg_x_wr_cnt);
-    else if (in_norm_phase && rp_stream && (x_norm_phase == 1'b1) && (dbg_x_rd_cnt <= 8'd8))
-        $display("[TB_X_RD_USE] t=%0d rp_addr=%0d sx_q=%h cnt=%0d",
-                 $time, xbuf_rp_addr, sx_q, dbg_x_rd_cnt);
-    else if (tmp_wr_do && (dbg_tmp_wr_cnt <= 8'd8))
-        $display("[TB_TMP_WR] t=%0d flat=%0d din=%h st_q@%0d=%h cnt=%0d",
-                 $time, tmp_wr_flat_lat, tmp_wr_din_lat, tmp_wr_flat_lat, st_q, dbg_tmp_wr_cnt);
-end
-`endif
 
 endmodule

@@ -34,7 +34,8 @@
 //   Block 0 reads external x_i/x_valid; blocks 1+ replay from Sram_tok2.
 //
 // Activation SRAM macros in sglatrack_top; port mux in backbone_top / transformer_block.
-//   S_OUT 2-phase: phase0=ADDR read, phase1=USE y_valid/y_o=s1_q.
+//   Sram_tok1 macro (sram_tok2_* ports): inter-block + norm1 + backbone norm + S_OUT.
+//   S_OUT 2-phase: phase0=ADDR read tok2, phase1=USE y_valid/y_o=s2_q.
 //
 // =============================================================================
 
@@ -63,37 +64,19 @@ module backbone_top #(
     output wire signed [15:0] y_o,
     output wire        y_valid,
 
-    // Sram_tok2 inter-block tok_buf; Sram_tok1 backbone norm out (macros in sglatrack_top)
+    // Sram_tok1 macro: inter-block tok_buf + backbone norm in-place + output stream
     output wire        sram_tok2_ceb_o,
     output wire        sram_tok2_web_o,
     output wire [13:0] sram_tok2_addr_o,
     output wire [15:0] sram_tok2_din_o,
     input  wire [15:0] sram_tok2_q_i,
 
-    output wire        sram_tok1_ceb_o,
-    output wire        sram_tok1_web_o,
-    output wire [13:0] sram_tok1_addr_o,
-    output wire [15:0] sram_tok1_din_o,
-    input  wire [15:0] sram_tok1_q_i,
-
-    // transformer_block x_buf / tmp_buf (Sram_tok3 / Sram_tok4)
+    // transformer_block x_buf (Sram_tok2); tmp-on-q (Sram_q, shared with care)
     output wire        sram_x_ceb_o,
     output wire        sram_x_web_o,
     output wire [13:0] sram_x_addr_o,
     output wire [15:0] sram_x_din_o,
     input  wire [15:0] sram_x_q_i,
-
-    output wire        sram_tmp_ceb_o,
-    output wire        sram_tmp_web_o,
-    output wire [13:0] sram_tmp_addr_o,
-    output wire [15:0] sram_tmp_din_o,
-    input  wire [15:0] sram_tmp_q_i,
-
-    output wire        sram_snap_x_ceb_o,
-    output wire        sram_snap_x_web_o,
-    output wire [13:0] sram_snap_x_addr_o,
-    output wire [15:0] sram_snap_x_din_o,
-    input  wire [15:0] sram_snap_x_q_i,
 
     output wire        sram_q_ceb_o,
     output wire        sram_q_web_o,
@@ -150,12 +133,6 @@ reg [13:0] bt_s2_addr;
 reg [15:0] bt_s2_din;
 wire [15:0] s2_q;
 
-reg        bt_s1_ceb;
-reg        bt_s1_web;
-reg [13:0] bt_s1_addr;
-reg [15:0] bt_s1_din;
-wire [15:0] s1_q;
-
 // transformer_block status (must precede tok_rp_active — uses tb_busy)
 wire tb_busy, tb_done;
 
@@ -180,6 +157,15 @@ wire tb_rp_use =
 wire tb_xv_mux =
     tok_replay ? tb_rp_use : x_valid;
 
+wire              tb_norm1_stg_wr_do;
+wire [13:0]       tb_norm1_stg_wr_flat;
+wire [15:0]       tb_norm1_stg_wr_din;
+wire              tb_norm1_stg_rd_en;
+wire [13:0]       tb_norm1_stg_rd_flat;
+wire signed [15:0] tb_norm1_stg_x;
+
+assign tb_norm1_stg_x = s2_q;
+
 transformer_block #(
     .EMBED_DIM(EMBED_DIM),
     .MLP_DIM  (4*EMBED_DIM),
@@ -198,16 +184,12 @@ transformer_block #(
     .sram_x_addr_o  (sram_x_addr_o),
     .sram_x_din_o   (sram_x_din_o),
     .sram_x_q_i     (sram_x_q_i),
-    .sram_tmp_ceb_o (sram_tmp_ceb_o),
-    .sram_tmp_web_o (sram_tmp_web_o),
-    .sram_tmp_addr_o(sram_tmp_addr_o),
-    .sram_tmp_din_o (sram_tmp_din_o),
-    .sram_tmp_q_i   (sram_tmp_q_i),
-    .sram_snap_x_ceb_o  (sram_snap_x_ceb_o),
-    .sram_snap_x_web_o  (sram_snap_x_web_o),
-    .sram_snap_x_addr_o (sram_snap_x_addr_o),
-    .sram_snap_x_din_o  (sram_snap_x_din_o),
-    .sram_snap_x_q_i    (sram_snap_x_q_i),
+    .norm1_stg_wr_do   (tb_norm1_stg_wr_do),
+    .norm1_stg_wr_flat (tb_norm1_stg_wr_flat),
+    .norm1_stg_wr_din  (tb_norm1_stg_wr_din),
+    .norm1_stg_rd_en   (tb_norm1_stg_rd_en),
+    .norm1_stg_rd_flat (tb_norm1_stg_rd_flat),
+    .norm1_stg_x       (tb_norm1_stg_x),
     .sram_q_ceb_o       (sram_q_ceb_o),
     .sram_q_web_o       (sram_q_web_o),
     .sram_q_addr_o      (sram_q_addr_o),
@@ -275,31 +257,24 @@ layer_norm #(.FEAT_DIM(EMBED_DIM), .RCP_NUM(65536/EMBED_DIM)) u_bn (
     .out_beat_o(bn_out_beat)
 );
 
-// Posedge latch norm y_sat_o + flat (layer_norm out_beat_o); s1_wr_do drives write 1 cycle later.
-reg [13:0]        s1_wr_flat_lat;
-reg signed [15:0] s1_wr_din_lat;
-reg               s1_wr_do;
+// Posedge latch norm y_sat_o + flat (layer_norm out_beat_o); bn_wr_do -> tok2 1 cycle later.
+reg [13:0]        bn_wr_flat_lat;
+reg signed [15:0] bn_wr_din_lat;
+reg               bn_wr_do;
 
 // ---------------------------------------------------------------------------
-// Backbone norm output buffer (Sram_tok1); stream in S_OUT
+// Output stream (S_OUT reads final backbone norm from Sram_tok2)
 // ---------------------------------------------------------------------------
 reg [13:0] out_rd_addr;
 
-reg        out_rd_phase;    // 0=ADDR (s1 read out_rd_addr), 1=USE (y_valid, consume s1_q)
-wire       s1_out_rdy = (state == S_OUT) && out_rd_phase;
+reg        out_rd_phase;    // 0=ADDR read tok2, 1=USE y_valid/y_o=s2_q
+wire       out_stream_rdy = (state == S_OUT) && out_rd_phase;
 
-// Sram_tok1 / Sram_tok2 port mux -> macros in sglatrack_top
 assign sram_tok2_ceb_o  = bt_s2_ceb;
 assign sram_tok2_web_o  = bt_s2_web;
 assign sram_tok2_addr_o = bt_s2_addr;
 assign sram_tok2_din_o  = bt_s2_din;
 assign s2_q             = sram_tok2_q_i;
-
-assign sram_tok1_ceb_o  = bt_s1_ceb;
-assign sram_tok1_web_o  = bt_s1_web;
-assign sram_tok1_addr_o = bt_s1_addr;
-assign sram_tok1_din_o  = bt_s1_din;
-assign s1_q             = sram_tok1_q_i;
 
 // ---------------------------------------------------------------------------
 // ROM Q wires (per weight type)
@@ -573,9 +548,9 @@ always @(posedge clk) begin
         bn_rp_feat      <= 5'd0;
         bn_rp_stream    <= 1'b0;
         out_rd_addr <= 14'd0;
-        s1_wr_flat_lat <= 14'd0;
-        s1_wr_din_lat  <= 16'd0;
-        s1_wr_do       <= 1'b0;
+        bn_wr_flat_lat <= 14'd0;
+        bn_wr_din_lat  <= 16'd0;
+        bn_wr_do       <= 1'b0;
         tok_rp_phase    <= 1'b0;
         bn_s2_phase     <= 1'b0;
         out_rd_phase    <= 1'b0;
@@ -594,14 +569,12 @@ always @(posedge clk) begin
         end else
             tok_rp_phase <= 1'b0;
 
-        // norm y_sat_o posedge latch -> out_buf or Sram_tok1 (see layer_norm out_beat_o)
-        if (s1_wr_do) begin
-        end
+        // norm y_sat_o posedge latch -> tok2 in-place (see layer_norm out_beat_o)
         if (state == S_BACKBONE_NORM && bn_out_beat) begin
-            s1_wr_flat_lat <= bn_cap_flat;
-            s1_wr_din_lat  <= bn_y_sat;
+            bn_wr_flat_lat <= bn_cap_flat;
+            bn_wr_din_lat  <= bn_y_sat;
         end
-        s1_wr_do <= (state == S_BACKBONE_NORM && bn_out_beat);
+        bn_wr_do <= (state == S_BACKBONE_NORM && bn_out_beat);
 
         // ---- Backbone norm: gated feature stream into u_bn ----
         if (state == S_BACKBONE_NORM) begin
@@ -725,14 +698,30 @@ always @(posedge clk) begin
     end
 end
 
-// s2 port mux: tok capture (write) vs replay / norm read (mutually exclusive phases)
+// tok2 port mux: norm1 staging / capture / replay / backbone norm / S_OUT
 always @(*) begin
     bt_s2_ceb  = 1'b1;
     bt_s2_web  = 1'b1;
     bt_s2_addr = 14'd0;
     bt_s2_din  = 16'd0;
 
-    if ((state == S_RUN_FIXED || state == S_RUN_SELECTED) && tb_y_valid) begin
+    if (state == S_BACKBONE_NORM && bn_wr_do) begin
+        bt_s2_ceb  = 1'b0;
+        bt_s2_web  = 1'b0;
+        bt_s2_addr = bn_wr_flat_lat;
+        bt_s2_din  = bn_wr_din_lat;
+    end else if ((state == S_RUN_FIXED || state == S_RUN_SELECTED) &&
+                 tb_norm1_stg_wr_do) begin
+        bt_s2_ceb  = 1'b0;
+        bt_s2_web  = 1'b0;
+        bt_s2_addr = tb_norm1_stg_wr_flat;
+        bt_s2_din  = tb_norm1_stg_wr_din;
+    end else if ((state == S_RUN_FIXED || state == S_RUN_SELECTED) &&
+                 tb_norm1_stg_rd_en) begin
+        bt_s2_ceb  = 1'b0;
+        bt_s2_web  = 1'b1;
+        bt_s2_addr = tb_norm1_stg_rd_flat;
+    end else if ((state == S_RUN_FIXED || state == S_RUN_SELECTED) && tb_y_valid) begin
         bt_s2_ceb  = 1'b0;
         bt_s2_web  = 1'b0;
         bt_s2_addr = tok_wr_ptr;
@@ -747,33 +736,18 @@ always @(*) begin
         bt_s2_ceb  = 1'b0;
         bt_s2_web  = 1'b1;
         bt_s2_addr = bn_rp_addr;
-    end
-end
-
-// s1 port mux: norm capture (write) vs S_OUT stream (read)
-always @(*) begin
-    bt_s1_ceb  = 1'b1;
-    bt_s1_web  = 1'b1;
-    bt_s1_addr = 14'd0;
-    bt_s1_din  = 16'd0;
-
-    if (state == S_BACKBONE_NORM && s1_wr_do) begin
-        bt_s1_ceb  = 1'b0;
-        bt_s1_web  = 1'b0;
-        bt_s1_addr = s1_wr_flat_lat;
-        bt_s1_din  = s1_wr_din_lat;
-    end else if (state == S_OUT && out_rd_phase == 1'b0) begin
-        bt_s1_ceb  = 1'b0;
-        bt_s1_web  = 1'b1;
-        bt_s1_addr = out_rd_addr;
+    end else if (state == S_OUT && (out_rd_phase == 1'b0)) begin
+        bt_s2_ceb  = 1'b0;
+        bt_s2_web  = 1'b1;
+        bt_s2_addr = out_rd_addr;
     end
 end
 
 // ---------------------------------------------------------------------------
 // Output stream
 // ---------------------------------------------------------------------------
-assign y_o     = s1_q;
-assign y_valid = s1_out_rdy;
+assign y_o     = s2_q;
+assign y_valid = out_stream_rdy;
 assign busy    = (state != S_IDLE);
 
 endmodule

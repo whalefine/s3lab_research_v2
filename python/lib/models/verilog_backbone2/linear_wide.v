@@ -13,8 +13,6 @@
 //   mac_last keeps feat = 127 (7-bit feat+1 would wrap to 0).
 //
 // Used only by mlp.v u_fc2 (fc1 uses linear.v).
-//
-// Debug: +define+DUMP_LINEAR_DEBUG (shared with linear.v; grep u_fc2 in simv.log).
 // =============================================================================
 
 module linear_wide #(
@@ -196,68 +194,5 @@ always @(posedge clk) begin
 end
 
 assign busy = (state != S_IDLE);
-
-// -----------------------------------------------------------------------------
-// Simulation-only (shared DUMP_LINEAR_DEBUG with linear.v).
-// -----------------------------------------------------------------------------
-`ifdef DUMP_LINEAR_DEBUG
-parameter LIN_DBG_NEU_MAX = 7'd3;
-
-reg [15:0] dbg_pass_num;
-
-wire dbg_first_pass =
-    (dbg_pass_num == 16'd0);
-
-wire dbg_mac_run_beat =
-    (state == S_MAC) && (mac_sub == MAC_RUN) && (neu_cnt <= LIN_DBG_NEU_MAX[4:0]);
-
-wire dbg_mac_key_feat =
-    (mac_feat == 7'd0) || (mac_feat == 7'd1) ||
-    (mac_feat == IN_DIM[6:0] - 7'd1);
-
-wire dbg_mac_print =
-    dbg_mac_run_beat && !mac_last && (
-        (dbg_first_pass && (neu_cnt == 5'd0)) ||
-        (dbg_mac_key_feat)
-    );
-
-wire dbg_y_print =
-    (state == S_MAC) && (mac_sub == MAC_RUN) && mac_last &&
-    (neu_cnt <= LIN_DBG_NEU_MAX[4:0]);
-
-always @(posedge clk) begin
-    if (reset)
-        dbg_pass_num <= 16'd0;
-    else if (done)
-        dbg_pass_num <= dbg_pass_num + 16'd1;
-end
-
-always @(posedge clk) begin
-    if (reset)
-        ;
-    else if (start && (state == S_IDLE))
-        $display("LIN_DBG %m start pass=%0d IN_DIM=%0d OUT_DIM=%0d",
-            dbg_pass_num, IN_DIM, OUT_DIM);
-    else if (state == S_LOAD && x_valid &&
-             (load_cnt == IN_DIM[6:0] - 7'd1))
-        $display("LIN_DBG %m load_done pass=%0d last_x=%h", dbg_pass_num, x_i);
-    else if ((state == S_MAC) && (mac_sub == MAC_PREF) &&
-             (neu_cnt <= LIN_DBG_NEU_MAX[4:0]))
-        $display("LIN_DBG %m MAC_PREF pass=%0d neu=%0d w_addr=%h",
-            dbg_pass_num, neu_cnt, w_addr_o);
-    else if (dbg_mac_print)
-        $display(
-            "LIN_DBG %m MAC pass=%0d neu=%0d feat=%0d w_addr=%h w_i=%h w_i_lat=%h x=%h prod=%h acc_before=%h acc_after=%h bias_ce=%0d b_i=%h bias_hold=%h",
-            dbg_pass_num, neu_cnt, mac_feat, w_addr_o, w_i, w_i_lat, x_buf[mac_feat],
-            mac_prod, acc, acc_final, bias_latch_ce, b_i, bias_hold);
-    else if (dbg_y_print)
-        $display(
-            "LIN_DBG %m Y pass=%0d neu=%0d feat=%0d acc_before=%h prod=%h acc_final=%h shr8=%h bias_hold=%h y_next=%h w_i=%h w_i_lat=%h w_addr=%h",
-            dbg_pass_num, neu_cnt, mac_feat, acc, mac_prod, acc_final, acc_shr8,
-            bias_hold, y_next_c, w_i, w_i_lat, w_addr_o);
-    else if (done)
-        $display("LIN_DBG %m done pass=%0d OUT_DIM=%0d", dbg_pass_num, OUT_DIM);
-end
-`endif
 
 endmodule

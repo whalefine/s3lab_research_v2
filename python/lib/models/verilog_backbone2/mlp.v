@@ -5,7 +5,7 @@
 // Bit-accurate mirror of numpy block_forward in
 // run_backbone_numpy_shared_trunk.py (line 556).
 //
-// norm2 input: no local x_in_buf. Parent sglatrack_top u_sram_tmp / tmp_buf via
+// norm2 input: no local x_in_buf. Parent tmp-on-q (Sram_q macro) via
 // norm_rd_en + norm_rd_flat (ADDR) and norm_x (USE, 1-cycle macro latency).
 // Flatten: tok * EMBED_DIM + feat (row-major, same as layer_norm norm2 capture).
 //
@@ -25,7 +25,7 @@ module mlp #(
     input  wire        reset,
     input  wire        start,
 
-    // 2-phase read of parent norm2 buffer (transformer_block u_sram_tmp / tmp_buf)
+    // 2-phase read of parent norm2 buffer (transformer_block tmp-on-q / Sram_q)
     output reg         norm_rd_en,
     output reg [13:0] norm_rd_flat,
     input  wire signed [15:0] norm_x,
