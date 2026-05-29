@@ -108,14 +108,6 @@ reg        so_web_n ;
 reg [QKM_AW-1:0] so_addr_n ;
 reg [DATA_W-1:0] so_din_n ;
 
-`ifdef DUMP_BBOX_DEBUG
-reg [10:0] dbg_size_seen_cnt ;
-reg [10:0] dbg_off_seen_cnt ;
-reg [10:0] dbg_both_seen_cnt ;
-reg [10:0] dbg_size_wr_commit_cnt ;
-reg [10:0] dbg_off_wr_commit_cnt ;
-`endif
-
 wire                        _unused_sub ;
 
 wire [SO_AW-1:0]            size_wr_addr ;
@@ -267,7 +259,7 @@ always @(posedge clk) begin
     end
 end
 
-// Sram_qkm comb mux (tail writes in B_IDLE; emit prefetch reads on start + RD_*)
+// Sram_qkm mux: comb _n -> posedge reg -> parent macro (align with head_top SRAM)
 always @(*) begin
     so_ceb_n  = 1'b1 ;
     so_web_n  = 1'b1 ;
@@ -312,77 +304,6 @@ always @(*) begin
         endcase
     end
 end
-
-`ifdef DUMP_BBOX_DEBUG
-always @(posedge clk) begin
-    if (!rst_n) begin
-        dbg_size_seen_cnt      <= 11'd0;
-        dbg_off_seen_cnt       <= 11'd0;
-        dbg_both_seen_cnt      <= 11'd0;
-        dbg_size_wr_commit_cnt <= 11'd0;
-        dbg_off_wr_commit_cnt  <= 11'd0;
-    end else begin
-        if (size_in_valid)
-            dbg_size_seen_cnt <= dbg_size_seen_cnt + 11'd1;
-        if (off_in_valid)
-            dbg_off_seen_cnt <= dbg_off_seen_cnt + 11'd1;
-        if (size_in_valid && off_in_valid) begin
-            dbg_both_seen_cnt <= dbg_both_seen_cnt + 11'd1;
-            $display("[BBOX_ARB_CONFLICT] t=%0t size_v=1 off_v=1 select=size addr=%0d data=%04h off_addr=%0d off_data=%04h",
-                     $time, size_wr_addr, size_in_data, off_wr_addr, off_in_data);
-        end
-
-        if (size_in_valid)
-            $display("[BBOX_WR] t=%0t type=size cnt=%0d addr=%0d data=%04h", $time, size_cnt, size_wr_addr, size_in_data);
-        if (off_in_valid)
-            $display("[BBOX_WR] t=%0t type=off  cnt=%0d addr=%0d data=%04h", $time, off_cnt, off_wr_addr, off_in_data);
-
-        if (!so_ceb_n && !so_web_n) begin
-            if (size_in_valid) begin
-                dbg_size_wr_commit_cnt <= dbg_size_wr_commit_cnt + 11'd1;
-                $display("[BBOX_SRAM_WRITE] t=%0t src=size addr=%0d data=%04h", $time, so_addr_n, so_din_n);
-            end else if (off_in_valid) begin
-                dbg_off_wr_commit_cnt <= dbg_off_wr_commit_cnt + 11'd1;
-                $display("[BBOX_SRAM_WRITE] t=%0t src=off  addr=%0d data=%04h", $time, so_addr_n, so_din_n);
-            end else begin
-                $display("[BBOX_SRAM_WRITE] t=%0t src=unknown addr=%0d data=%04h", $time, so_addr_n, so_din_n);
-            end
-        end
-
-        if (start)
-            $display("[BBOX_START] t=%0t max_idx=%0d idx_x=%0d idx_y=%0d size_seen=%0d off_seen=%0d both_seen=%0d size_wr_commit=%0d off_wr_commit=%0d size_cnt=%0d off_cnt=%0d",
-                     $time, max_idx_r, max_idx_r[3:0], max_idx_r[7:4],
-                     dbg_size_seen_cnt, dbg_off_seen_cnt, dbg_both_seen_cnt,
-                     dbg_size_wr_commit_cnt, dbg_off_wr_commit_cnt, size_cnt, off_cnt);
-
-        case (CS)
-            B_IDLE: if (start)
-                $display("[BBOX_RD_ISSUE] t=%0t target=off_x addr=%0d", $time, rd_off_x_addr);
-            B_RD_OFF_X: begin
-                $display("[BBOX_RD_LATCH] t=%0t off_x_q=%04h", $time, so_q);
-                $display("[BBOX_RD_ISSUE] t=%0t target=off_y addr=%0d", $time, rd_off_y_addr);
-            end
-            B_RD_OFF_Y: begin
-                $display("[BBOX_RD_LATCH] t=%0t off_y_q=%04h", $time, so_q);
-                $display("[BBOX_RD_ISSUE] t=%0t target=size_w addr=%0d", $time, rd_size_w_addr);
-            end
-            B_RD_SZ_W: begin
-                $display("[BBOX_RD_LATCH] t=%0t size_w_q=%04h", $time, so_q);
-                $display("[BBOX_RD_ISSUE] t=%0t target=size_h addr=%0d", $time, rd_size_h_addr);
-            end
-            B_RD_SZ_H: begin
-                $display("[BBOX_RD_LATCH] t=%0t size_h_q=%04h", $time, so_q);
-                $display("[BBOX_CALC] t=%0t off_x=%04h off_y=%04h size_w=%04h size_h=%04h cx=%04h cy=%04h",
-                         $time, off_x_r, off_y_r, size_w_r, size_h_r, cx_q88, cy_q88);
-            end
-            default: ;
-        endcase
-
-        if (bbox_valid_r)
-            $display("[BBOX_EMIT] t=%0t idx=%0d data=%04h", $time, bbox_idx_r, bbox_data_r);
-    end
-end
-`endif
 
 always @(posedge clk) begin
     if (!rst_n) begin

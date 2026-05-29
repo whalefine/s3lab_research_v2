@@ -4,17 +4,18 @@
 // Streams backbone_after_norm token order into sglatrack_top (skip template in RTL).
 // Compares final bbox vs box_head_after_cal_bbox_bbox_bi.txt only.
 //
-// VCS (x/sh1/sh2/wgt + cal_bbox size/off; 6 macro .v files):
-//   vcs verilog_head2/*.v \
-//     memory/Sram_tok1.v memory/Sram_q.v memory/Sram_k.v memory/Sram_tok2.v \
-//     memory/Sram_v.v memory/Sram_qkm.v \
-//   (sim stubs if needed under verilog_head2/memory/)
-//     +lint=TFIPC-L +define+TSMC_CM_NO_WARNING \
-//     +define+DUMP_HEAD_SH1_DEBUG | tee runvcs.log
+// VCS (DUT pulls RTL + memory via `include in sglatrack_top.v; TB only extra file):
+//   vcs verilog_head2/sglatrack_top.v verilog_head2/TEST_head.v \
+//     +lint=TFIPC-L +define+TSMC_CM_NO_WARNING | tee runvcs.log
+//   Compile root must contain memory/ (Sram_* + rom_box_head_*). Or +incdir if paths differ.
 //   ./simv | tee simv.log
+//   # -> sglatrack_top_rtl.saif (toggle on u_head_top; Synopsys $toggle_* / VCS)
+//
+//   grep -E '\\[PASS\\]|\\[FAIL\\]|TIMEOUT|Head-only done' simv.log
 // =============================================================================
 
 `timescale 1ns/1ps
+`include "sglatrack_top.v"
 
 `ifndef GOLDEN_ACT
 `define GOLDEN_ACT "./TXT_File/Activation"
@@ -119,8 +120,15 @@ always @(posedge clk) begin
 end
 
 initial begin
+    $fsdbDumpfile("sglatrack_top.fsdb");
+    $fsdbDumpvars;
+    $fsdbDumpMDA
+
     $readmemb({`GOLDEN_ACT, "/backbone_after_norm_backbone_out_bi.txt"}, raw_in    ) ;
     $readmemb({`GOLDEN_ACT, "/box_head_after_cal_bbox_bbox_bi.txt"     }, bbox_gold) ;
+
+    $set_toggle_region("u_head_top");
+    $toggle_start();
 
     rst_n      = 1'b0 ;
     kick_start = 1'b0 ;
@@ -159,6 +167,8 @@ initial begin
     else
         $display("\n  [FAIL] bbox differs from golden (+- %0d LSB)", BBOX_TOL_LSB);
 
+    $toggle_stop();
+    $toggle_report("sglatrack_top_rtl.saif", 1.0e-9, "u_head_top");
     $finish ;
 end
 
@@ -166,6 +176,8 @@ initial begin
     #TIMEOUT_NS ;
     $display("[BBOX] TIMEOUT @ %0d ns (head_done never rose; stream_cnt=%0d head_busy=%0d)",
              TIMEOUT_NS, stream_cnt, head_busy) ;
+    $toggle_stop();
+    $toggle_report("sglatrack_top_rtl.saif", 1.0e-9, "u_head_top");
     $finish ;
 end
 

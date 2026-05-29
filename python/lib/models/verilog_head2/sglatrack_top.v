@@ -1,9 +1,20 @@
 // =============================================================================
 // sglatrack_top.v -- verilog_head2 wrapper (head-only)
 //
-// This wrapper keeps only head datapath for head-only verification.
+// SRAM macros: port mux in head_top; macro pins direct connect (no skew A/CEB/WEB/D)
 // Input stream: post-backbone tokens (Q8.8) -> head_top -> bbox (Q8.8)
+//
+// Sources below: `include` dependency order (leaf -> head_top).
+// Paths under memory/ are relative to VCS/Genus compile root (same as TEST_head.v).
+// If also passing verilog_head2/*.v on the command line, guard prevents duplicate modules.
 // =============================================================================
+
+// ---- verilog_head2 RTL (this directory) ----
+`include "sigmoid_lut.v"
+`include "cal_bbox.v"
+`include "conv.v"
+`include "tail.v"
+`include "head_top.v"
 
 module sglatrack_top #(
     parameter DATA_W   = 16,
@@ -64,88 +75,6 @@ wire [10:0]       sram_bbox_addr;
 wire [DATA_W-1:0] sram_bbox_din;
 wire [DATA_W-1:0] sram_bbox_q;
 
-wire              sram_x_ceb_mac;
-wire              sram_x_web_mac;
-wire [13:0]       sram_x_addr_mac;
-wire [DATA_W-1:0] sram_x_din_mac;
-
-wire              sram_sh1_lo_ceb_mac;
-wire              sram_sh1_lo_web_mac;
-wire [13:0]       sram_sh1_lo_addr_mac;
-wire [DATA_W-1:0] sram_sh1_lo_din_mac;
-
-wire              sram_sh1_hi_ceb_mac;
-wire              sram_sh1_hi_web_mac;
-wire [13:0]       sram_sh1_hi_addr_mac;
-wire [DATA_W-1:0] sram_sh1_hi_din_mac;
-
-wire              sram_sh2_ceb_mac;
-wire              sram_sh2_web_mac;
-wire [13:0]       sram_sh2_addr_mac;
-wire [DATA_W-1:0] sram_sh2_din_mac;
-
-wire              sram_wgt_ceb_mac;
-wire              sram_wgt_web_mac;
-wire [13:0]       sram_wgt_addr_mac;
-wire [DATA_W-1:0] sram_wgt_din_mac;
-
-wire              sram_bbox_ceb_mac;
-wire              sram_bbox_web_mac;
-wire [10:0]       sram_bbox_addr_mac;
-wire [DATA_W-1:0] sram_bbox_din_mac;
-
-`ifdef SYNTHESIS
-assign sram_x_ceb_mac       = sram_x_ceb;
-assign sram_x_web_mac       = sram_x_web;
-assign sram_x_addr_mac      = sram_x_addr;
-assign sram_x_din_mac       = sram_x_din;
-assign sram_sh1_lo_ceb_mac  = sram_sh1_lo_ceb;
-assign sram_sh1_lo_web_mac  = sram_sh1_lo_web;
-assign sram_sh1_lo_addr_mac = sram_sh1_lo_addr;
-assign sram_sh1_lo_din_mac  = sram_sh1_lo_din;
-assign sram_sh1_hi_ceb_mac  = sram_sh1_hi_ceb;
-assign sram_sh1_hi_web_mac  = sram_sh1_hi_web;
-assign sram_sh1_hi_addr_mac = sram_sh1_hi_addr;
-assign sram_sh1_hi_din_mac  = sram_sh1_hi_din;
-assign sram_sh2_ceb_mac     = sram_sh2_ceb;
-assign sram_sh2_web_mac     = sram_sh2_web;
-assign sram_sh2_addr_mac    = sram_sh2_addr;
-assign sram_sh2_din_mac     = sram_sh2_din;
-assign sram_wgt_ceb_mac     = sram_wgt_ceb;
-assign sram_wgt_web_mac     = sram_wgt_web;
-assign sram_wgt_addr_mac    = sram_wgt_addr;
-assign sram_wgt_din_mac     = sram_wgt_din;
-assign sram_bbox_ceb_mac    = sram_bbox_ceb;
-assign sram_bbox_web_mac    = sram_bbox_web;
-assign sram_bbox_addr_mac   = sram_bbox_addr;
-assign sram_bbox_din_mac    = sram_bbox_din;
-`else
-assign #1 sram_x_ceb_mac       = sram_x_ceb;
-assign #1 sram_x_web_mac       = sram_x_web;
-assign sram_x_addr_mac         = sram_x_addr;
-assign #1 sram_x_din_mac       = sram_x_din;
-assign #1 sram_sh1_lo_ceb_mac  = sram_sh1_lo_ceb;
-assign #1 sram_sh1_lo_web_mac  = sram_sh1_lo_web;
-assign sram_sh1_lo_addr_mac    = sram_sh1_lo_addr;
-assign #1 sram_sh1_lo_din_mac  = sram_sh1_lo_din;
-assign #1 sram_sh1_hi_ceb_mac  = sram_sh1_hi_ceb;
-assign #1 sram_sh1_hi_web_mac  = sram_sh1_hi_web;
-assign sram_sh1_hi_addr_mac    = sram_sh1_hi_addr;
-assign #1 sram_sh1_hi_din_mac  = sram_sh1_hi_din;
-assign #1 sram_sh2_ceb_mac     = sram_sh2_ceb;
-assign #1 sram_sh2_web_mac     = sram_sh2_web;
-assign sram_sh2_addr_mac       = sram_sh2_addr;
-assign #1 sram_sh2_din_mac     = sram_sh2_din;
-assign #1 sram_wgt_ceb_mac     = sram_wgt_ceb;
-assign #1 sram_wgt_web_mac     = sram_wgt_web;
-assign sram_wgt_addr_mac       = sram_wgt_addr;
-assign #1 sram_wgt_din_mac     = sram_wgt_din;
-assign #1 sram_bbox_ceb_mac    = sram_bbox_ceb;
-assign #1 sram_bbox_web_mac    = sram_bbox_web;
-assign sram_bbox_addr_mac      = sram_bbox_addr;
-assign #1 sram_bbox_din_mac    = sram_bbox_din;
-`endif
-
 head_top #(
     .IN_CH    (IN_CH   ),
     .C_SH1    (C_SH1   ),
@@ -205,13 +134,13 @@ Sram_tok1 u_sram_x_buf (
     .SD    (1'b0),
     .PUDELAY(),
     .CLK   (~clk),
-    .CEB   (sram_x_ceb_mac),
-    .WEB   (sram_x_web_mac),
+    .CEB   (sram_x_ceb),
+    .WEB   (sram_x_web),
     .BIST  (1'b0),
     .CEBM  (),
     .WEBM  (),
-    .A     (sram_x_addr_mac),
-    .D     (sram_x_din_mac),
+    .A     (sram_x_addr),
+    .D     (sram_x_din),
     .BWEB  (16'b0),
     .AM    (),
     .DM    (),
@@ -227,13 +156,13 @@ Sram_q u_sram_sh1_lo (
     .SD    (1'b0),
     .PUDELAY(),
     .CLK   (~clk),
-    .CEB   (sram_sh1_lo_ceb_mac),
-    .WEB   (sram_sh1_lo_web_mac),
+    .CEB   (sram_sh1_lo_ceb),
+    .WEB   (sram_sh1_lo_web),
     .BIST  (1'b0),
     .CEBM  (),
     .WEBM  (),
-    .A     (sram_sh1_lo_addr_mac),
-    .D     (sram_sh1_lo_din_mac),
+    .A     (sram_sh1_lo_addr),
+    .D     (sram_sh1_lo_din),
     .BWEB  (16'b0),
     .AM    (),
     .DM    (),
@@ -249,13 +178,13 @@ Sram_k u_sram_sh1_hi (
     .SD    (1'b0),
     .PUDELAY(),
     .CLK   (~clk),
-    .CEB   (sram_sh1_hi_ceb_mac),
-    .WEB   (sram_sh1_hi_web_mac),
+    .CEB   (sram_sh1_hi_ceb),
+    .WEB   (sram_sh1_hi_web),
     .BIST  (1'b0),
     .CEBM  (),
     .WEBM  (),
-    .A     (sram_sh1_hi_addr_mac),
-    .D     (sram_sh1_hi_din_mac),
+    .A     (sram_sh1_hi_addr),
+    .D     (sram_sh1_hi_din),
     .BWEB  (16'b0),
     .AM    (),
     .DM    (),
@@ -271,13 +200,13 @@ Sram_tok2 u_sram_sh2 (
     .SD    (1'b0),
     .PUDELAY(),
     .CLK   (~clk),
-    .CEB   (sram_sh2_ceb_mac),
-    .WEB   (sram_sh2_web_mac),
+    .CEB   (sram_sh2_ceb),
+    .WEB   (sram_sh2_web),
     .BIST  (1'b0),
     .CEBM  (),
     .WEBM  (),
-    .A     (sram_sh2_addr_mac),
-    .D     (sram_sh2_din_mac),
+    .A     (sram_sh2_addr),
+    .D     (sram_sh2_din),
     .BWEB  (16'b0),
     .AM    (),
     .DM    (),
@@ -293,13 +222,13 @@ Sram_v u_sram_wgt (
     .SD    (1'b0),
     .PUDELAY(),
     .CLK   (~clk),
-    .CEB   (sram_wgt_ceb_mac),
-    .WEB   (sram_wgt_web_mac),
+    .CEB   (sram_wgt_ceb),
+    .WEB   (sram_wgt_web),
     .BIST  (1'b0),
     .CEBM  (),
     .WEBM  (),
-    .A     (sram_wgt_addr_mac),
-    .D     (sram_wgt_din_mac),
+    .A     (sram_wgt_addr),
+    .D     (sram_wgt_din),
     .BWEB  (16'b0),
     .AM    (),
     .DM    (),
@@ -315,13 +244,13 @@ Sram_qkm u_sram_size_off (
     .SD     (1'b0),
     .PUDELAY(),
     .CLK    (~clk),
-    .CEB    (sram_bbox_ceb_mac),
-    .WEB    (sram_bbox_web_mac),
+    .CEB    (sram_bbox_ceb),
+    .WEB    (sram_bbox_web),
     .BIST   (1'b0),
     .CEBM   (),
     .WEBM   (),
-    .A      (sram_bbox_addr_mac),
-    .D      (sram_bbox_din_mac),
+    .A      (sram_bbox_addr),
+    .D      (sram_bbox_din),
     .BWEB   (16'b0),
     .AM     (),
     .DM     (),

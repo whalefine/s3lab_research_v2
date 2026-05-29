@@ -7,15 +7,13 @@
 // Weights in conv.v / tail.v ROM (memory/ at compile)
 //
 // x_buf (search NCHW in S_FILL, conv1 in S_CONV1): Sram_tok1 12288x16 macro, use depth 8192
-//   write: S_FILL fill_search -> fill_dst, a_i (posedge port reg)
-//   read:  S_CONV1 conv MAC phase0 issue read; phase1 comb x_q -> c1_x_i_mac
+//   write: S_FILL fill_search -> fill_dst, a_i
+//   read:  S_CONV1 conv MAC phase0 comb mux; phase1 comb x_q -> c1_x_i_mac
 //
 // sh1_buf (conv1 out / conv2 in): Sram_q (lo) + Sram_k (hi), 12288x16 each (C1_LEN=24576, flat>=12288 -> hi)
-//   SRAM read contract (CLK = ~clk, same as verilog_backbone2):
-//     posedge T:   drive A, CEB=0, WEB=1
-//     posedge T+1: Q valid for A@T; conv2 MAC phase1 uses comb sh1_rd_q (read @ phase0 posedge)
-//   SRAM write: c1_y_valid same cycle comb mux (c1_wr_idx, c1_y_data) -> posedge port reg -> macro
-//   Port regs: comb _n -> posedge reg -> macro (sim #1 delay on macro pins avoids $hold vs ~clk)
+//   SRAM contract (CLK = ~clk):
+//     comb _n -> posedge port reg -> macro; MAC phase0 issue read, phase1 use Q
+//     (head2 matches conv/tail 2-phase; not the same cycle as backbone comb-only mux)
 // Golden: Activation/box_head_shared_conv1_* (conv1 out map)
 // sh2_buf (conv2 out / tail in): Sram_tok2 12288x16 (C2_LEN=12288)
 // wgt_buf (conv1/conv2 weight prefetch): Sram_v 12288x16 (use addr 0..287 conv1, 0..863 conv2)
@@ -157,6 +155,7 @@ reg [31:0] c1_wr_idx;
 reg [31:0] c2_wr_idx;
 
 // x_buf SRAM (S_FILL write -> conv1 read); Golden: backbone search tokens in x_buf order
+// Port regs: comb _n -> posedge clk -> macro (1-cycle align with conv MAC phase0/1)
 reg        x_ceb;
 reg        x_web;
 reg [X_BUF_AW-1:0] x_addr;
@@ -173,33 +172,13 @@ wire [X_BUF_AW-1:0] x_rd_addr   = c1_x_addr_mac[X_BUF_AW-1:0];
 wire        x_fill_wr    = (CS == S_FILL) && a_valid && fill_search;
 wire        x_c1_rd_req  = (CS == S_CONV1) && c1_busy && !c1_mac_phase;
 
-wire        x_ceb_mac;
-wire        x_web_mac;
-wire [X_BUF_AW-1:0] x_addr_mac;
-wire [SH1_BANK_AW-1:0] x_addr_mac_p;  // Sram_tok1 .A is 14b (12288 depth); x_buf uses 8192
-wire [DATA_W-1:0] x_din_mac;
-
-`ifdef SYNTHESIS
-assign x_ceb_mac  = x_ceb;
-assign x_web_mac  = x_web;
-assign x_addr_mac = x_addr;
-assign x_din_mac  = x_din;
-`else
-assign #1 x_ceb_mac  = x_ceb;
-assign #1 x_web_mac  = x_web;
-assign x_addr_mac    = x_addr;
-assign #1 x_din_mac  = x_din;
-`endif
-
-assign x_addr_mac_p = {{(SH1_BANK_AW-X_BUF_AW){1'b0}}, x_addr_mac};
-assign sram_x_ceb_o  = x_ceb_mac;
-assign sram_x_web_o  = x_web_mac;
-assign sram_x_addr_o = x_addr_mac_p;
-assign sram_x_din_o  = x_din_mac;
+assign sram_x_ceb_o  = x_ceb;
+assign sram_x_web_o  = x_web;
+assign sram_x_addr_o = {{(SH1_BANK_AW-X_BUF_AW){1'b0}}, x_addr};
+assign sram_x_din_o  = x_din;
 assign x_q           = sram_x_q_i;
 
 // sh1 SRAM (conv1 capture -> conv2 read); flat[14:0] -> bank + 14b local (split at C1_HALF)
-// Macro ports are posedge-registered (_n comb -> reg) so A is stable at macro negedge sample.
 reg        sh1_lo_ceb;
 reg        sh1_lo_web;
 reg [SH1_BANK_AW-1:0] sh1_lo_addr;
@@ -233,47 +212,16 @@ wire [SH1_BANK_AW-1:0] sh1_rd_laddr = sh1_rd_bank ?
 // Issue SRAM read on conv MAC phase0 (x_addr_mac_rd = x_addr_nxt; Q valid next posedge)
 wire        sh1_c2_rd_req  = (CS == S_CONV2) && c2_busy && !c2_mac_phase;
 
-// conv1 capture: same-cycle write as legacy sh1_buf[c1_wr_idx]<=c1_y_data (posedge port reg)
-
-// Macro-facing wires (posedge-reg outputs; optional sim delay for TSMC $hold on A vs CLK)
-wire        sh1_lo_ceb_mac;
-wire        sh1_lo_web_mac;
-wire [SH1_BANK_AW-1:0] sh1_lo_addr_mac;
-wire [DATA_W-1:0]      sh1_lo_din_mac;
-wire        sh1_hi_ceb_mac;
-wire        sh1_hi_web_mac;
-wire [SH1_BANK_AW-1:0] sh1_hi_addr_mac;
-wire [DATA_W-1:0]      sh1_hi_din_mac;
-
-`ifdef SYNTHESIS
-assign sh1_lo_ceb_mac  = sh1_lo_ceb;
-assign sh1_lo_web_mac  = sh1_lo_web;
-assign sh1_lo_addr_mac = sh1_lo_addr;
-assign sh1_lo_din_mac  = sh1_lo_din;
-assign sh1_hi_ceb_mac  = sh1_hi_ceb;
-assign sh1_hi_web_mac  = sh1_hi_web;
-assign sh1_hi_addr_mac = sh1_hi_addr;
-assign sh1_hi_din_mac  = sh1_hi_din;
-`else
-assign #1 sh1_lo_ceb_mac  = sh1_lo_ceb;
-assign #1 sh1_lo_web_mac  = sh1_lo_web;
-assign sh1_lo_addr_mac    = sh1_lo_addr;
-assign #1 sh1_lo_din_mac  = sh1_lo_din;
-assign #1 sh1_hi_ceb_mac  = sh1_hi_ceb;
-assign #1 sh1_hi_web_mac  = sh1_hi_web;
-assign sh1_hi_addr_mac    = sh1_hi_addr;
-assign #1 sh1_hi_din_mac  = sh1_hi_din;
-`endif
-assign sram_sh1_lo_ceb_o  = sh1_lo_ceb_mac;
-assign sram_sh1_lo_web_o  = sh1_lo_web_mac;
-assign sram_sh1_lo_addr_o = sh1_lo_addr_mac;
-assign sram_sh1_lo_din_o  = sh1_lo_din_mac;
+assign sram_sh1_lo_ceb_o  = sh1_lo_ceb;
+assign sram_sh1_lo_web_o  = sh1_lo_web;
+assign sram_sh1_lo_addr_o = sh1_lo_addr;
+assign sram_sh1_lo_din_o  = sh1_lo_din;
 assign sh1_lo_q           = sram_sh1_lo_q_i;
 
-assign sram_sh1_hi_ceb_o  = sh1_hi_ceb_mac;
-assign sram_sh1_hi_web_o  = sh1_hi_web_mac;
-assign sram_sh1_hi_addr_o = sh1_hi_addr_mac;
-assign sram_sh1_hi_din_o  = sh1_hi_din_mac;
+assign sram_sh1_hi_ceb_o  = sh1_hi_ceb;
+assign sram_sh1_hi_web_o  = sh1_hi_web;
+assign sram_sh1_hi_addr_o = sh1_hi_addr;
+assign sram_sh1_hi_din_o  = sh1_hi_din;
 assign sh1_hi_q           = sram_sh1_hi_q_i;
 
 wire              t_busy, t_done;
@@ -298,26 +246,10 @@ wire [SH2_AW-1:0] sh2_wr_addr = c2_wr_idx[SH2_AW-1:0];
 wire [SH2_AW-1:0] sh2_rd_addr = t_x_addr_mac[SH2_AW-1:0];
 wire        sh2_tail_rd_req  = (CS == S_TAIL) && t_busy && !t_mac_phase;
 
-wire        sh2_ceb_mac;
-wire        sh2_web_mac;
-wire [SH2_AW-1:0] sh2_addr_mac;
-wire [DATA_W-1:0] sh2_din_mac;
-
-`ifdef SYNTHESIS
-assign sh2_ceb_mac  = sh2_ceb;
-assign sh2_web_mac  = sh2_web;
-assign sh2_addr_mac = sh2_addr;
-assign sh2_din_mac  = sh2_din;
-`else
-assign #1 sh2_ceb_mac  = sh2_ceb;
-assign #1 sh2_web_mac  = sh2_web;
-assign sh2_addr_mac    = sh2_addr;
-assign #1 sh2_din_mac  = sh2_din;
-`endif
-assign sram_sh2_ceb_o  = sh2_ceb_mac;
-assign sram_sh2_web_o  = sh2_web_mac;
-assign sram_sh2_addr_o = sh2_addr_mac;
-assign sram_sh2_din_o  = sh2_din_mac;
+assign sram_sh2_ceb_o  = sh2_ceb;
+assign sram_sh2_web_o  = sh2_web;
+assign sram_sh2_addr_o = sh2_addr;
+assign sram_sh2_din_o  = sh2_din;
 assign sh2_q           = sram_sh2_q_i;
 
 // wgt_buf SRAM (Sram_v; shared conv1/conv2 — S_CONV1 vs S_CONV2 mutually exclusive)
@@ -337,59 +269,11 @@ wire [WGT_AW-1:0] wgt_rd_addr = c1_wgt_rd_req ? {{4{1'b0}}, c1_wgt_rd_addr} :
                                   {{4{1'b0}}, c2_wgt_rd_addr};
 wire [DATA_W-1:0] wgt_wr_data = c1_wgt_wr_en ? c1_wgt_wr_data : c2_wgt_wr_data;
 
-wire        wgt_ceb_mac;
-wire        wgt_web_mac;
-wire [WGT_AW-1:0] wgt_addr_mac;
-wire [DATA_W-1:0] wgt_din_mac;
-
-`ifdef SYNTHESIS
-assign wgt_ceb_mac  = wgt_ceb;
-assign wgt_web_mac  = wgt_web;
-assign wgt_addr_mac = wgt_addr;
-assign wgt_din_mac  = wgt_din;
-`else
-assign #1 wgt_ceb_mac  = wgt_ceb;
-assign #1 wgt_web_mac  = wgt_web;
-assign wgt_addr_mac    = wgt_addr;
-assign #1 wgt_din_mac  = wgt_din;
-`endif
-assign sram_wgt_ceb_o  = wgt_ceb_mac;
-assign sram_wgt_web_o  = wgt_web_mac;
-assign sram_wgt_addr_o = wgt_addr_mac;
-assign sram_wgt_din_o  = wgt_din_mac;
+assign sram_wgt_ceb_o  = wgt_ceb;
+assign sram_wgt_web_o  = wgt_web;
+assign sram_wgt_addr_o = wgt_addr;
+assign sram_wgt_din_o  = wgt_din;
 assign wgt_q           = sram_wgt_q_i;
-
-always @(*) begin
-    wgt_ceb_n  = 1'b1;
-    wgt_web_n  = 1'b1;
-    wgt_addr_n = {WGT_AW{1'b0}};
-    wgt_din_n  = {DATA_W{1'b0}};
-
-    if (c1_wgt_wr_en || c2_wgt_wr_en) begin
-        wgt_ceb_n  = 1'b0;
-        wgt_web_n  = 1'b0;
-        wgt_addr_n = wgt_wr_addr;
-        wgt_din_n  = wgt_wr_data;
-    end else if (c1_wgt_rd_req || c2_wgt_rd_req) begin
-        wgt_ceb_n  = 1'b0;
-        wgt_web_n  = 1'b1;
-        wgt_addr_n = wgt_rd_addr;
-    end
-end
-
-always @(posedge clk) begin
-    if (reset) begin
-        wgt_ceb  <= 1'b1;
-        wgt_web  <= 1'b1;
-        wgt_addr <= {WGT_AW{1'b0}};
-        wgt_din  <= {DATA_W{1'b0}};
-    end else begin
-        wgt_ceb  <= wgt_ceb_n;
-        wgt_web  <= wgt_web_n;
-        wgt_addr <= wgt_addr_n;
-        wgt_din  <= wgt_din_n;
-    end
-end
 
 wire              tc_sig_v, to_v, ts_sig_v;
 wire [DATA_W-1:0] tc_sig_d, to_d, ts_sig_d;
@@ -410,12 +294,31 @@ assign c2_x_i_mac = ((CS == S_CONV2) && c2_busy && c2_mac_phase) ? sh1_rd_q : {D
 // tail input: phase0 read x_addr_nxt; phase1 MAC uses comb sh2_q (same contract as sh1/c2)
 assign t_x_i_mac = ((CS == S_TAIL) && t_busy && t_mac_phase) ? sh2_q : {DATA_W{1'b0}};
 
-// x_buf SRAM port mux (S_FILL write vs conv1 read; mutually exclusive by FSM)
+// SRAM port mux next-state (mutually exclusive sources per macro)
 always @(*) begin
     x_ceb_n  = 1'b1;
     x_web_n  = 1'b1;
     x_addr_n = {X_BUF_AW{1'b0}};
     x_din_n  = {DATA_W{1'b0}};
+
+    sh2_ceb_n  = 1'b1;
+    sh2_web_n  = 1'b1;
+    sh2_addr_n = {SH2_AW{1'b0}};
+    sh2_din_n  = {DATA_W{1'b0}};
+
+    sh1_lo_ceb_n  = 1'b1;
+    sh1_lo_web_n  = 1'b1;
+    sh1_lo_addr_n = {SH1_BANK_AW{1'b0}};
+    sh1_lo_din_n  = {DATA_W{1'b0}};
+    sh1_hi_ceb_n  = 1'b1;
+    sh1_hi_web_n  = 1'b1;
+    sh1_hi_addr_n = {SH1_BANK_AW{1'b0}};
+    sh1_hi_din_n  = {DATA_W{1'b0}};
+
+    wgt_ceb_n  = 1'b1;
+    wgt_web_n  = 1'b1;
+    wgt_addr_n = {WGT_AW{1'b0}};
+    wgt_din_n  = {DATA_W{1'b0}};
 
     if (x_fill_wr) begin
         x_ceb_n  = 1'b0;
@@ -427,28 +330,6 @@ always @(*) begin
         x_web_n  = 1'b1;
         x_addr_n = x_rd_addr;
     end
-end
-
-always @(posedge clk) begin
-    if (reset) begin
-        x_ceb  <= 1'b1;
-        x_web  <= 1'b1;
-        x_addr <= {X_BUF_AW{1'b0}};
-        x_din  <= {DATA_W{1'b0}};
-    end else begin
-        x_ceb  <= x_ceb_n;
-        x_web  <= x_web_n;
-        x_addr <= x_addr_n;
-        x_din  <= x_din_n;
-    end
-end
-
-// sh2 SRAM port mux (conv2 write vs tail read; mutually exclusive by FSM)
-always @(*) begin
-    sh2_ceb_n  = 1'b1;
-    sh2_web_n  = 1'b1;
-    sh2_addr_n = {SH2_AW{1'b0}};
-    sh2_din_n  = {DATA_W{1'b0}};
 
     if (c2_y_valid) begin
         sh2_ceb_n  = 1'b0;
@@ -460,32 +341,6 @@ always @(*) begin
         sh2_web_n  = 1'b1;
         sh2_addr_n = sh2_rd_addr;
     end
-end
-
-always @(posedge clk) begin
-    if (reset) begin
-        sh2_ceb  <= 1'b1;
-        sh2_web  <= 1'b1;
-        sh2_addr <= {SH2_AW{1'b0}};
-        sh2_din  <= {DATA_W{1'b0}};
-    end else begin
-        sh2_ceb  <= sh2_ceb_n;
-        sh2_web  <= sh2_web_n;
-        sh2_addr <= sh2_addr_n;
-        sh2_din  <= sh2_din_n;
-    end
-end
-
-// sh1 SRAM port mux next-state (conv1 write vs conv2 read; mutually exclusive by FSM)
-always @(*) begin
-    sh1_lo_ceb_n  = 1'b1;
-    sh1_lo_web_n  = 1'b1;
-    sh1_lo_addr_n = {SH1_BANK_AW{1'b0}};
-    sh1_lo_din_n  = {DATA_W{1'b0}};
-    sh1_hi_ceb_n  = 1'b1;
-    sh1_hi_web_n  = 1'b1;
-    sh1_hi_addr_n = {SH1_BANK_AW{1'b0}};
-    sh1_hi_din_n  = {DATA_W{1'b0}};
 
     if (c1_y_valid) begin
         if (!sh1_wr_bank) begin
@@ -510,9 +365,47 @@ always @(*) begin
             sh1_hi_addr_n = sh1_rd_laddr;
         end
     end
+
+    if (c1_wgt_wr_en || c2_wgt_wr_en) begin
+        wgt_ceb_n  = 1'b0;
+        wgt_web_n  = 1'b0;
+        wgt_addr_n = wgt_wr_addr;
+        wgt_din_n  = wgt_wr_data;
+    end else if (c1_wgt_rd_req || c2_wgt_rd_req) begin
+        wgt_ceb_n  = 1'b0;
+        wgt_web_n  = 1'b1;
+        wgt_addr_n = wgt_rd_addr;
+    end
 end
 
-// Latch SRAM ports at posedge so A/CEB/WEB/D are stable before macro CLK (~clk) negedge
+always @(posedge clk) begin
+    if (reset) begin
+        x_ceb  <= 1'b1;
+        x_web  <= 1'b1;
+        x_addr <= {X_BUF_AW{1'b0}};
+        x_din  <= {DATA_W{1'b0}};
+    end else begin
+        x_ceb  <= x_ceb_n;
+        x_web  <= x_web_n;
+        x_addr <= x_addr_n;
+        x_din  <= x_din_n;
+    end
+end
+
+always @(posedge clk) begin
+    if (reset) begin
+        sh2_ceb  <= 1'b1;
+        sh2_web  <= 1'b1;
+        sh2_addr <= {SH2_AW{1'b0}};
+        sh2_din  <= {DATA_W{1'b0}};
+    end else begin
+        sh2_ceb  <= sh2_ceb_n;
+        sh2_web  <= sh2_web_n;
+        sh2_addr <= sh2_addr_n;
+        sh2_din  <= sh2_din_n;
+    end
+end
+
 always @(posedge clk) begin
     if (reset) begin
         sh1_lo_ceb  <= 1'b1;
@@ -532,6 +425,20 @@ always @(posedge clk) begin
         sh1_hi_web  <= sh1_hi_web_n;
         sh1_hi_addr <= sh1_hi_addr_n;
         sh1_hi_din  <= sh1_hi_din_n;
+    end
+end
+
+always @(posedge clk) begin
+    if (reset) begin
+        wgt_ceb  <= 1'b1;
+        wgt_web  <= 1'b1;
+        wgt_addr <= {WGT_AW{1'b0}};
+        wgt_din  <= {DATA_W{1'b0}};
+    end else begin
+        wgt_ceb  <= wgt_ceb_n;
+        wgt_web  <= wgt_web_n;
+        wgt_addr <= wgt_addr_n;
+        wgt_din  <= wgt_din_n;
     end
 end
 
@@ -712,6 +619,10 @@ always @(posedge clk) begin
         b_started  <= 1'b0;
         c1_wr_idx  <= 32'd0;
         c2_wr_idx  <= 32'd0;
+        bbox_reg[0] <= {DATA_W{1'b0}};
+        bbox_reg[1] <= {DATA_W{1'b0}};
+        bbox_reg[2] <= {DATA_W{1'b0}};
+        bbox_reg[3] <= {DATA_W{1'b0}};
     end else begin
         case (CS)
             S_IDLE: begin
@@ -774,140 +685,5 @@ assign cx_o = bbox_reg[0];
 assign cy_o = bbox_reg[1];
 assign w_o  = bbox_reg[2];
 assign h_o  = bbox_reg[3];
-
-// ---------------------------------------------------------------------------
-// `ifdef DUMP_HEAD_SH1_DEBUG -- sh1 SRAM vs box_head_shared_after_conv1_out golden
-// Purpose: locate first conv1 write or conv2 read mismatch (timing / bank / addr).
-// Golden: Activation/box_head_shared_after_conv1_out_bi.txt (C1_LEN=24576, row-major)
-// VCS: +define+DUMP_HEAD_SH1_DEBUG +define+GOLDEN_ACT=\"./TXT_File/Activation\"
-// ---------------------------------------------------------------------------
-`ifdef DUMP_HEAD_SH1_DEBUG
-`ifndef GOLDEN_ACT
-`define GOLDEN_ACT "./TXT_File/Activation"
-`endif
-
-localparam SH1_DBG_WR_SAMPLES = 8;
-localparam SH1_DBG_RD_SAMPLES = 8;
-localparam SH1_DBG_MISM_CAP   = 16;
-
-reg [15:0] sh1_gold [0:C1_LEN-1];
-reg [31:0] sh1_wr_cnt;
-reg [31:0] sh1_rd_log_cnt;
-reg [31:0] sh1_wr_mism_cnt;
-reg [31:0] sh1_rd_mism_cnt;
-reg        sh1_dbg_c1_done_seen;
-reg        sh1_dbg_c2_done_seen;
-
-function sh1_dbg_sample_wr;
-    input [31:0] cnt;
-    input [13:0] flat;
-    begin
-        sh1_dbg_sample_wr =
-            (cnt < SH1_DBG_WR_SAMPLES) ||
-            (flat == 14'd0) ||
-            (flat == 14'd1) ||
-            (flat == 14'd12287) ||
-            (flat == 14'd12288) ||
-            (flat == C1_LEN - 1);
-    end
-endfunction
-
-function sh1_dbg_sample_rd;
-    input [31:0] cnt;
-    input [13:0] flat;
-    begin
-        sh1_dbg_sample_rd =
-            (cnt < SH1_DBG_RD_SAMPLES) ||
-            (flat == 14'd0) ||
-            (flat == 14'd1) ||
-            (flat == 14'd12287) ||
-            (flat == 14'd12288) ||
-            (flat == C1_LEN - 1);
-    end
-endfunction
-
-initial begin
-    $readmemb({`GOLDEN_ACT, "/box_head_shared_after_conv1_out_bi.txt"}, sh1_gold);
-    $display("[SH1_DBG] golden loaded C1_LEN=%0d file=%s/box_head_shared_after_conv1_out_bi.txt",
-             C1_LEN, `GOLDEN_ACT);
-end
-
-// conv1 capture -> SRAM write (c1_y_valid cycle; same as legacy reg write)
-always @(posedge clk) begin
-    if (reset) begin
-        sh1_wr_cnt           <= 32'd0;
-        sh1_wr_mism_cnt      <= 32'd0;
-        sh1_dbg_c1_done_seen <= 1'b0;
-    end else begin
-        if (c1_y_valid) begin
-            if (sh1_dbg_sample_wr(sh1_wr_cnt, sh1_wr_flat15))
-                $display("[SH1_WR] cycle=%0t flat=%0d bank=%0d laddr=%0h din=%04h y=%04h gold=%04h",
-                         $time, sh1_wr_flat15, sh1_wr_bank, sh1_wr_laddr,
-                         c1_y_data, c1_y_data, sh1_gold[sh1_wr_flat15]);
-            if (c1_y_data !== sh1_gold[sh1_wr_flat15] &&
-                sh1_wr_mism_cnt < SH1_DBG_MISM_CAP) begin
-                $display("[SH1_WR_MISMATCH] flat=%0d rtl=%04h gold=%04h (conv1_y=%04h)",
-                         sh1_wr_flat15, c1_y_data, sh1_gold[sh1_wr_flat15], c1_y_data);
-                sh1_wr_mism_cnt <= sh1_wr_mism_cnt + 32'd1;
-            end
-            sh1_wr_cnt <= sh1_wr_cnt + 32'd1;
-        end
-        if (c1_done && !sh1_dbg_c1_done_seen) begin
-            sh1_dbg_c1_done_seen <= 1'b1;
-            $display("[SH1_DBG] conv1_done wr_cnt=%0d c1_wr_idx=%0d wr_mism=%0d (expect %0d y_valid)",
-                     sh1_wr_cnt, c1_wr_idx, sh1_wr_mism_cnt, C1_LEN);
-        end
-    end
-end
-
-// conv2 phase0: read issued (check addr vs golden for *next* MAC flat = x_addr_mac)
-always @(posedge clk) begin
-    if (!reset && (CS == S_CONV2) && c2_busy && !c2_mac_phase &&
-        sh1_dbg_sample_rd(sh1_rd_log_cnt, c2_x_addr_mac[14:0])) begin
-        $display("[SH1_RD_ISSUE] cycle=%0t flat_nxt=%0d bank=%0d laddr=%0h q_now=%04h gold_nxt=%04h",
-                 $time, c2_x_addr_mac[14:0], sh1_rd_bank, sh1_rd_laddr, sh1_rd_q,
-                 sh1_gold[c2_x_addr_mac[14:0]]);
-    end
-end
-
-// conv2 MAC phase1: MAC input is comb c2_x_i_mac (= sh1_rd_q); compare to gold[c2_x_addr]
-always @(posedge clk) begin
-    if (reset) begin
-        sh1_rd_log_cnt       <= 32'd0;
-        sh1_rd_mism_cnt      <= 32'd0;
-        sh1_dbg_c2_done_seen <= 1'b0;
-    end else if ((CS == S_CONV2) && c2_busy && (c2_mac_phase == 1'b1)) begin
-        if (sh1_dbg_sample_rd(sh1_rd_log_cnt, c2_x_addr[14:0]))
-            $display("[SH1_RD] cycle=%0t flat=%0d x_mac=%0h x_r=%0h x_i=%04h gold=%04h",
-                     $time, c2_x_addr[14:0], c2_x_addr_mac, c2_x_addr, c2_x_i_mac,
-                     sh1_gold[c2_x_addr[14:0]]);
-        if (c2_x_i_mac !== sh1_gold[c2_x_addr[14:0]] &&
-            sh1_rd_mism_cnt < SH1_DBG_MISM_CAP) begin
-            $display("[SH1_RD_MISMATCH] flat=%0d rtl=%04h gold=%04h x_mac=%0h",
-                     c2_x_addr[14:0], c2_x_i_mac, sh1_gold[c2_x_addr[14:0]], c2_x_addr_mac);
-            sh1_rd_mism_cnt <= sh1_rd_mism_cnt + 32'd1;
-        end
-        sh1_rd_log_cnt <= sh1_rd_log_cnt + 32'd1;
-    end
-    if (c2_done && !sh1_dbg_c2_done_seen) begin
-        sh1_dbg_c2_done_seen <= 1'b1;
-        $display("[SH1_DBG] conv2_done rd_logged=%0d rd_mism=%0d",
-                 sh1_rd_log_cnt, sh1_rd_mism_cnt);
-    end
-end
-
-// FSM boundary markers
-always @(posedge clk) begin
-    if (!reset) begin
-        if ((CS == S_FILL) && (NS == S_CONV1))
-            $display("[SH1_DBG] enter S_CONV1");
-        if ((CS == S_CONV1) && (NS == S_CONV2))
-            $display("[SH1_DBG] enter S_CONV2");
-        if ((CS == S_CONV2) && (NS == S_TAIL))
-            $display("[SH1_DBG] enter S_TAIL");
-    end
-end
-
-`endif
 
 endmodule
