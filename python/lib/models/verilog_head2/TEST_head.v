@@ -123,7 +123,7 @@ end
 initial begin
     $fsdbDumpfile("sglatrack_top.fsdb");
     $fsdbDumpvars;
-    $fsdbDumpMDA
+    $fsdbDumpMDA;
 
     $readmemb({`GOLDEN_ACT, "/backbone_after_norm_backbone_out_bi.txt"}, raw_in    ) ;
     $readmemb({`GOLDEN_ACT, "/box_head_after_cal_bbox_bbox_bi.txt"     }, bbox_gold) ;
