@@ -33,8 +33,9 @@ parameter TOT_VALS     = N_TOKENS * IN_CH ;
 parameter BBOX_LEN     = 4 ;
 parameter BBOX_TOL_LSB = 2 ;
 
-// Watchdog: head pipeline is ~1e8 cycles; 5e9 ns @ 10ns/clk is plenty
-localparam [63:0] TIMEOUT_NS = 64'd5_000_000_000 ;
+// must write X.0, can't write x
+// if you write 2 must be wrong, you should write 2.0
+parameter CYCLE = 2.0 ;
 
 reg clk ;
 reg rst_n ;
@@ -42,7 +43,7 @@ reg rst_n ;
 initial begin
     clk = 1'b0 ;
 end
-always #5 clk = ~clk ;
+always #(CYCLE/2.0) clk = ~clk ;
 
 reg [DATA_W-1:0] raw_in    [0:TOT_VALS-1] ;
 reg [DATA_W-1:0] bbox_gold [0:BBOX_LEN-1] ;
@@ -173,9 +174,9 @@ initial begin
 end
 
 initial begin
-    #TIMEOUT_NS ;
-    $display("[BBOX] TIMEOUT @ %0d ns (head_done never rose; stream_cnt=%0d head_busy=%0d)",
-             TIMEOUT_NS, stream_cnt, head_busy) ;
+    #(CYCLE * 500_000_000);
+    $display("[TB] TIMEOUT: head_top did not finish (cycle %0d stream_cnt=%0d head_busy=%0d)",
+             cycle_cnt, stream_cnt, head_busy) ;
     $toggle_stop();
     $toggle_report("sglatrack_top_rtl.saif", 1.0e-9, "u_head_top");
     $finish ;

@@ -28,6 +28,8 @@
 
 module TEST_backbone;
 
+// must write X.0, can't write x
+// if you write 2 must be wrong, you should write 2.0
 parameter CYCLE = 2.0;
 
 parameter EMBED_DIM   = 32;
