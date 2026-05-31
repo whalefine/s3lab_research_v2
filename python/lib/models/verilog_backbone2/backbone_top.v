@@ -34,8 +34,8 @@
 //   Block 0 reads external x_i/x_valid; blocks 1+ replay from Sram_tok1.
 //
 // Activation SRAM macros in sglatrack_top; port mux in backbone_top / transformer_block.
-//   Sram_tok1 macro (sram_tok1_* ports): inter-block + norm1 + backbone norm + S_OUT.
-//   S_OUT 2-phase: phase0=ADDR read tok1, phase1=USE y_valid/y_o=s1_q.
+//   Sram_tok1 macro (sram_tok1_* ports): inter-block + norm1 + backbone norm.
+//   Plan B: S_OUT removed; head reads Sram_tok1 directly in S_FILL.
 //
 // =============================================================================
 
@@ -111,8 +111,8 @@ parameter S_IDLE         = 3'd0;
 parameter S_RUN_FIXED    = 3'd1;
 parameter S_RUN_SELECTED = 3'd2;
 parameter S_BACKBONE_NORM= 3'd3;
-parameter S_OUT          = 3'd4;
-parameter S_DONE         = 3'd5;
+// S_OUT removed (Plan B: head reads Sram_tok1 directly)
+parameter S_DONE         = 3'd4;
 
 reg [2:0] state, next_state;
 reg [3:0] block_idx;
@@ -259,13 +259,7 @@ reg [13:0]        bn_wr_flat_lat;
 reg signed [15:0] bn_wr_din_lat;
 reg               bn_wr_do;
 
-// ---------------------------------------------------------------------------
-// Output stream (S_OUT reads final backbone norm from Sram_tok1)
-// ---------------------------------------------------------------------------
-reg [13:0] out_rd_addr;
-
-reg        out_rd_phase;    // 0=ADDR read tok1, 1=USE y_valid/y_o=s1_q
-wire       out_stream_rdy = (state == S_OUT) && out_rd_phase;
+// Plan B: S_OUT removed; Sram_tok1 retains backbone norm for head direct read
 
 assign sram_tok1_ceb_o  = bt_s1_ceb;
 assign sram_tok1_web_o  = bt_s1_web;
@@ -515,10 +509,7 @@ always @(*) begin
             next_state = tb_done ? S_BACKBONE_NORM : S_RUN_SELECTED;
         S_BACKBONE_NORM:
             next_state = (bn_done && (bn_tok_cnt == N_TOKENS-1))
-                         ? S_OUT : S_BACKBONE_NORM;
-        S_OUT:
-            next_state = (out_rd_addr == N_TOKENS*EMBED_DIM-1 && out_rd_phase == 1'b1)
-                         ? S_DONE : S_OUT;
+                         ? S_DONE : S_BACKBONE_NORM;
         S_DONE:
             next_state = S_IDLE;
         default:
@@ -544,18 +535,16 @@ always @(posedge clk) begin
         bn_arm          <= 1'b0;
         bn_rp_feat      <= 5'd0;
         bn_rp_stream    <= 1'b0;
-        out_rd_addr <= 14'd0;
         bn_wr_flat_lat <= 14'd0;
         bn_wr_din_lat  <= 16'd0;
         bn_wr_do       <= 1'b0;
         tok_rp_phase    <= 1'b0;
         bn_s1_phase     <= 1'b0;
-        out_rd_phase    <= 1'b0;
     end else begin
         // ---- Capture transformer_block output -> tok buffer ----
         if (tb_y_valid)
             tok_wr_ptr <= tok_wr_ptr + 14'd1;
-        // 2-phase s2 replay: ADDR then USE (do not bump rd_ptr on ADDR beat)
+        // 2-phase s1 replay: ADDR then USE (do not bump rd_ptr on ADDR beat)
         if (tok_replay && tb_busy && (tok_rd_ptr < N_TOKENS*EMBED_DIM)) begin
             if (tok_rp_phase == 1'b0)
                 tok_rp_phase <= 1'b1;
@@ -607,10 +596,8 @@ always @(posedge clk) begin
                 bn_arm          <= 1'b0;
                 bn_rp_feat      <= 5'd0;
                 bn_rp_stream    <= 1'b0;
-                out_rd_addr <= 14'd0;
                 tok_rp_phase    <= 1'b0;
                 bn_s1_phase     <= 1'b0;
-                out_rd_phase    <= 1'b0;
                 if (start)
                     sel_block_r <= sel_block_i;
             end
@@ -673,19 +660,6 @@ always @(posedge clk) begin
             end
 
             // ------------------------------------------------------------
-            // Stream out buffer to y_o
-            // ------------------------------------------------------------
-            S_OUT: begin
-                if (out_rd_phase == 1'b0)
-                    out_rd_phase <= 1'b1;
-                else begin
-                    if (out_rd_addr < N_TOKENS*EMBED_DIM - 1)
-                        out_rd_addr <= out_rd_addr + 14'd1;
-                    out_rd_phase <= 1'b0;
-                end
-            end
-
-            // ------------------------------------------------------------
             S_DONE: begin
                 done <= 1'b1;
             end
@@ -695,7 +669,7 @@ always @(posedge clk) begin
     end
 end
 
-// tok1 port mux: norm1 staging / capture / replay / backbone norm / S_OUT
+// tok1 port mux: norm1 staging / capture / replay / backbone norm
 always @(*) begin
     bt_s1_ceb  = 1'b1;
     bt_s1_web  = 1'b1;
@@ -733,18 +707,14 @@ always @(*) begin
         bt_s1_ceb  = 1'b0;
         bt_s1_web  = 1'b1;
         bt_s1_addr = bn_rp_addr;
-    end else if (state == S_OUT && (out_rd_phase == 1'b0)) begin
-        bt_s1_ceb  = 1'b0;
-        bt_s1_web  = 1'b1;
-        bt_s1_addr = out_rd_addr;
     end
 end
 
 // ---------------------------------------------------------------------------
-// Output stream
+// Plan B: S_OUT removed; y_o/y_valid left undriven (head reads Sram_tok1 directly)
 // ---------------------------------------------------------------------------
-assign y_o     = s1_q;
-assign y_valid = out_stream_rdy;
+assign y_o     = 16'sd0;
+assign y_valid = 1'b0;
 assign busy    = (state != S_IDLE);
 assign x_ready = !tok_replay && tb_x_ready;
 

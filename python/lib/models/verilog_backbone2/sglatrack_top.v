@@ -1,15 +1,16 @@
 // =============================================================================
-// sglatrack_top.v -- verilog_backbone2 wrapper (backbone-only)
+// sglatrack_top.v -- verilog_backbone2 wrapper (backbone-only, Plan B)
 //
 // RTL below: `include dependency order (leaf -> top). Same-directory paths.
 // IDE: .vscode/settings.json adds this folder to verilog.includePaths.
 // VCS: also pass memory/rom_*.v, Sram_*.v, TEST_backbone.v (do not duplicate RTL
 //      .v on cmd line if using only this file + includes).
 //
-// Input: template/search post-embed (Q8.8) -> backbone_top output stream.
+// Plan B: backbone norm stays in Sram_tok1 (no S_OUT stream); TB readback via
+// tok1_readback_* after done. data_o/data_o_valid tied off in backbone_top.
 //
 // SRAM macros (port mux in child):
-//   Sram_tok1  u_sram_tok1    inter-block / norm1 / backbone norm / S_OUT
+//   Sram_tok1  u_sram_tok1    inter-block / norm1 / backbone norm
 //   Sram_tok2  u_sram_tok2    transformer_block x_buf
 //   Sram_q     u_sram_q       care q + tmp-on-q
 //   Sram_k/v/qkm             care_attention
@@ -44,14 +45,18 @@ module sglatrack_top #(
     input  wire signed [DATA_W-1:0] data_in,
     input  wire                    data_valid,
     output wire signed [DATA_W-1:0] data_o,
-    output wire                    data_o_valid
+    output wire                    data_o_valid,
+    // TB readback Sram_tok1 after done (sim only; tie readback=0 in synthesis)
+    input  wire                    tok1_readback,
+    input  wire [13:0]             tok1_readback_addr,
+    output wire [DATA_W-1:0]       tok1_readback_q
 );
 
-// ---- backbone_top Sram_tok1 (inter-block + backbone norm + out) ----
-wire              sram_tok1_ceb;
-wire              sram_tok1_web;
-wire [13:0]       sram_tok1_addr;
-wire [DATA_W-1:0] sram_tok1_din;
+// ---- backbone_top Sram_tok1 (inter-block + backbone norm) ----
+wire              sram_tok1_ceb_bb;
+wire              sram_tok1_web_bb;
+wire [13:0]       sram_tok1_addr_bb;
+wire [DATA_W-1:0] sram_tok1_din_bb;
 wire [DATA_W-1:0] sram_tok1_q;
 
 // ---- transformer_block Sram_tok2 (x_buf) ----
@@ -117,10 +122,12 @@ wire              sram_qkm_web_mac;
 wire [13:0]       sram_qkm_addr_mac;
 wire [DATA_W-1:0] sram_qkm_din_mac;
 
-assign sram_tok1_ceb_mac    = sram_tok1_ceb;
-assign sram_tok1_web_mac    = sram_tok1_web;
-assign sram_tok1_addr_mac   = sram_tok1_addr;
-assign sram_tok1_din_mac    = sram_tok1_din;
+// TB readback mux on Sram_tok1 (priority when tok1_readback=1; backbone must be done)
+assign sram_tok1_ceb_mac  = tok1_readback ? 1'b0               : sram_tok1_ceb_bb;
+assign sram_tok1_web_mac  = tok1_readback ? 1'b1               : sram_tok1_web_bb;
+assign sram_tok1_addr_mac = tok1_readback ? tok1_readback_addr : sram_tok1_addr_bb;
+assign sram_tok1_din_mac  = tok1_readback ? {DATA_W{1'b0}}     : sram_tok1_din_bb;
+assign tok1_readback_q    = sram_tok1_q;
 
 assign sram_tok2_ceb_mac       = sram_tok2_ceb;
 assign sram_tok2_web_mac       = sram_tok2_web;
@@ -162,10 +169,10 @@ backbone_top #(
     .done           (done),
     .y_o            (data_o),
     .y_valid        (data_o_valid),
-    .sram_tok1_ceb_o    (sram_tok1_ceb),
-    .sram_tok1_web_o    (sram_tok1_web),
-    .sram_tok1_addr_o   (sram_tok1_addr),
-    .sram_tok1_din_o    (sram_tok1_din),
+    .sram_tok1_ceb_o    (sram_tok1_ceb_bb),
+    .sram_tok1_web_o    (sram_tok1_web_bb),
+    .sram_tok1_addr_o   (sram_tok1_addr_bb),
+    .sram_tok1_din_o    (sram_tok1_din_bb),
     .sram_tok1_q_i      (sram_tok1_q),
     .sram_tok2_ceb_o   (sram_tok2_ceb),
     .sram_tok2_web_o   (sram_tok2_web),
