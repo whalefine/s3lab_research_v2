@@ -53,7 +53,7 @@
 //                       * 2 = 20480.
 //   S_PROJ streaming : pj_sub (4-state: START/USE/ADDR/WAIT). Reads ao via Sram_v
 //                       to feed lin_proj_x; ~2 cycles per beat.
-//   S_QKV x read : qkv_x_phase + norm_rd_* (2-phase read parent tok2 norm1 staging).
+//   S_QKV x read : qkv_x_phase + norm_rd_* (2-phase read parent tok1 norm1 staging).
 //   S_Z_RECIP          : zr_phase on Sram_qkm (read qkm, write zr per index).
 //   S_ATTN zr          : at_zr_r shadow from Sram_qkm read at at_dk==0.
 
@@ -520,7 +520,7 @@ wire [13:0] at_ao_flat =
   + {12'd0, at_h_reg} * HEAD_DIM
   + {11'd0, at_dout_reg};
 
-// S_QKV norm1 input flat (token-major, parent tok2 staging)
+// S_QKV norm1 input flat (token-major, parent tok1 staging)
 wire [13:0] qkv_x_flat =
     ({5'd0, qx_tok}) * EMBED_DIM + {9'd0, qkv_stream_cnt - 6'd1};
 
@@ -685,7 +685,7 @@ always @(posedge clk) begin
             end
 
             // -----------------------------------------------------------
-            // S_QKV: 2-phase read norm1 from parent tok2; q/k/v -> SRAM.
+            // S_QKV: 2-phase read norm1 from parent tok1; q/k/v -> SRAM.
             // Must finish before S_PROJ (parent overwrites tmp with attn out).
             // -----------------------------------------------------------
             S_QKV: begin
@@ -983,7 +983,7 @@ always @(posedge clk) begin
 end
 
 // ---------------------------------------------------------------------------
-// SRAM port mux (combinational). Norm1 read is parent tok2 (norm_rd_*).
+// SRAM port mux (combinational). Norm1 read is parent tok1 (norm_rd_*).
 // ---------------------------------------------------------------------------
 //   Defaults: deselect all 3 macros (CEB = 1).
 //   Per state, drive read or write as needed. At most one operation per macro

@@ -30,12 +30,12 @@
 //   3'b100 = fc1     3'b101 = fc2
 //
 // Inter-block token chaining:
-//   Sram_tok2 captures each transformer_block output; replayed to next block.
-//   Block 0 reads external x_i/x_valid; blocks 1+ replay from Sram_tok2.
+//   Sram_tok1 captures each transformer_block output; replayed to next block.
+//   Block 0 reads external x_i/x_valid; blocks 1+ replay from Sram_tok1.
 //
 // Activation SRAM macros in sglatrack_top; port mux in backbone_top / transformer_block.
-//   Sram_tok1 macro (sram_tok2_* ports): inter-block + norm1 + backbone norm + S_OUT.
-//   S_OUT 2-phase: phase0=ADDR read tok2, phase1=USE y_valid/y_o=s2_q.
+//   Sram_tok1 macro (sram_tok1_* ports): inter-block + norm1 + backbone norm + S_OUT.
+//   S_OUT 2-phase: phase0=ADDR read tok1, phase1=USE y_valid/y_o=s1_q.
 //
 // =============================================================================
 
@@ -66,18 +66,18 @@ module backbone_top #(
     output wire        y_valid,
 
     // Sram_tok1 macro: inter-block tok_buf + backbone norm in-place + output stream
+    output wire        sram_tok1_ceb_o,
+    output wire        sram_tok1_web_o,
+    output wire [13:0] sram_tok1_addr_o,
+    output wire [15:0] sram_tok1_din_o,
+    input  wire [15:0] sram_tok1_q_i,
+
+    // transformer_block x_buf (Sram_tok2); tmp-on-q (Sram_q, shared with care)
     output wire        sram_tok2_ceb_o,
     output wire        sram_tok2_web_o,
     output wire [13:0] sram_tok2_addr_o,
     output wire [15:0] sram_tok2_din_o,
     input  wire [15:0] sram_tok2_q_i,
-
-    // transformer_block x_buf (Sram_tok2); tmp-on-q (Sram_q, shared with care)
-    output wire        sram_x_ceb_o,
-    output wire        sram_x_web_o,
-    output wire [13:0] sram_x_addr_o,
-    output wire [15:0] sram_x_din_o,
-    input  wire [15:0] sram_x_q_i,
 
     output wire        sram_q_ceb_o,
     output wire        sram_q_web_o,
@@ -119,20 +119,20 @@ reg [3:0] block_idx;
 reg [3:0] sel_block_r;
 
 // ---------------------------------------------------------------------------
-// Inter-block token buffer (Sram_tok2)
+// Inter-block token buffer (Sram_tok1)
 // ---------------------------------------------------------------------------
 
 reg [13:0] tok_wr_ptr;   // write: incremented on tb_y_valid
 reg [13:0] tok_rd_ptr;   // read:  drive ahead of consume (SRAM path)
 reg        tok_replay;   // 0 for block 0; 1 for all subsequent blocks
 
-reg        tok_rp_phase;    // 0=ADDR (s2 read tok_rd_ptr), 1=USE (x_valid, s2_q stable)
-reg        bn_s2_phase;     // 0=ADDR (s2 read bn_rp_feat), 1=USE (bn x_valid)
-reg        bt_s2_ceb;
-reg        bt_s2_web;
-reg [13:0] bt_s2_addr;
-reg [15:0] bt_s2_din;
-wire [15:0] s2_q;
+reg        tok_rp_phase;    // 0=ADDR (s1 read tok_rd_ptr), 1=USE (x_valid, s1_q stable)
+reg        bn_s1_phase;     // 0=ADDR (s1 read bn_rp_feat), 1=USE (bn x_valid)
+reg        bt_s1_ceb;
+reg        bt_s1_web;
+reg [13:0] bt_s1_addr;
+reg [15:0] bt_s1_din;
+wire [15:0] s1_q;
 
 wire tb_busy, tb_done;
 wire tb_x_ready;
@@ -149,7 +149,7 @@ reg  tb_start;
 
 // Input mux: block 0 uses external stream; subsequent blocks replay tok buffer
 wire signed [15:0] tb_x_mux =
-    tok_replay ? s2_q : x_i;
+    tok_replay ? s1_q : x_i;
 wire tb_rp_use =
     tok_replay && tb_busy && (tok_rd_ptr < N_TOKENS*EMBED_DIM) && tok_rp_phase;
 wire tb_xv_mux =
@@ -162,7 +162,7 @@ wire              tb_norm1_stg_rd_en;
 wire [13:0]       tb_norm1_stg_rd_flat;
 wire signed [15:0] tb_norm1_stg_x;
 
-assign tb_norm1_stg_x = s2_q;
+assign tb_norm1_stg_x = s1_q;
 
 transformer_block #(
     .EMBED_DIM(EMBED_DIM),
@@ -176,11 +176,11 @@ transformer_block #(
     .wgt_addr_o(tb_wgt_addr),
     .busy(tb_busy), .x_ready(tb_x_ready), .done(tb_done),
     .y_o(tb_y), .y_valid(tb_y_valid),
-    .sram_x_ceb_o   (sram_x_ceb_o),
-    .sram_x_web_o   (sram_x_web_o),
-    .sram_x_addr_o  (sram_x_addr_o),
-    .sram_x_din_o   (sram_x_din_o),
-    .sram_x_q_i     (sram_x_q_i),
+    .sram_tok2_ceb_o   (sram_tok2_ceb_o),
+    .sram_tok2_web_o   (sram_tok2_web_o),
+    .sram_tok2_addr_o  (sram_tok2_addr_o),
+    .sram_tok2_din_o   (sram_tok2_din_o),
+    .sram_tok2_q_i     (sram_tok2_q_i),
     .norm1_stg_wr_do   (tb_norm1_stg_wr_do),
     .norm1_stg_wr_flat (tb_norm1_stg_wr_flat),
     .norm1_stg_wr_din  (tb_norm1_stg_wr_din),
@@ -222,7 +222,7 @@ wire bn_y_valid;
 reg  bn_start;
 reg  [8:0] bn_tok_cnt;   // which token u_bn is processing (0..N_TOKENS-1)
 
-// Replay Sram_tok2 → u_bn: stream EMBED_DIM values per token.
+// Replay Sram_tok1 -> u_bn: stream EMBED_DIM values per token.
 // Must not assert x_valid until u_bn is busy (LN has left S_IDLE after start);
 // otherwise the first LOAD cycle can miss a sample and u_bn stays in S_LOAD forever.
 reg       bn_rp_stream;   // x_valid to u_bn during feature replay
@@ -233,8 +233,8 @@ wire [4:0] bn_feat_cnt = bn_rp_feat;
 
 wire [13:0] bn_rp_addr = bn_tok_cnt * EMBED_DIM + {9'b0, bn_feat_cnt};
 wire signed [15:0] bn_x_mux =
-    s2_q;
-wire bn_rp_use = bn_rp_stream && bn_s2_phase;
+    s1_q;
+wire bn_rp_use = bn_rp_stream && bn_s1_phase;
 wire bn_xv_mux =
     bn_rp_use;
 
@@ -254,24 +254,24 @@ layer_norm #(.FEAT_DIM(EMBED_DIM), .RCP_NUM(65536/EMBED_DIM)) u_bn (
     .out_beat_o(bn_out_beat)
 );
 
-// Posedge latch norm y_sat_o + flat (layer_norm out_beat_o); bn_wr_do -> tok2 1 cycle later.
+// Posedge latch norm y_sat_o + flat (layer_norm out_beat_o); bn_wr_do -> tok1 1 cycle later.
 reg [13:0]        bn_wr_flat_lat;
 reg signed [15:0] bn_wr_din_lat;
 reg               bn_wr_do;
 
 // ---------------------------------------------------------------------------
-// Output stream (S_OUT reads final backbone norm from Sram_tok2)
+// Output stream (S_OUT reads final backbone norm from Sram_tok1)
 // ---------------------------------------------------------------------------
 reg [13:0] out_rd_addr;
 
-reg        out_rd_phase;    // 0=ADDR read tok2, 1=USE y_valid/y_o=s2_q
+reg        out_rd_phase;    // 0=ADDR read tok1, 1=USE y_valid/y_o=s1_q
 wire       out_stream_rdy = (state == S_OUT) && out_rd_phase;
 
-assign sram_tok2_ceb_o  = bt_s2_ceb;
-assign sram_tok2_web_o  = bt_s2_web;
-assign sram_tok2_addr_o = bt_s2_addr;
-assign sram_tok2_din_o  = bt_s2_din;
-assign s2_q             = sram_tok2_q_i;
+assign sram_tok1_ceb_o  = bt_s1_ceb;
+assign sram_tok1_web_o  = bt_s1_web;
+assign sram_tok1_addr_o = bt_s1_addr;
+assign sram_tok1_din_o  = bt_s1_din;
+assign s1_q             = sram_tok1_q_i;
 
 // ---------------------------------------------------------------------------
 // ROM Q wires (per weight type)
@@ -549,7 +549,7 @@ always @(posedge clk) begin
         bn_wr_din_lat  <= 16'd0;
         bn_wr_do       <= 1'b0;
         tok_rp_phase    <= 1'b0;
-        bn_s2_phase     <= 1'b0;
+        bn_s1_phase     <= 1'b0;
         out_rd_phase    <= 1'b0;
     end else begin
         // ---- Capture transformer_block output -> tok buffer ----
@@ -566,7 +566,7 @@ always @(posedge clk) begin
         end else
             tok_rp_phase <= 1'b0;
 
-        // norm y_sat_o posedge latch -> tok2 in-place (see layer_norm out_beat_o)
+        // norm y_sat_o posedge latch -> tok1 in-place (see layer_norm out_beat_o)
         if (state == S_BACKBONE_NORM && bn_out_beat) begin
             bn_wr_flat_lat <= bn_cap_flat;
             bn_wr_din_lat  <= bn_y_sat;
@@ -581,10 +581,10 @@ always @(posedge clk) begin
                 bn_arm       <= 1'b0;
             end
             if (bn_rp_stream) begin
-                if (bn_s2_phase == 1'b0)
-                    bn_s2_phase <= 1'b1;
+                if (bn_s1_phase == 1'b0)
+                    bn_s1_phase <= 1'b1;
                 else begin
-                    bn_s2_phase <= 1'b0;
+                    bn_s1_phase <= 1'b0;
                     if (bn_rp_feat == EMBED_DIM - 1) begin
                         bn_rp_stream <= 1'b0;
                         bn_rp_feat   <= 5'd0;
@@ -593,7 +593,7 @@ always @(posedge clk) begin
                 end
             end
             else
-                bn_s2_phase <= 1'b0;
+                bn_s1_phase <= 1'b0;
         end
 
         case (state)
@@ -609,7 +609,7 @@ always @(posedge clk) begin
                 bn_rp_stream    <= 1'b0;
                 out_rd_addr <= 14'd0;
                 tok_rp_phase    <= 1'b0;
-                bn_s2_phase     <= 1'b0;
+                bn_s1_phase     <= 1'b0;
                 out_rd_phase    <= 1'b0;
                 if (start)
                     sel_block_r <= sel_block_i;
@@ -631,7 +631,7 @@ always @(posedge clk) begin
                     tok_wr_ptr <= 14'd0;   // reset write for next block
                     if (block_idx < START_LAYER) begin
                         block_idx  <= block_idx + 4'd1;
-                        tok_replay <= 1'b1;  // blocks 1+ replay Sram_tok2
+                        tok_replay <= 1'b1;  // blocks 1+ replay Sram_tok1
                     end
                     // if block_idx == START_LAYER: FSM transitions to S_RUN_SELECTED
                 end
@@ -651,7 +651,7 @@ always @(posedge clk) begin
 
                 if (tb_done) begin
                     tok_wr_ptr <= 14'd0;
-                    // tok_replay stays 1; backbone norm reads Sram_tok2
+                    // tok_replay stays 1; backbone norm reads Sram_tok1
                 end
             end
 
@@ -660,7 +660,7 @@ always @(posedge clk) begin
             // ------------------------------------------------------------
             S_BACKBONE_NORM: begin
                 if (bn_arm && bn_busy)
-                    bn_s2_phase <= 1'b0;
+                    bn_s1_phase <= 1'b0;
                 // Pulse start; arm stream — x_valid only after u_bn busy (see block above)
                 if (!bn_busy && !bn_rp_stream && !bn_arm) begin
                     bn_start <= 1'b1;
@@ -695,55 +695,55 @@ always @(posedge clk) begin
     end
 end
 
-// tok2 port mux: norm1 staging / capture / replay / backbone norm / S_OUT
+// tok1 port mux: norm1 staging / capture / replay / backbone norm / S_OUT
 always @(*) begin
-    bt_s2_ceb  = 1'b1;
-    bt_s2_web  = 1'b1;
-    bt_s2_addr = 14'd0;
-    bt_s2_din  = 16'd0;
+    bt_s1_ceb  = 1'b1;
+    bt_s1_web  = 1'b1;
+    bt_s1_addr = 14'd0;
+    bt_s1_din  = 16'd0;
 
     if (state == S_BACKBONE_NORM && bn_wr_do) begin
-        bt_s2_ceb  = 1'b0;
-        bt_s2_web  = 1'b0;
-        bt_s2_addr = bn_wr_flat_lat;
-        bt_s2_din  = bn_wr_din_lat;
+        bt_s1_ceb  = 1'b0;
+        bt_s1_web  = 1'b0;
+        bt_s1_addr = bn_wr_flat_lat;
+        bt_s1_din  = bn_wr_din_lat;
     end else if ((state == S_RUN_FIXED || state == S_RUN_SELECTED) &&
                  tb_norm1_stg_wr_do) begin
-        bt_s2_ceb  = 1'b0;
-        bt_s2_web  = 1'b0;
-        bt_s2_addr = tb_norm1_stg_wr_flat;
-        bt_s2_din  = tb_norm1_stg_wr_din;
+        bt_s1_ceb  = 1'b0;
+        bt_s1_web  = 1'b0;
+        bt_s1_addr = tb_norm1_stg_wr_flat;
+        bt_s1_din  = tb_norm1_stg_wr_din;
     end else if ((state == S_RUN_FIXED || state == S_RUN_SELECTED) &&
                  tb_norm1_stg_rd_en) begin
-        bt_s2_ceb  = 1'b0;
-        bt_s2_web  = 1'b1;
-        bt_s2_addr = tb_norm1_stg_rd_flat;
+        bt_s1_ceb  = 1'b0;
+        bt_s1_web  = 1'b1;
+        bt_s1_addr = tb_norm1_stg_rd_flat;
     end else if ((state == S_RUN_FIXED || state == S_RUN_SELECTED) && tb_y_valid) begin
-        bt_s2_ceb  = 1'b0;
-        bt_s2_web  = 1'b0;
-        bt_s2_addr = tok_wr_ptr;
-        bt_s2_din  = tb_y;
+        bt_s1_ceb  = 1'b0;
+        bt_s1_web  = 1'b0;
+        bt_s1_addr = tok_wr_ptr;
+        bt_s1_din  = tb_y;
     end else if ((state == S_RUN_FIXED || state == S_RUN_SELECTED) &&
                  tok_replay && tb_busy && (tok_rd_ptr < N_TOKENS*EMBED_DIM) &&
                  (tok_rp_phase == 1'b0)) begin
-        bt_s2_ceb  = 1'b0;
-        bt_s2_web  = 1'b1;
-        bt_s2_addr = tok_rd_ptr;
-    end else if (state == S_BACKBONE_NORM && bn_rp_stream && (bn_s2_phase == 1'b0)) begin
-        bt_s2_ceb  = 1'b0;
-        bt_s2_web  = 1'b1;
-        bt_s2_addr = bn_rp_addr;
+        bt_s1_ceb  = 1'b0;
+        bt_s1_web  = 1'b1;
+        bt_s1_addr = tok_rd_ptr;
+    end else if (state == S_BACKBONE_NORM && bn_rp_stream && (bn_s1_phase == 1'b0)) begin
+        bt_s1_ceb  = 1'b0;
+        bt_s1_web  = 1'b1;
+        bt_s1_addr = bn_rp_addr;
     end else if (state == S_OUT && (out_rd_phase == 1'b0)) begin
-        bt_s2_ceb  = 1'b0;
-        bt_s2_web  = 1'b1;
-        bt_s2_addr = out_rd_addr;
+        bt_s1_ceb  = 1'b0;
+        bt_s1_web  = 1'b1;
+        bt_s1_addr = out_rd_addr;
     end
 end
 
 // ---------------------------------------------------------------------------
 // Output stream
 // ---------------------------------------------------------------------------
-assign y_o     = s2_q;
+assign y_o     = s1_q;
 assign y_valid = out_stream_rdy;
 assign busy    = (state != S_IDLE);
 assign x_ready = !tok_replay && tb_x_ready;

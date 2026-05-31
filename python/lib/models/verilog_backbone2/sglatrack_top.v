@@ -9,8 +9,8 @@
 // Input: template/search post-embed (Q8.8) -> backbone_top output stream.
 //
 // SRAM macros (port mux in child):
-//   Sram_tok1  u_sram_tok2    inter-block / norm1 / backbone norm / S_OUT
-//   Sram_tok2  u_sram_x       transformer_block x_buf
+//   Sram_tok1  u_sram_tok1    inter-block / norm1 / backbone norm / S_OUT
+//   Sram_tok2  u_sram_tok2    transformer_block x_buf
 //   Sram_q     u_sram_q       care q + tmp-on-q
 //   Sram_k/v/qkm             care_attention
 // =============================================================================
@@ -47,19 +47,19 @@ module sglatrack_top #(
     output wire                    data_o_valid
 );
 
-// ---- backbone_top tok2 (inter-block + backbone norm + out) ----
+// ---- backbone_top Sram_tok1 (inter-block + backbone norm + out) ----
+wire              sram_tok1_ceb;
+wire              sram_tok1_web;
+wire [13:0]       sram_tok1_addr;
+wire [DATA_W-1:0] sram_tok1_din;
+wire [DATA_W-1:0] sram_tok1_q;
+
+// ---- transformer_block Sram_tok2 (x_buf) ----
 wire              sram_tok2_ceb;
 wire              sram_tok2_web;
 wire [13:0]       sram_tok2_addr;
 wire [DATA_W-1:0] sram_tok2_din;
 wire [DATA_W-1:0] sram_tok2_q;
-
-// ---- transformer_block x_buf / tmp_buf ----
-wire              sram_x_ceb;
-wire              sram_x_web;
-wire [13:0]       sram_x_addr;
-wire [DATA_W-1:0] sram_x_din;
-wire [DATA_W-1:0] sram_x_q;
 
 // ---- care_attention + tmp-on-q ----
 wire              sram_q_ceb;
@@ -87,15 +87,15 @@ wire [DATA_W-1:0] sram_qkm_din;
 wire [DATA_W-1:0] sram_qkm_q;
 
 // Macro pins: no skew between A and CEB/WEB/D (see verilog_rule.mdc SS8)
+wire              sram_tok1_ceb_mac;
+wire              sram_tok1_web_mac;
+wire [13:0]       sram_tok1_addr_mac;
+wire [DATA_W-1:0] sram_tok1_din_mac;
+
 wire              sram_tok2_ceb_mac;
 wire              sram_tok2_web_mac;
 wire [13:0]       sram_tok2_addr_mac;
 wire [DATA_W-1:0] sram_tok2_din_mac;
-
-wire              sram_x_ceb_mac;
-wire              sram_x_web_mac;
-wire [13:0]       sram_x_addr_mac;
-wire [DATA_W-1:0] sram_x_din_mac;
 
 wire              sram_q_ceb_mac;
 wire              sram_q_web_mac;
@@ -117,15 +117,15 @@ wire              sram_qkm_web_mac;
 wire [13:0]       sram_qkm_addr_mac;
 wire [DATA_W-1:0] sram_qkm_din_mac;
 
-assign sram_tok2_ceb_mac    = sram_tok2_ceb;
-assign sram_tok2_web_mac    = sram_tok2_web;
-assign sram_tok2_addr_mac   = sram_tok2_addr;
-assign sram_tok2_din_mac    = sram_tok2_din;
+assign sram_tok1_ceb_mac    = sram_tok1_ceb;
+assign sram_tok1_web_mac    = sram_tok1_web;
+assign sram_tok1_addr_mac   = sram_tok1_addr;
+assign sram_tok1_din_mac    = sram_tok1_din;
 
-assign sram_x_ceb_mac       = sram_x_ceb;
-assign sram_x_web_mac       = sram_x_web;
-assign sram_x_addr_mac      = sram_x_addr;
-assign sram_x_din_mac       = sram_x_din;
+assign sram_tok2_ceb_mac       = sram_tok2_ceb;
+assign sram_tok2_web_mac       = sram_tok2_web;
+assign sram_tok2_addr_mac      = sram_tok2_addr;
+assign sram_tok2_din_mac       = sram_tok2_din;
 
 assign sram_q_ceb_mac       = sram_q_ceb;
 assign sram_q_web_mac       = sram_q_web;
@@ -162,16 +162,16 @@ backbone_top #(
     .done           (done),
     .y_o            (data_o),
     .y_valid        (data_o_valid),
-    .sram_tok2_ceb_o    (sram_tok2_ceb),
-    .sram_tok2_web_o    (sram_tok2_web),
-    .sram_tok2_addr_o   (sram_tok2_addr),
-    .sram_tok2_din_o    (sram_tok2_din),
-    .sram_tok2_q_i      (sram_tok2_q),
-    .sram_x_ceb_o   (sram_x_ceb),
-    .sram_x_web_o   (sram_x_web),
-    .sram_x_addr_o  (sram_x_addr),
-    .sram_x_din_o   (sram_x_din),
-    .sram_x_q_i     (sram_x_q),
+    .sram_tok1_ceb_o    (sram_tok1_ceb),
+    .sram_tok1_web_o    (sram_tok1_web),
+    .sram_tok1_addr_o   (sram_tok1_addr),
+    .sram_tok1_din_o    (sram_tok1_din),
+    .sram_tok1_q_i      (sram_tok1_q),
+    .sram_tok2_ceb_o   (sram_tok2_ceb),
+    .sram_tok2_web_o   (sram_tok2_web),
+    .sram_tok2_addr_o  (sram_tok2_addr),
+    .sram_tok2_din_o   (sram_tok2_din),
+    .sram_tok2_q_i     (sram_tok2_q),
     .sram_q_ceb_o       (sram_q_ceb),
     .sram_q_web_o       (sram_q_web),
     .sram_q_addr_o      (sram_q_addr),
@@ -194,7 +194,29 @@ backbone_top #(
     .sram_qkm_q_i       (sram_qkm_q)
 );
 
-Sram_tok1 u_sram_tok2 (
+Sram_tok1 u_sram_tok1 (
+    .SLP   (1'b0),
+    .DSLP  (1'b0),
+    .SD    (1'b0),
+    .PUDELAY(),
+    .CLK   (~clk),
+    .CEB   (sram_tok1_ceb_mac),
+    .WEB   (sram_tok1_web_mac),
+    .BIST  (1'b0),
+    .CEBM  (),
+    .WEBM  (),
+    .A     (sram_tok1_addr_mac),
+    .D     (sram_tok1_din_mac),
+    .BWEB  (16'b0),
+    .AM    (),
+    .DM    (),
+    .BWEBM (16'b0),
+    .RTSEL (2'b01),
+    .WTSEL (2'b00),
+    .Q     (sram_tok1_q)
+);
+
+Sram_tok2 u_sram_tok2 (
     .SLP   (1'b0),
     .DSLP  (1'b0),
     .SD    (1'b0),
@@ -214,28 +236,6 @@ Sram_tok1 u_sram_tok2 (
     .RTSEL (2'b01),
     .WTSEL (2'b00),
     .Q     (sram_tok2_q)
-);
-
-Sram_tok2 u_sram_x (
-    .SLP   (1'b0),
-    .DSLP  (1'b0),
-    .SD    (1'b0),
-    .PUDELAY(),
-    .CLK   (~clk),
-    .CEB   (sram_x_ceb_mac),
-    .WEB   (sram_x_web_mac),
-    .BIST  (1'b0),
-    .CEBM  (),
-    .WEBM  (),
-    .A     (sram_x_addr_mac),
-    .D     (sram_x_din_mac),
-    .BWEB  (16'b0),
-    .AM    (),
-    .DM    (),
-    .BWEBM (16'b0),
-    .RTSEL (2'b01),
-    .WTSEL (2'b00),
-    .Q     (sram_x_q)
 );
 
 Sram_q u_sram_q (
