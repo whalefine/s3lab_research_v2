@@ -1,7 +1,8 @@
 // =============================================================================
-// TEST_head.v -- verilog_head2 head-only test via sglatrack_top
+// TEST_head.v -- verilog_head2 head-only test via sglatrack_top (Plan B)
 //
-// Streams backbone_after_norm token order into sglatrack_top (skip template in RTL).
+// Preloads backbone_after_norm into Sram_tok1 (token-major), then starts head_top.
+// head_top S_FILL reads Sram_tok1 -> NCHW reorder -> Sram_v (x_buf).
 // Compares final bbox vs box_head_after_cal_bbox_bbox_bi.txt only.
 //
 // VCS (DUT pulls RTL + memory via `include in sglatrack_top.v; TB only extra file):
@@ -9,7 +10,6 @@
 //     +lint=TFIPC-L +define+TSMC_CM_NO_WARNING | tee runvcs.log
 //   Compile root must contain memory/ (Sram_* + rom_box_head_*). Or +incdir if paths differ.
 //   ./simv | tee simv.log
-//   # -> sglatrack_top_rtl.saif (toggle on u_head_top; Synopsys $toggle_* / VCS)
 //
 //   grep -E '\\[PASS\\]|\\[FAIL\\]|TIMEOUT|Head-only done' simv.log
 // =============================================================================
@@ -26,7 +26,6 @@ module TEST_head ;
 parameter DATA_W       = 16 ;
 parameter IN_CH        = 32 ;
 parameter N_TOKENS     = 320 ;
-parameter LENS_Z       = 64 ;
 parameter FEAT_H       = 16 ;
 parameter FEAT_W       = 16 ;
 parameter TOT_VALS     = N_TOKENS * IN_CH ;
@@ -34,7 +33,6 @@ parameter BBOX_LEN     = 4 ;
 parameter BBOX_TOL_LSB = 2 ;
 
 // must write X.0, can't write x
-// if you write 2 must be wrong, you should write 2.0
 parameter CYCLE = 2.0 ;
 
 reg clk ;
@@ -49,12 +47,10 @@ reg [DATA_W-1:0] raw_in    [0:TOT_VALS-1] ;
 reg [DATA_W-1:0] bbox_gold [0:BBOX_LEN-1] ;
 
 reg               kick_start ;
-reg               start_seen ;
 reg               head_start ;
-reg               stream_en ;
-reg [13:0]        stream_cnt ;
-reg               a_valid ;
-reg signed [15:0] a_i ;
+reg               tok1_preload ;
+reg [13:0]        tok1_preload_addr ;
+reg [15:0]        tok1_preload_din ;
 
 wire              head_busy ;
 wire              head_done ;
@@ -65,20 +61,20 @@ sglatrack_top #(
     .IN_CH    (IN_CH   ),
     .FEAT_H   (FEAT_H  ),
     .FEAT_W   (FEAT_W  ),
-    .N_TOKENS (N_TOKENS),
-    .LENS_Z   (LENS_Z  )
-) u_head_top (
-    .clk       (clk       ),
-    .reset     (~rst_n    ),
-    .start     (head_start),
-    .busy      (head_busy ),
-    .done      (head_done ),
-    .data_in   (a_i       ),
-    .data_valid(a_valid   ),
-    .cx_o      (cx_o      ),
-    .cy_o      (cy_o      ),
-    .w_o       (w_o       ),
-    .h_o       (h_o       )
+    .N_TOKENS (N_TOKENS)
+) u_dut (
+    .clk               (clk               ),
+    .reset             (~rst_n            ),
+    .start             (head_start        ),
+    .busy              (head_busy         ),
+    .done              (head_done         ),
+    .tok1_preload      (tok1_preload      ),
+    .tok1_preload_addr (tok1_preload_addr ),
+    .tok1_preload_din  (tok1_preload_din  ),
+    .cx_o              (cx_o              ),
+    .cy_o              (cy_o              ),
+    .w_o               (w_o               ),
+    .h_o               (h_o               )
 );
 
 reg [31:0] cycle_cnt ;
@@ -86,39 +82,41 @@ reg [31:0] cycle_cnt ;
 always @(posedge clk)
     cycle_cnt <= rst_n ? (cycle_cnt + 1) : 32'd0 ;
 
-// One-cycle start pulse; stream begins the cycle AFTER start (head_top in S_FILL)
+// One-cycle start pulse after Sram_tok1 preload completes
 always @(posedge clk) begin
     if (!rst_n) begin
-        head_start  <= 1'b0 ;
-        start_seen  <= 1'b0 ;
-        stream_en   <= 1'b0 ;
-        stream_cnt  <= 14'd0 ;
-        a_valid     <= 1'b0 ;
-        a_i         <= 16'sd0 ;
+        head_start        <= 1'b0 ;
+        tok1_preload      <= 1'b0 ;
+        tok1_preload_addr <= 14'd0 ;
+        tok1_preload_din  <= 16'd0 ;
     end else begin
         head_start <= 1'b0 ;
-
-        if (kick_start) begin
-            head_start  <= 1'b1 ;
-            start_seen  <= 1'b1 ;
-            stream_en   <= 1'b0 ;
-            stream_cnt  <= 14'd0 ;
-            a_valid     <= 1'b0 ;
-        end else if (start_seen && !stream_en) begin
-            // first cycle in S_FILL: begin 10240-beat activation stream
-            start_seen <= 1'b0 ;
-            stream_en  <= 1'b1 ;
-        end else if (stream_en && (stream_cnt < TOT_VALS)) begin
-            a_valid    <= 1'b1 ;
-            a_i        <= raw_in[stream_cnt] ;
-            stream_cnt <= stream_cnt + 14'd1 ;
-        end else begin
-            a_valid <= 1'b0 ;
-            if (stream_cnt >= TOT_VALS)
-                stream_en <= 1'b0 ;
-        end
+        if (kick_start)
+            head_start <= 1'b1 ;
     end
 end
+
+// Preload Sram_tok1: one write per posedge (SRAM CLK=~clk, write sampled at negedge)
+task preload_sram_tok1 ;
+    integer idx ;
+    begin
+        tok1_preload <= 1'b0 ;
+        tok1_preload_addr <= 14'd0 ;
+        tok1_preload_din  <= 16'd0 ;
+        @(posedge clk) ;
+        for (idx = 0; idx < TOT_VALS; idx = idx + 1) begin
+            tok1_preload      <= 1'b1 ;
+            tok1_preload_addr <= idx[13:0] ;
+            tok1_preload_din  <= raw_in[idx] ;
+            @(posedge clk) ;
+        end
+        tok1_preload      <= 1'b0 ;
+        tok1_preload_addr <= 14'd0 ;
+        tok1_preload_din  <= 16'd0 ;
+        @(posedge clk) ;
+        $display("[TB] Sram_tok1 preload done (%0d words, token-major)", TOT_VALS);
+    end
+endtask
 
 initial begin
     $fsdbDumpfile("sglatrack_top.fsdb");
@@ -128,7 +126,7 @@ initial begin
     $readmemb({`GOLDEN_ACT, "/backbone_after_norm_backbone_out_bi.txt"}, raw_in    ) ;
     $readmemb({`GOLDEN_ACT, "/box_head_after_cal_bbox_bbox_bi.txt"     }, bbox_gold) ;
 
-    $set_toggle_region("u_head_top");
+    $set_toggle_region("u_dut");
     $toggle_start();
 
     rst_n      = 1'b0 ;
@@ -138,6 +136,8 @@ initial begin
     rst_n = 1'b1 ;
     @(posedge clk) ;
     @(posedge clk) ;
+
+    preload_sram_tok1 ;
 
     kick_start = 1'b1 ;
     @(posedge clk) ;
@@ -169,16 +169,16 @@ initial begin
         $display("\n  [FAIL] bbox differs from golden (+- %0d LSB)", BBOX_TOL_LSB);
 
     $toggle_stop();
-    $toggle_report("sglatrack_top_rtl.saif", 1.0e-9, "u_head_top");
+    $toggle_report("sglatrack_top_rtl.saif", 1.0e-9, "u_dut");
     $finish ;
 end
 
 initial begin
     #(CYCLE * 500_000_000);
-    $display("[TB] TIMEOUT: head_top did not finish (cycle %0d stream_cnt=%0d head_busy=%0d)",
-             cycle_cnt, stream_cnt, head_busy) ;
+    $display("[TB] TIMEOUT: head_top did not finish (cycle %0d head_busy=%0d)",
+             cycle_cnt, head_busy) ;
     $toggle_stop();
-    $toggle_report("sglatrack_top_rtl.saif", 1.0e-9, "u_head_top");
+    $toggle_report("sglatrack_top_rtl.saif", 1.0e-9, "u_dut");
     $finish ;
 end
 

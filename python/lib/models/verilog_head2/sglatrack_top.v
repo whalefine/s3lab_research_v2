@@ -1,13 +1,19 @@
 // =============================================================================
-// sglatrack_top.v -- verilog_head2 wrapper (head-only)
+// sglatrack_top.v -- verilog_head2 wrapper (head-only, Plan B)
 //
+// Plan B: head_top S_FILL reads backbone norm from Sram_tok1 (TB preloads before start).
 // SRAM macros: port mux in head_top; macro pins direct connect (no skew A/CEB/WEB/D)
-// x_buf -> Sram_v, wgt_buf -> Sram_tok1 (frees Sram_tok1 for e2e merge with backbone tok2)
-// Input stream: post-backbone tokens (Q8.8) -> head_top -> bbox (Q8.8)
+//
+//   Sram_v    -> x_buf
+//   Sram_q/k  -> sh1 lo/hi
+//   Sram_tok2 -> sh2
+//   Sram_tok1 -> backbone norm preload (TB) + S_FILL read + conv wgt prefetch
+//   Sram_qkm  -> cal_bbox size/off
+//
+// tok1_preload=1: TB drives Sram_tok1 write (simulation preload only; tie 0 in synthesis).
 //
 // Sources below: `include` dependency order (leaf -> head_top).
 // Paths under memory/ are relative to VCS/Genus compile root (same as TEST_head.v).
-// If also passing verilog_head2/*.v on the command line, guard prevents duplicate modules.
 // =============================================================================
 
 // ---- verilog_head2 RTL (this directory) ----
@@ -32,8 +38,10 @@ module sglatrack_top #(
     input  wire                    start,
     output wire                    busy,
     output wire                    done,
-    input  wire signed [DATA_W-1:0] data_in,
-    input  wire                    data_valid,
+    // TB preload into Sram_tok1 (backbone norm, token-major); sim only
+    input  wire                    tok1_preload,
+    input  wire [13:0]             tok1_preload_addr,
+    input  wire [DATA_W-1:0]       tok1_preload_din,
     output wire [DATA_W-1:0]       cx_o,
     output wire [DATA_W-1:0]       cy_o,
     output wire [DATA_W-1:0]       w_o,
@@ -58,23 +66,34 @@ wire [13:0]       sram_sh1_hi_addr;
 wire [DATA_W-1:0] sram_sh1_hi_din;
 wire [DATA_W-1:0] sram_sh1_hi_q;
 
-wire              sram_sh2_ceb;
-wire              sram_sh2_web;
-wire [13:0]       sram_sh2_addr;
-wire [DATA_W-1:0] sram_sh2_din;
-wire [DATA_W-1:0] sram_sh2_q;
+wire              sram_tok2_ceb;
+wire              sram_tok2_web;
+wire [13:0]       sram_tok2_addr;
+wire [DATA_W-1:0] sram_tok2_din;
+wire [DATA_W-1:0] sram_tok2_q;
 
-wire              sram_wgt_ceb;
-wire              sram_wgt_web;
-wire [13:0]       sram_wgt_addr;
-wire [DATA_W-1:0] sram_wgt_din;
-wire [DATA_W-1:0] sram_wgt_q;
+wire              sram_tok1_ceb_hd;
+wire              sram_tok1_web_hd;
+wire [13:0]       sram_tok1_addr_hd;
+wire [DATA_W-1:0] sram_tok1_din_hd;
+
+wire              sram_tok1_ceb;
+wire              sram_tok1_web;
+wire [13:0]       sram_tok1_addr;
+wire [DATA_W-1:0] sram_tok1_din;
+wire [DATA_W-1:0] sram_tok1_q;
 
 wire              sram_bbox_ceb;
 wire              sram_bbox_web;
 wire [10:0]       sram_bbox_addr;
 wire [DATA_W-1:0] sram_bbox_din;
 wire [DATA_W-1:0] sram_bbox_q;
+
+// TB preload mux on Sram_tok1 (priority over head_top when tok1_preload=1)
+assign sram_tok1_ceb  = tok1_preload ? 1'b0              : sram_tok1_ceb_hd;
+assign sram_tok1_web  = tok1_preload ? 1'b0              : sram_tok1_web_hd;
+assign sram_tok1_addr = tok1_preload ? tok1_preload_addr : sram_tok1_addr_hd;
+assign sram_tok1_din  = tok1_preload ? tok1_preload_din  : sram_tok1_din_hd;
 
 head_top #(
     .IN_CH    (IN_CH   ),
@@ -89,8 +108,6 @@ head_top #(
     .clk     (clk      ),
     .reset   (reset    ),
     .start   (start    ),
-    .a_i     (data_in  ),
-    .a_valid (data_valid),
     .busy    (busy     ),
     .done    (done     ),
     .cx_o    (cx_o     ),
@@ -112,16 +129,16 @@ head_top #(
     .sram_sh1_hi_addr_o(sram_sh1_hi_addr),
     .sram_sh1_hi_din_o (sram_sh1_hi_din),
     .sram_sh1_hi_q_i   (sram_sh1_hi_q),
-    .sram_sh2_ceb_o    (sram_sh2_ceb),
-    .sram_sh2_web_o    (sram_sh2_web),
-    .sram_sh2_addr_o   (sram_sh2_addr),
-    .sram_sh2_din_o    (sram_sh2_din),
-    .sram_sh2_q_i      (sram_sh2_q),
-    .sram_wgt_ceb_o    (sram_wgt_ceb),
-    .sram_wgt_web_o    (sram_wgt_web),
-    .sram_wgt_addr_o   (sram_wgt_addr),
-    .sram_wgt_din_o    (sram_wgt_din),
-    .sram_wgt_q_i      (sram_wgt_q),
+    .sram_tok2_ceb_o   (sram_tok2_ceb),
+    .sram_tok2_web_o   (sram_tok2_web),
+    .sram_tok2_addr_o  (sram_tok2_addr),
+    .sram_tok2_din_o   (sram_tok2_din),
+    .sram_tok2_q_i     (sram_tok2_q),
+    .sram_tok1_ceb_o   (sram_tok1_ceb_hd),
+    .sram_tok1_web_o   (sram_tok1_web_hd),
+    .sram_tok1_addr_o  (sram_tok1_addr_hd),
+    .sram_tok1_din_o   (sram_tok1_din_hd),
+    .sram_tok1_q_i     (sram_tok1_q),
     .sram_bbox_ceb_o   (sram_bbox_ceb),
     .sram_bbox_web_o   (sram_bbox_web),
     .sram_bbox_addr_o  (sram_bbox_addr),
@@ -195,48 +212,48 @@ Sram_k u_sram_sh1_hi (
     .Q     (sram_sh1_hi_q)
 );
 
-Sram_tok2 u_sram_sh2 (
+Sram_tok2 u_sram_tok2 (
     .SLP   (1'b0),
     .DSLP  (1'b0),
     .SD    (1'b0),
     .PUDELAY(),
     .CLK   (~clk),
-    .CEB   (sram_sh2_ceb),
-    .WEB   (sram_sh2_web),
+    .CEB   (sram_tok2_ceb),
+    .WEB   (sram_tok2_web),
     .BIST  (1'b0),
     .CEBM  (),
     .WEBM  (),
-    .A     (sram_sh2_addr),
-    .D     (sram_sh2_din),
+    .A     (sram_tok2_addr),
+    .D     (sram_tok2_din),
     .BWEB  (16'b0),
     .AM    (),
     .DM    (),
     .BWEBM (16'b0),
     .RTSEL (2'b01),
     .WTSEL (2'b00),
-    .Q     (sram_sh2_q)
+    .Q     (sram_tok2_q)
 );
 
-Sram_tok1 u_sram_wgt (
+Sram_tok1 u_sram_tok1 (
     .SLP   (1'b0),
     .DSLP  (1'b0),
     .SD    (1'b0),
     .PUDELAY(),
     .CLK   (~clk),
-    .CEB   (sram_wgt_ceb),
-    .WEB   (sram_wgt_web),
+    .CEB   (sram_tok1_ceb),
+    .WEB   (sram_tok1_web),
     .BIST  (1'b0),
     .CEBM  (),
     .WEBM  (),
-    .A     (sram_wgt_addr),
-    .D     (sram_wgt_din),
+    .A     (sram_tok1_addr),
+    .D     (sram_tok1_din),
     .BWEB  (16'b0),
     .AM    (),
     .DM    (),
     .BWEBM (16'b0),
     .RTSEL (2'b01),
     .WTSEL (2'b00),
-    .Q     (sram_wgt_q)
+    .Q     (sram_tok1_q)
 );
 
 Sram_qkm u_sram_size_off (
