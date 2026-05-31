@@ -8,8 +8,6 @@
 //   vcs TEST.v memory/Sram_tok1.v memory/Sram_tok2.v memory/Sram_q.v \
 //        memory/Sram_k.v memory/Sram_v.v memory/Sram_qkm.v memory/rom_*.v \
 //        +lint=TFIPC-L +define+TSMC_CM_NO_WARNING | tee runvcs.log
-// Debug backbone norm write trace (optional):
-//   +define+DUMP_BB_NORM_WR
 // Do NOT also pass sglatrack_top.v or verilog2/*.v (duplicate module).
 // Compile memory/: Sram_tok1.v Sram_tok2.v Sram_q.v Sram_k.v Sram_v.v Sram_qkm.v (one each)
 //
@@ -91,8 +89,8 @@ localparam BB_ST_NORM = 3'd3;
 
 wire bb_norm_wr = (u_DUT.u_backbone.state == BB_ST_NORM) &&
                   u_DUT.u_backbone.bn_wr_do;
-wire [13:0] bb_wr_flat = u_DUT.u_backbone.sram_tok2_addr_o;
-wire [15:0] bb_wr_din  = u_DUT.u_backbone.sram_tok2_din_o;
+wire [13:0] bb_wr_flat = u_DUT.u_backbone.sram_tok1_addr_o;
+wire [15:0] bb_wr_din  = u_DUT.u_backbone.sram_tok1_din_o;
 
 reg [31:0] bb_wr_cnt;
 reg [31:0] bb_wr_mism;

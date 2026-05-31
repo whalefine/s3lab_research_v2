@@ -1,6 +1,6 @@
 // =============================================================================
 // head_top.v -- verilog2 merged head (conv1 + conv2 + tail + cal_bbox)
-// Plan B: S_FILL reads backbone norm output directly from Sram_tok1 (wgt_buf port),
+// Plan B: S_FILL reads backbone norm output directly from Sram_tok1 (sram_tok1 port),
 //         reorders to NCHW, and writes to Sram_v (x_buf).
 //         a_i / a_valid inputs removed; S_FILL is self-driven (2-phase).
 //
@@ -54,17 +54,17 @@ module head_top #(
     output wire [DATA_W-1:0]       sram_sh1_hi_din_o,
     input  wire [DATA_W-1:0]       sram_sh1_hi_q_i,
 
-    output wire                    sram_sh2_ceb_o,
-    output wire                    sram_sh2_web_o,
-    output wire [13:0]             sram_sh2_addr_o,
-    output wire [DATA_W-1:0]       sram_sh2_din_o,
-    input  wire [DATA_W-1:0]       sram_sh2_q_i,
+    output wire                    sram_tok2_ceb_o,
+    output wire                    sram_tok2_web_o,
+    output wire [13:0]             sram_tok2_addr_o,
+    output wire [DATA_W-1:0]       sram_tok2_din_o,
+    input  wire [DATA_W-1:0]       sram_tok2_q_i,
 
-    output wire                    sram_wgt_ceb_o,
-    output wire                    sram_wgt_web_o,
-    output wire [13:0]             sram_wgt_addr_o,
-    output wire [DATA_W-1:0]       sram_wgt_din_o,
-    input  wire [DATA_W-1:0]       sram_wgt_q_i,
+    output wire                    sram_tok1_ceb_o,
+    output wire                    sram_tok1_web_o,
+    output wire [13:0]             sram_tok1_addr_o,
+    output wire [DATA_W-1:0]       sram_tok1_din_o,
+    input  wire [DATA_W-1:0]       sram_tok1_q_i,
 
     output wire                    sram_bbox_ceb_o,
     output wire                    sram_bbox_web_o,
@@ -237,11 +237,11 @@ wire [SH2_AW-1:0] sh2_wr_addr = c2_wr_idx[SH2_AW-1:0];
 wire [SH2_AW-1:0] sh2_rd_addr = t_x_addr_mac[SH2_AW-1:0];
 wire        sh2_tail_rd_req  = (CS == S_TAIL) && t_busy && !t_mac_phase;
 
-assign sram_sh2_ceb_o  = sh2_ceb;
-assign sram_sh2_web_o  = sh2_web;
-assign sram_sh2_addr_o = sh2_addr;
-assign sram_sh2_din_o  = sh2_din;
-assign sh2_q           = sram_sh2_q_i;
+assign sram_tok2_ceb_o  = sh2_ceb;
+assign sram_tok2_web_o  = sh2_web;
+assign sram_tok2_addr_o = sh2_addr;
+assign sram_tok2_din_o  = sh2_din;
+assign sh2_q           = sram_tok2_q_i;
 
 // wgt_buf SRAM (Sram_tok1; shared conv1/conv2 — S_CONV1 vs S_CONV2 mutually exclusive)
 reg        wgt_ceb;
@@ -260,11 +260,11 @@ wire [WGT_AW-1:0] wgt_rd_addr = c1_wgt_rd_req ? {{4{1'b0}}, c1_wgt_rd_addr} :
                                   {{4{1'b0}}, c2_wgt_rd_addr};
 wire [DATA_W-1:0] wgt_wr_data = c1_wgt_wr_en ? c1_wgt_wr_data : c2_wgt_wr_data;
 
-assign sram_wgt_ceb_o  = wgt_ceb;
-assign sram_wgt_web_o  = wgt_web;
-assign sram_wgt_addr_o = wgt_addr;
-assign sram_wgt_din_o  = wgt_din;
-assign wgt_q           = sram_wgt_q_i;
+assign sram_tok1_ceb_o  = wgt_ceb;
+assign sram_tok1_web_o  = wgt_web;
+assign sram_tok1_addr_o = wgt_addr;
+assign sram_tok1_din_o  = wgt_din;
+assign wgt_q           = sram_tok1_q_i;
 
 wire              tc_sig_v, to_v, ts_sig_v;
 wire [DATA_W-1:0] tc_sig_d, to_d, ts_sig_d;

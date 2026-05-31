@@ -3,7 +3,7 @@
 //
 // Pipeline (matches block_forward in run_backbone_numpy_shared_trunk.py L526-560):
 //   external x_i  -> [S_LOAD_X] x_buf
-//                 -> [S_NORM1]  norm1 -> tok2 (parent); attn QKV 2-phase read tok2
+//                 -> [S_NORM1]  norm1 -> tok1 (parent); attn QKV 2-phase read tok1
 //                 -> [S_ATTN_FEED + S_ATTN_WAIT]
 //                       S_ATTN_WAIT: capture attn into tmp-on-q (Sram_q macro)
 //                 -> [S_RES1]   x_buf    = residual(x_buf, tmp_buf)  // in-place
@@ -47,11 +47,11 @@ module transformer_block #(
     output reg         y_valid,
 
     // 1P SRAM port mux -> macros in sglatrack_top (12288x16; use 10240 entries)
-    output wire        sram_x_ceb_o,
-    output wire        sram_x_web_o,
-    output wire [13:0] sram_x_addr_o,
-    output wire [15:0] sram_x_din_o,
-    input  wire [15:0] sram_x_q_i,
+    output wire        sram_tok2_ceb_o,
+    output wire        sram_tok2_web_o,
+    output wire [13:0] sram_tok2_addr_o,
+    output wire [15:0] sram_tok2_din_o,
+    input  wire [15:0] sram_tok2_q_i,
 
     // norm1 staging on parent Sram_tok1 (NORM1 write; care QKV read)
     output wire        norm1_stg_wr_do,
@@ -91,11 +91,11 @@ parameter LN_RCP   = 65536 / EMBED_DIM;
 parameter TOK_FLAT = N_TOKENS * EMBED_DIM;   // 10240
 
 // ---- Activation SRAM control (macros in sglatrack_top) ----
-reg        sx_ceb;
-reg        sx_web;
-reg [13:0] sx_addr;
-reg [15:0] sx_din;
-wire [15:0] sx_q;
+reg        st2_ceb;
+reg        st2_web;
+reg [13:0] st2_addr;
+reg [15:0] st2_din;
+wire [15:0] st2_q;
 
 reg        tq_ceb;
 reg        tq_web;
@@ -110,11 +110,11 @@ wire [15:0] ca_q_din;
 
 wire tb_q_mux_sel;
 
-assign sram_x_ceb_o   = sx_ceb;
-assign sram_x_web_o   = sx_web;
-assign sram_x_addr_o  = sx_addr;
-assign sram_x_din_o   = sx_din;
-assign sx_q           = sram_x_q_i;
+assign sram_tok2_ceb_o   = st2_ceb;
+assign sram_tok2_web_o   = st2_web;
+assign sram_tok2_addr_o  = st2_addr;
+assign sram_tok2_din_o   = st2_din;
+assign st2_q           = sram_tok2_q_i;
 
 assign tq_q           = sram_q_q_i;
 
@@ -207,7 +207,7 @@ assign tb_q_mux_sel =
 wire in_norm_phase = (state == S_NORM1) || (state == S_NORM2);
 wire [13:0] xbuf_rp_addr = tok_cnt * EMBED_DIM + {9'b0, rp_feat};
 
-wire signed [15:0] xbuf_rp_data = sx_q;
+wire signed [15:0] xbuf_rp_data = st2_q;
 wire               x_norm_use    = x_norm_phase;
 
 wire ln1_xv = rp_stream && in_norm_phase && x_norm_use;
@@ -308,10 +308,10 @@ assign wgt_addr_o =
 
 // ---- SRAM port mux: x_buf; tmp-on-q merged with care q at sram_q_* ----
 always @(*) begin
-    sx_ceb  = 1'b1;
-    sx_web  = 1'b1;
-    sx_addr = 14'd0;
-    sx_din  = 16'd0;
+    st2_ceb  = 1'b1;
+    st2_web  = 1'b1;
+    st2_addr = 14'd0;
+    st2_din  = 16'd0;
 
     tq_ceb  = 1'b1;
     tq_web  = 1'b1;
@@ -320,35 +320,35 @@ always @(*) begin
 
   // x: load write
     if (state == S_LOAD_X && x_valid && (buf_addr < TOK_FLAT[13:0])) begin
-        sx_ceb  = 1'b0;
-        sx_web  = 1'b0;
-        sx_addr = buf_addr;
-        sx_din  = x_i[15:0];
+        st2_ceb  = 1'b0;
+        st2_web  = 1'b0;
+        st2_addr = buf_addr;
+        st2_din  = x_i[15:0];
     end
   // x: norm read (ADDR phase)
     else if (in_norm_phase && rp_stream && (x_norm_phase == 1'b0)) begin
-        sx_ceb  = 1'b0;
-        sx_web  = 1'b1;
-        sx_addr = xbuf_rp_addr;
+        st2_ceb  = 1'b0;
+        st2_web  = 1'b1;
+        st2_addr = xbuf_rp_addr;
     end
   // x: S_RES1 read / write (never same cycle)
     else if (state == S_RES1) begin
         if (res_subphase == 2'd0) begin
-            sx_ceb  = 1'b0;
-            sx_web  = 1'b1;
-            sx_addr = res_rp;
+            st2_ceb  = 1'b0;
+            st2_web  = 1'b1;
+            st2_addr = res_rp;
         end else if ((res_subphase == 2'd2) && res_v_o && (res_wp < TOK_FLAT[13:0])) begin
-            sx_ceb  = 1'b0;
-            sx_web  = 1'b0;
-            sx_addr = res_wp;
-            sx_din  = res_y[15:0];
+            st2_ceb  = 1'b0;
+            st2_web  = 1'b0;
+            st2_addr = res_wp;
+            st2_din  = res_y[15:0];
         end
     end
   // x: S_RES2 read (ADDR phase)
     else if ((state == S_RES2) && (res_subphase == 2'd0) && (res_rp < TOK_FLAT[13:0])) begin
-        sx_ceb  = 1'b0;
-        sx_web  = 1'b1;
-        sx_addr = res_rp;
+        st2_ceb  = 1'b0;
+        st2_web  = 1'b1;
+        st2_addr = res_rp;
     end
 
   // tmp-on-q: norm2 capture write (latched 1 cycle after out_beat_o)
@@ -390,7 +390,7 @@ assign sram_q_web_o  = tb_q_mux_sel ? tq_web  : ca_q_web;
 assign sram_q_addr_o = tb_q_mux_sel ? tq_addr : ca_q_addr;
 assign sram_q_din_o  = tb_q_mux_sel ? tq_din  : ca_q_din;
 
-// norm1 -> tok2; norm2/attn/mlp -> tmp-on-q (layer_norm out_beat_o; see verilog_rule §7.7.3.1)
+// norm1 -> tok1; norm2/attn/mlp -> tmp-on-q (layer_norm out_beat_o; see verilog_rule §7.7.3.1)
 always @(posedge clk) begin
     if (reset) begin
         norm1_stg_wr_flat_lat <= 14'd0;
@@ -550,7 +550,7 @@ always @(posedge clk) begin
                 case (res_subphase)
                     2'd0: res_subphase <= 2'd1;
                     2'd1: begin
-                        res_a  <= sx_q;
+                        res_a  <= st2_q;
                         res_b  <= tq_q;
                         res_v  <= 1'b1;
                         res_subphase <= 2'd2;
@@ -624,7 +624,7 @@ always @(posedge clk) begin
                 case (res_subphase)
                     2'd0: res_subphase <= 2'd1;
                     2'd1: begin
-                        res_a  <= sx_q;
+                        res_a  <= st2_q;
                         res_b  <= tq_q;
                         res_v  <= 1'b1;
                         res_subphase <= 2'd2;

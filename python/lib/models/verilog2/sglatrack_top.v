@@ -132,13 +132,13 @@ assign done = (top_state == TS_DONE);
 // =========================================================================
 // Backbone port wires
 // =========================================================================
+wire              bb_tok1_ceb,  bb_tok1_web;
+wire [13:0]       bb_tok1_addr;
+wire [DATA_W-1:0] bb_tok1_din;
+
 wire              bb_tok2_ceb,  bb_tok2_web;
 wire [13:0]       bb_tok2_addr;
 wire [DATA_W-1:0] bb_tok2_din;
-
-wire              bb_x_ceb,  bb_x_web;
-wire [13:0]       bb_x_addr;
-wire [DATA_W-1:0] bb_x_din;
 
 wire              bb_q_ceb,  bb_q_web;
 wire [13:0]       bb_q_addr;
@@ -171,13 +171,13 @@ wire              hd_sh1hi_ceb,  hd_sh1hi_web;
 wire [13:0]       hd_sh1hi_addr;
 wire [DATA_W-1:0] hd_sh1hi_din;
 
-wire              hd_sh2_ceb,  hd_sh2_web;
-wire [13:0]       hd_sh2_addr;
-wire [DATA_W-1:0] hd_sh2_din;
+wire              hd_tok2_ceb,  hd_tok2_web;
+wire [13:0]       hd_tok2_addr;
+wire [DATA_W-1:0] hd_tok2_din;
 
-wire              hd_wgt_ceb,  hd_wgt_web;
-wire [13:0]       hd_wgt_addr;
-wire [DATA_W-1:0] hd_wgt_din;
+wire              hd_tok1_ceb,  hd_tok1_web;
+wire [13:0]       hd_tok1_addr;
+wire [DATA_W-1:0] hd_tok1_din;
 
 wire              hd_bbox_ceb,  hd_bbox_web;
 wire [10:0]       hd_bbox_addr;
@@ -218,21 +218,21 @@ wire [DATA_W-1:0] m_qkm_q;
 
 // =========================================================================
 // Global MUX: phase_sel = 0 -> backbone, 1 -> head
-//   Backbone mapping:  tok1=tok2, tok2=x, q=q, k=k, v=v, qkm=qkm
-//   Head mapping:      tok1=wgt, tok2=sh2, q=sh1_lo, k=sh1_hi, v=x_buf, qkm=bbox
+//   Backbone mapping:  tok1=inter-block/norm, tok2=x_buf, q=q, k=k, v=v, qkm=qkm
+//   Head mapping:      tok1=S_FILL/wgt, tok2=sh2, q=sh1_lo, k=sh1_hi, v=x_buf, qkm=bbox
 // =========================================================================
 
-// Sram_tok1: backbone tok2 / head wgt_buf (+ S_FILL read)
-assign m_tok1_ceb  = phase_sel ? hd_wgt_ceb      : bb_tok2_ceb;
-assign m_tok1_web  = phase_sel ? hd_wgt_web       : bb_tok2_web;
-assign m_tok1_addr = phase_sel ? hd_wgt_addr      : bb_tok2_addr;
-assign m_tok1_din  = phase_sel ? hd_wgt_din       : bb_tok2_din;
+// Sram_tok1: backbone inter-block/norm / head wgt_buf (+ S_FILL read)
+assign m_tok1_ceb  = phase_sel ? hd_tok1_ceb      : bb_tok1_ceb;
+assign m_tok1_web  = phase_sel ? hd_tok1_web       : bb_tok1_web;
+assign m_tok1_addr = phase_sel ? hd_tok1_addr      : bb_tok1_addr;
+assign m_tok1_din  = phase_sel ? hd_tok1_din       : bb_tok1_din;
 
 // Sram_tok2: backbone x_buf / head sh2
-assign m_tok2_ceb  = phase_sel ? hd_sh2_ceb       : bb_x_ceb;
-assign m_tok2_web  = phase_sel ? hd_sh2_web        : bb_x_web;
-assign m_tok2_addr = phase_sel ? hd_sh2_addr       : bb_x_addr;
-assign m_tok2_din  = phase_sel ? hd_sh2_din        : bb_x_din;
+assign m_tok2_ceb  = phase_sel ? hd_tok2_ceb       : bb_tok2_ceb;
+assign m_tok2_web  = phase_sel ? hd_tok2_web        : bb_tok2_web;
+assign m_tok2_addr = phase_sel ? hd_tok2_addr       : bb_tok2_addr;
+assign m_tok2_din  = phase_sel ? hd_tok2_din        : bb_tok2_din;
 
 // Sram_q: backbone q / head sh1_lo
 assign m_q_ceb     = phase_sel ? hd_sh1lo_ceb     : bb_q_ceb;
@@ -276,16 +276,16 @@ backbone_top #(
     .done           (bb_done),
     .y_o            (),
     .y_valid        (),
-    .sram_tok2_ceb_o    (bb_tok2_ceb),
-    .sram_tok2_web_o    (bb_tok2_web),
-    .sram_tok2_addr_o   (bb_tok2_addr),
-    .sram_tok2_din_o    (bb_tok2_din),
-    .sram_tok2_q_i      (m_tok1_q),
-    .sram_x_ceb_o   (bb_x_ceb),
-    .sram_x_web_o   (bb_x_web),
-    .sram_x_addr_o  (bb_x_addr),
-    .sram_x_din_o   (bb_x_din),
-    .sram_x_q_i     (m_tok2_q),
+    .sram_tok1_ceb_o    (bb_tok1_ceb),
+    .sram_tok1_web_o    (bb_tok1_web),
+    .sram_tok1_addr_o   (bb_tok1_addr),
+    .sram_tok1_din_o    (bb_tok1_din),
+    .sram_tok1_q_i      (m_tok1_q),
+    .sram_tok2_ceb_o   (bb_tok2_ceb),
+    .sram_tok2_web_o   (bb_tok2_web),
+    .sram_tok2_addr_o  (bb_tok2_addr),
+    .sram_tok2_din_o   (bb_tok2_din),
+    .sram_tok2_q_i     (m_tok2_q),
     .sram_q_ceb_o       (bb_q_ceb),
     .sram_q_web_o       (bb_q_web),
     .sram_q_addr_o      (bb_q_addr),
@@ -309,7 +309,7 @@ backbone_top #(
 );
 
 // =========================================================================
-// Head instance (Plan B: no a_i/a_valid; S_FILL reads Sram_tok1 via wgt port)
+// Head instance (Plan B: no a_i/a_valid; S_FILL reads Sram_tok1 via sram_tok1 port)
 // =========================================================================
 head_top #(
     .IN_CH    (EMBED_DIM),
@@ -345,16 +345,16 @@ head_top #(
     .sram_sh1_hi_addr_o(hd_sh1hi_addr),
     .sram_sh1_hi_din_o (hd_sh1hi_din),
     .sram_sh1_hi_q_i   (m_k_q),
-    .sram_sh2_ceb_o    (hd_sh2_ceb),
-    .sram_sh2_web_o    (hd_sh2_web),
-    .sram_sh2_addr_o   (hd_sh2_addr),
-    .sram_sh2_din_o    (hd_sh2_din),
-    .sram_sh2_q_i      (m_tok2_q),
-    .sram_wgt_ceb_o    (hd_wgt_ceb),
-    .sram_wgt_web_o    (hd_wgt_web),
-    .sram_wgt_addr_o   (hd_wgt_addr),
-    .sram_wgt_din_o    (hd_wgt_din),
-    .sram_wgt_q_i      (m_tok1_q),
+    .sram_tok2_ceb_o    (hd_tok2_ceb),
+    .sram_tok2_web_o    (hd_tok2_web),
+    .sram_tok2_addr_o   (hd_tok2_addr),
+    .sram_tok2_din_o    (hd_tok2_din),
+    .sram_tok2_q_i      (m_tok2_q),
+    .sram_tok1_ceb_o    (hd_tok1_ceb),
+    .sram_tok1_web_o    (hd_tok1_web),
+    .sram_tok1_addr_o   (hd_tok1_addr),
+    .sram_tok1_din_o    (hd_tok1_din),
+    .sram_tok1_q_i      (m_tok1_q),
     .sram_bbox_ceb_o   (hd_bbox_ceb),
     .sram_bbox_web_o   (hd_bbox_web),
     .sram_bbox_addr_o  (hd_bbox_addr),
