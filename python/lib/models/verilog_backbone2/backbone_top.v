@@ -518,150 +518,162 @@ always @(*) begin
 end
 
 // ---------------------------------------------------------------------------
-// FSM segment 3: datapath control
+// FSM segment 3: datapath control (split always; reset first; preserve NBA order)
 // ---------------------------------------------------------------------------
-always @(posedge clk) begin
-    done     <= 1'b0;
-    tb_start <= 1'b0;
-    bn_start <= 1'b0;
 
+always @(posedge clk) begin
+    if (reset)
+        done <= 1'b0;
+    else if (state == S_DONE)
+        done <= 1'b1;
+    else
+        done <= 1'b0;
+end
+
+always @(posedge clk) begin
+    if (reset)
+        tb_start <= 1'b0;
+    else begin
+        tb_start <= 1'b0;
+        if ((state == S_RUN_FIXED) && !tb_busy)
+            tb_start <= 1'b1;
+        else if ((state == S_RUN_SELECTED) && !tb_busy)
+            tb_start <= 1'b1;
+    end
+end
+
+// tok_wr_ptr: tb_done reset after tb_y_valid inc (matches old case-after-if order)
+always @(posedge clk) begin
+    if (reset)
+        tok_wr_ptr <= 14'd0;
+    else if (state == S_IDLE)
+        tok_wr_ptr <= 14'd0;
+    else if ((state == S_RUN_FIXED) && tb_done)
+        tok_wr_ptr <= 14'd0;
+    else if ((state == S_RUN_SELECTED) && tb_done)
+        tok_wr_ptr <= 14'd0;
+    else if (tb_y_valid)
+        tok_wr_ptr <= tok_wr_ptr + 14'd1;
+end
+
+// tok_rd_ptr / tok_rp_phase: per-block reset after replay (matches old case-after-if)
+always @(posedge clk) begin
     if (reset) begin
-        block_idx   <= 4'd0;
-        sel_block_r <= 4'd0;
-        tok_wr_ptr  <= 14'd0;
-        tok_rd_ptr  <= 14'd0;
-        tok_replay  <= 1'b0;
-        bn_tok_cnt      <= 9'd0;
-        bn_arm          <= 1'b0;
-        bn_rp_feat      <= 5'd0;
-        bn_rp_stream    <= 1'b0;
+        tok_rd_ptr   <= 14'd0;
+        tok_rp_phase <= 1'b0;
+    end else if (state == S_IDLE) begin
+        tok_rd_ptr   <= 14'd0;
+        tok_rp_phase <= 1'b0;
+    end else if ((state == S_RUN_FIXED) && !tb_busy) begin
+        tok_rd_ptr   <= 14'd0;
+        tok_rp_phase <= 1'b0;
+    end else if ((state == S_RUN_SELECTED) && !tb_busy) begin
+        tok_rd_ptr   <= 14'd0;
+        tok_rp_phase <= 1'b0;
+    end else if (tok_replay && tb_busy && (tok_rd_ptr < N_TOKENS*EMBED_DIM)) begin
+        if (tok_rp_phase == 1'b0)
+            tok_rp_phase <= 1'b1;
+        else begin
+            tok_rd_ptr   <= tok_rd_ptr + 14'd1;
+            tok_rp_phase <= 1'b0;
+        end
+    end else
+        tok_rp_phase <= 1'b0;
+end
+
+always @(posedge clk) begin
+    if (reset) begin
         bn_wr_flat_lat <= 14'd0;
         bn_wr_din_lat  <= 16'd0;
-        bn_wr_do       <= 1'b0;
-        tok_rp_phase    <= 1'b0;
-        bn_s1_phase     <= 1'b0;
-    end else begin
-        // ---- Capture transformer_block output -> tok buffer ----
-        if (tb_y_valid)
-            tok_wr_ptr <= tok_wr_ptr + 14'd1;
-        // 2-phase s1 replay: ADDR then USE (do not bump rd_ptr on ADDR beat)
-        if (tok_replay && tb_busy && (tok_rd_ptr < N_TOKENS*EMBED_DIM)) begin
-            if (tok_rp_phase == 1'b0)
-                tok_rp_phase <= 1'b1;
-            else begin
-                tok_rd_ptr   <= tok_rd_ptr + 14'd1;
-                tok_rp_phase <= 1'b0;
-            end
-        end else
-            tok_rp_phase <= 1'b0;
+    end else if (state == S_BACKBONE_NORM && bn_out_beat) begin
+        bn_wr_flat_lat <= bn_cap_flat;
+        bn_wr_din_lat  <= bn_y_sat;
+    end
+end
 
-        // norm y_sat_o posedge latch -> tok1 in-place (see layer_norm out_beat_o)
-        if (state == S_BACKBONE_NORM && bn_out_beat) begin
-            bn_wr_flat_lat <= bn_cap_flat;
-            bn_wr_din_lat  <= bn_y_sat;
-        end
+always @(posedge clk) begin
+    if (reset)
+        bn_wr_do <= 1'b0;
+    else
         bn_wr_do <= (state == S_BACKBONE_NORM && bn_out_beat);
+end
 
-        // ---- Backbone norm: gated feature stream into u_bn ----
+// u_bn stream + start (stmt order matches original: stream block then case S_BACKBONE_NORM body)
+always @(posedge clk) begin
+    if (reset) begin
+        bn_tok_cnt   <= 9'd0;
+        bn_arm       <= 1'b0;
+        bn_rp_feat   <= 5'd0;
+        bn_rp_stream <= 1'b0;
+        bn_s1_phase  <= 1'b0;
+        bn_start     <= 1'b0;
+    end else if (state == S_IDLE) begin
+        bn_tok_cnt   <= 9'd0;
+        bn_arm       <= 1'b0;
+        bn_rp_feat   <= 5'd0;
+        bn_rp_stream <= 1'b0;
+        bn_s1_phase  <= 1'b0;
+        bn_start     <= 1'b0;
+    end else begin
+        bn_start <= 1'b0;
+
         if (state == S_BACKBONE_NORM) begin
             if (bn_arm && bn_busy) begin
                 bn_rp_stream <= 1'b1;
                 bn_rp_feat   <= 5'd0;
                 bn_arm       <= 1'b0;
-            end
-            if (bn_rp_stream) begin
-                if (bn_s1_phase == 1'b0)
-                    bn_s1_phase <= 1'b1;
-                else begin
-                    bn_s1_phase <= 1'b0;
-                    if (bn_rp_feat == EMBED_DIM - 1) begin
-                        bn_rp_stream <= 1'b0;
-                        bn_rp_feat   <= 5'd0;
-                    end else
-                        bn_rp_feat <= bn_rp_feat + 5'd1;
-                end
-            end
-            else
                 bn_s1_phase <= 1'b0;
-        end
-
-        case (state)
-            // ------------------------------------------------------------
-            S_IDLE: begin
-                block_idx   <= 4'd0;
-                tok_replay  <= 1'b0;
-                tok_wr_ptr  <= 14'd0;
-                tok_rd_ptr  <= 14'd0;
-                bn_tok_cnt      <= 9'd0;
-                bn_arm          <= 1'b0;
-                bn_rp_feat      <= 5'd0;
-                bn_rp_stream    <= 1'b0;
-                tok_rp_phase    <= 1'b0;
-                bn_s1_phase     <= 1'b0;
-                if (start)
-                    sel_block_r <= sel_block_i;
-            end
-
-            // ------------------------------------------------------------
-            // Run fixed blocks 0..START_LAYER sequentially
-            // ------------------------------------------------------------
-            S_RUN_FIXED: begin
-                // Start u_tb for current block when idle
-                if (!tb_busy) begin
-                    tb_start   <= 1'b1;
-                    tok_rd_ptr <= 14'd0;  // reset read for this block's replay
-                    tok_rp_phase <= 1'b0;
-                end
-
-                // When block completes: advance block_idx and enable replay
-                if (tb_done) begin
-                    tok_wr_ptr <= 14'd0;   // reset write for next block
-                    if (block_idx < START_LAYER) begin
-                        block_idx  <= block_idx + 4'd1;
-                        tok_replay <= 1'b1;  // blocks 1+ replay Sram_tok1
+            end else begin
+                if (bn_rp_stream) begin
+                    if (bn_s1_phase == 1'b0)
+                        bn_s1_phase <= 1'b1;
+                    else begin
+                        bn_s1_phase <= 1'b0;
+                        if (bn_rp_feat == EMBED_DIM - 1) begin
+                            bn_rp_stream <= 1'b0;
+                            bn_rp_feat   <= 5'd0;
+                        end else
+                            bn_rp_feat <= bn_rp_feat + 5'd1;
                     end
-                    // if block_idx == START_LAYER: FSM transitions to S_RUN_SELECTED
-                end
-            end
-
-            // ------------------------------------------------------------
-            // Run adaptive selected block
-            // ------------------------------------------------------------
-            S_RUN_SELECTED: begin
-                block_idx <= sel_block_r;
-
-                if (!tb_busy) begin
-                    tb_start   <= 1'b1;
-                    tok_rd_ptr <= 14'd0;
-                    tok_rp_phase <= 1'b0;
-                end
-
-                if (tb_done) begin
-                    tok_wr_ptr <= 14'd0;
-                    // tok_replay stays 1; backbone norm reads Sram_tok1
-                end
-            end
-
-            // ------------------------------------------------------------
-            // Backbone norm: process each token through u_bn
-            // ------------------------------------------------------------
-            S_BACKBONE_NORM: begin
-                if (bn_arm && bn_busy)
+                end else
                     bn_s1_phase <= 1'b0;
-                // Pulse start; arm stream — x_valid only after u_bn busy (see block above)
+
                 if (!bn_busy && !bn_rp_stream && !bn_arm) begin
                     bn_start <= 1'b1;
                     bn_arm   <= 1'b1;
                 end
+            end
+            if (bn_done && (bn_tok_cnt < N_TOKENS - 1))
+                bn_tok_cnt <= bn_tok_cnt + 9'd1;
+        end
+    end
+end
 
-                // Advance token counter after each u_bn completion
-                if (bn_done && (bn_tok_cnt < N_TOKENS - 1))
-                    bn_tok_cnt <= bn_tok_cnt + 9'd1;
+always @(posedge clk) begin
+    if (reset) begin
+        block_idx   <= 4'd0;
+        sel_block_r <= 4'd0;
+        tok_replay  <= 1'b0;
+    end else begin
+        case (state)
+            S_IDLE: begin
+                block_idx  <= 4'd0;
+                tok_replay <= 1'b0;
+                if (start)
+                    sel_block_r <= sel_block_i;
             end
 
-            // ------------------------------------------------------------
-            S_DONE: begin
-                done <= 1'b1;
+            S_RUN_FIXED: begin
+                if (tb_done) begin
+                    if (block_idx < START_LAYER) begin
+                        block_idx  <= block_idx + 4'd1;
+                        tok_replay <= 1'b1;
+                    end
+                end
+            end
+
+            S_RUN_SELECTED: begin
+                block_idx <= sel_block_r;
             end
 
             default: ;
@@ -698,12 +710,11 @@ always @(*) begin
         bt_s1_addr = tok_wr_ptr;
         bt_s1_din  = tb_y;
     end else if ((state == S_RUN_FIXED || state == S_RUN_SELECTED) &&
-                 tok_replay && tb_busy && (tok_rd_ptr < N_TOKENS*EMBED_DIM) &&
-                 (tok_rp_phase == 1'b0)) begin
+                 tok_replay && tb_busy && (tok_rd_ptr < N_TOKENS*EMBED_DIM)) begin
         bt_s1_ceb  = 1'b0;
         bt_s1_web  = 1'b1;
         bt_s1_addr = tok_rd_ptr;
-    end else if (state == S_BACKBONE_NORM && bn_rp_stream && (bn_s1_phase == 1'b0)) begin
+    end else if (state == S_BACKBONE_NORM && bn_rp_stream) begin
         bt_s1_ceb  = 1'b0;
         bt_s1_web  = 1'b1;
         bt_s1_addr = bn_rp_addr;

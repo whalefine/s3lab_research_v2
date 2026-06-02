@@ -135,92 +135,159 @@ always @(*) begin
     endcase
 end
 
+// Datapath control (split always; reset first; preserve NBA priority vs original)
+
 always @(posedge clk) begin
-    done        <= 1'b0;
-    y_valid     <= 1'b0;
-    fc1_start   <= 1'b0;
-    fc2_start   <= 1'b0;
-    fc1_xv      <= 1'b0;
-    fc2_xv      <= 1'b0;
-    norm_rd_en  <= 1'b0;
-    norm_rd_flat<= 14'd0;
+    if (reset)
+        done <= 1'b0;
+    else if (state == S_DONE_ST)
+        done <= 1'b1;
+    else
+        done <= 1'b0;
+end
 
+always @(posedge clk) begin
     if (reset) begin
-        tok_cnt        <= 9'd0;
-        fc1_stream_cnt <= 7'd0;
-        fc2_stream_cnt <= 8'd0;
-        fc1_x_phase    <= 1'b0;
-        fc1_x          <= 16'sd0;
-        fc2_x          <= 16'sd0;
-        y_o            <= 16'sd0;
+        y_o     <= 16'sd0;
+        y_valid <= 1'b0;
     end else begin
-        if (state == S_FC1 && fc1_yv)
-            fc1_buf[fc1_neu] <= fc1_y[15] ? 16'sd0 : fc1_y;
-
+        y_valid <= 1'b0;
         if (state == S_FC2 && fc2_yv) begin
             y_o     <= fc2_y;
             y_valid <= 1'b1;
         end
+    end
+end
 
-        case (state)
-            S_IDLE: begin
-                tok_cnt        <= 9'd0;
-                fc1_stream_cnt <= 7'd0;
-                fc2_stream_cnt <= 8'd0;
+always @(posedge clk) begin
+    if (!reset && state == S_FC1 && fc1_yv)
+        fc1_buf[fc1_neu] <= fc1_y[15] ? 16'sd0 : fc1_y;
+end
+
+always @(posedge clk) begin
+    if (reset)
+        fc1_start <= 1'b0;
+    else begin
+        fc1_start <= 1'b0;
+        if (state == S_FC1 && (fc1_stream_cnt == 7'd0))
+            fc1_start <= 1'b1;
+    end
+end
+
+always @(posedge clk) begin
+    if (reset)
+        fc2_start <= 1'b0;
+    else begin
+        fc2_start <= 1'b0;
+        if (state == S_FC2 && (fc2_stream_cnt == 8'd0))
+            fc2_start <= 1'b1;
+    end
+end
+
+always @(posedge clk) begin
+    if (reset)
+        fc1_xv <= 1'b0;
+    else begin
+        fc1_xv <= 1'b0;
+        if (state == S_FC1 && (fc1_stream_cnt != 7'd0) &&
+            (fc1_stream_cnt <= EMBED_DIM[6:0]) && fc1_x_phase)
+            fc1_xv <= 1'b1;
+    end
+end
+
+always @(posedge clk) begin
+    if (reset)
+        fc2_xv <= 1'b0;
+    else begin
+        fc2_xv <= 1'b0;
+        if (state == S_FC2 && (fc2_stream_cnt != 8'd0) &&
+            (fc2_stream_cnt <= MLP_DIM[7:0]))
+            fc2_xv <= 1'b1;
+    end
+end
+
+always @(posedge clk) begin
+    if (reset) begin
+        norm_rd_en   <= 1'b0;
+        norm_rd_flat <= 14'd0;
+    end else begin
+        norm_rd_en   <= 1'b0;
+        norm_rd_flat <= 14'd0;
+        if (state == S_FC1 && (fc1_stream_cnt != 7'd0) &&
+            (fc1_stream_cnt <= EMBED_DIM[6:0])) begin
+            norm_rd_en   <= 1'b1;
+            norm_rd_flat <= {5'd0, tok_cnt} * EMBED_DIM +
+                            {7'd0, fc1_stream_cnt - 7'd1};
+        end
+    end
+end
+
+// fc1_stream_cnt / fc1_x_phase / fc1_x: fc1_done after stream (same as old parallel if order)
+always @(posedge clk) begin
+    if (reset) begin
+        fc1_stream_cnt <= 7'd0;
+        fc1_x_phase    <= 1'b0;
+        fc1_x          <= 16'sd0;
+    end else if (state == S_IDLE) begin
+        fc1_stream_cnt <= 7'd0;
+        fc1_x_phase    <= 1'b0;
+    end else if (state == S_FC1) begin
+        if (fc1_done) begin
+            fc1_stream_cnt <= 7'd0;
+            fc1_x_phase    <= 1'b0;
+        end else if (fc1_stream_cnt == 7'd0) begin
+            fc1_stream_cnt <= 7'd1;
+            fc1_x_phase    <= 1'b0;
+        end else if (fc1_stream_cnt <= EMBED_DIM[6:0]) begin
+            if (fc1_x_phase == 1'b0)
+                fc1_x_phase <= 1'b1;
+            else begin
+                fc1_x          <= norm_x;
+                fc1_stream_cnt <= fc1_stream_cnt + 7'd1;
                 fc1_x_phase    <= 1'b0;
             end
+        end
+    end else if (state == S_FC2 && fc2_done &&
+                 (tok_cnt != N_TOKENS[8:0] - 9'd1))
+        fc1_stream_cnt <= 7'd0;
+end
 
-            S_FC1: begin
-                if (fc1_stream_cnt == 7'd0) begin
-                    fc1_start      <= 1'b1;
-                    fc1_stream_cnt <= 7'd1;
-                    fc1_x_phase    <= 1'b0;
-                end else if (fc1_stream_cnt <= EMBED_DIM[6:0]) begin
-                    if (fc1_x_phase == 1'b0) begin
-                        norm_rd_en   <= 1'b1;
-                        norm_rd_flat <= {5'd0, tok_cnt} * EMBED_DIM +
-                                        {7'd0, fc1_stream_cnt - 7'd1};
-                        fc1_x_phase  <= 1'b1;
-                    end else begin
-                        fc1_x          <= norm_x;
-                        fc1_xv         <= 1'b1;
-                        fc1_stream_cnt <= fc1_stream_cnt + 7'd1;
-                        fc1_x_phase    <= 1'b0;
-                    end
-                end
+// fc2_stream_cnt: fc1_done (in S_FC1) and fc2_done reset after stream else-if chain
+always @(posedge clk) begin
+    if (reset)
+        fc2_stream_cnt <= 8'd0;
+    else if (state == S_IDLE)
+        fc2_stream_cnt <= 8'd0;
+    else if (state == S_FC1 && fc1_done)
+        fc2_stream_cnt <= 8'd0;
+    else if (state == S_FC2) begin
+        if (fc2_stream_cnt == 8'd0)
+            fc2_stream_cnt <= 8'd1;
+        else if (fc2_stream_cnt <= MLP_DIM[7:0])
+            fc2_stream_cnt <= fc2_stream_cnt + 8'd1;
+        else if (fc2_done)
+            fc2_stream_cnt <= 8'd0;
+    end
+end
 
-                if (fc1_done) begin
-                    fc1_stream_cnt <= 7'd0;
-                    fc2_stream_cnt <= 8'd0;
-                    fc1_x_phase    <= 1'b0;
-                end
-            end
+always @(posedge clk) begin
+    if (reset)
+        fc2_x <= 16'sd0;
+    else if (state == S_FC2 && (fc2_stream_cnt != 8'd0) &&
+             (fc2_stream_cnt <= MLP_DIM[7:0]))
+        fc2_x <= fc1_buf[fc2_stream_cnt - 8'd1];
+end
 
-            S_FC2: begin
-                if (fc2_stream_cnt == 8'd0) begin
-                    fc2_start      <= 1'b1;
-                    fc2_stream_cnt <= 8'd1;
-                end else if (fc2_stream_cnt <= MLP_DIM[7:0]) begin
-                    fc2_x          <= fc1_buf[fc2_stream_cnt - 8'd1];
-                    fc2_xv         <= 1'b1;
-                    fc2_stream_cnt <= fc2_stream_cnt + 8'd1;
-                end
-
-                if (fc2_done) begin
-                    fc2_stream_cnt <= 8'd0;
-                    if (tok_cnt == N_TOKENS[8:0] - 9'd1)
-                        tok_cnt <= 9'd0;
-                    else begin
-                        tok_cnt        <= tok_cnt + 9'd1;
-                        fc1_stream_cnt <= 7'd0;
-                    end
-                end
-            end
-
-            S_DONE_ST: done <= 1'b1;
-
-            default: ;
-        endcase
+always @(posedge clk) begin
+    if (reset)
+        tok_cnt <= 9'd0;
+    else if (state == S_IDLE)
+        tok_cnt <= 9'd0;
+    else if (state == S_FC2 && fc2_done) begin
+        if (tok_cnt == N_TOKENS[8:0] - 9'd1)
+            tok_cnt <= 9'd0;
+        else
+            tok_cnt <= tok_cnt + 9'd1;
     end
 end
 

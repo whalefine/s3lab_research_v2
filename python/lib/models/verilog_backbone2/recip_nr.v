@@ -64,18 +64,11 @@ wire signed [17:0] coeff        = $signed({{2{1'b0}}, 16'sd512}) - $signed({{2{x
 wire signed [33:0] ynew_raw     = $signed({{2{y_reg[15]}}, y_reg}) * $signed(coeff);
 wire signed [15:0] ynew_slice   = ynew_raw[23:8];
 
-// sat16 (numpy: np.clip(y, -32768, 32767)) -- but ynew_slice is already 16-bit
-// signed; the value already fits. Keep explicit sat for safety/clarity.
-function signed [15:0] sat16;
-    input signed [16:0] v;
-    begin
-        if (v > 17'sd32767)        sat16 = 16'sh7FFF;
-        else if (v < -17'sd32768)  sat16 = 16'sh8000;
-        else                        sat16 = v[15:0];
-    end
-endfunction
-
-wire signed [15:0] y_next = sat16({ynew_slice[15], ynew_slice});
+// sat16 (numpy: np.clip(y, -32768, 32767)); wire only (no function)
+wire signed [16:0] y_next_ext = {ynew_slice[15], ynew_slice};
+wire signed [15:0] y_next =
+    (y_next_ext > 17'sd32767) ? 16'sh7FFF :
+    (y_next_ext < -17'sd32768) ? 16'sh8000 : ynew_slice;
 
 // FSM segment 1: state register
 always @(posedge clk) begin
@@ -85,6 +78,7 @@ end
 
 // FSM segment 2: next-state logic
 always @(*) begin
+    next_state = state;
     case (state)
         S_IDLE:  next_state = start ? S_ITER1 : S_IDLE;
         S_ITER1: next_state = S_DONE;

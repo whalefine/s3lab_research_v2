@@ -203,7 +203,7 @@ initial begin
 end
 
 initial begin
-    #(CYCLE * 500_000_000);
+    #(CYCLE * 340_000_000);
     $display("[TB] TIMEOUT: backbone_top did not finish (cycle %0d)", cycle_cnt);
     $toggle_stop();
     $toggle_report("sglatrack_top_rtl.saif", 1.0e-9, "u_DUT");

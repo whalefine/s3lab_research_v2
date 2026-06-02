@@ -1,6 +1,6 @@
 // =============================================================================
 // linear.v
-//
+// -----------------------------------------------------------------------------
 // Q8.8 linear (MAC + sat16). ROM CLK=~clk: addr @ posedge T -> w_i valid @ T+1.
 //
 // Per output neuron (no wgt_buf / S_WPRE):
@@ -9,195 +9,224 @@
 //     latched on the previous posedge (MAC_PREF or MAC_RUN). Decouples MAC from
 //     comb w_i on the same beat as w_addr_o = {neu, k+1} (parent ROM mux path).
 //   w_addr_o during MAC_RUN drives feat = mac_feat+1 for next weight (except
-//   mac_last keeps feat = IN_DIM-1 so last w_i_lat is weight[IN_DIM-1]).
+//     mac_last keeps feat = IN_DIM-1 so last w_i_lat is weight[IN_DIM-1]).
 //   bias_hold latched on first MAC_RUN beat (mac_feat==0).
 //
 // Golden-Weight: via parent w_addr_o decode (QKV / PROJ / FC1 in backbone_top).
+// Saturation via wire only (no function).
 // =============================================================================
 
 module linear #(
     parameter IN_DIM  = 32,
     parameter OUT_DIM = 96
 ) (
-    input  wire        clk,
-    input  wire        reset,
-    input  wire        start,
-
-    input  wire signed [15:0] x_i,
-    input  wire        x_valid,
-
-    input  wire signed [15:0] w_i,
-    input  wire signed [15:0] b_i,
-    output wire [12:0] w_addr_o,
-
-    output wire        busy,
-    output reg         done,
-    output reg  signed [15:0] y_o,
-    output reg         y_valid,
-    output reg  [6:0]  y_neu_o
+    clk,
+    reset,
+    start,
+    x_i,
+    x_valid,
+    w_i,
+    b_i,
+    w_addr_o,
+    busy,
+    done,
+    y_o,
+    y_valid,
+    y_neu_o
 );
 
-parameter S_IDLE = 3'd0;
-parameter S_LOAD = 3'd1;
-parameter S_MAC  = 3'd2;
-parameter S_DONE = 3'd3;
+input                       clk ;
+input                       reset ;
+input                       start ;
+input  signed [15:0]        x_i ;
+input                       x_valid ;
+input  signed [15:0]        w_i ;
+input  signed [15:0]        b_i ;
+output [12:0]               w_addr_o ;
+output                      busy ;
+output reg                  done ;
+output reg signed [15:0]   y_o ;
+output reg                  y_valid ;
+output reg [6:0]            y_neu_o ;
 
-parameter MAC_PREF = 1'b0;
-parameter MAC_RUN  = 1'b1;
+parameter S_IDLE = 3'd0 ;
+parameter S_LOAD = 3'd1 ;
+parameter S_MAC  = 3'd2 ;
+parameter S_DONE = 3'd3 ;
 
-reg signed [15:0] x_buf    [0:IN_DIM-1];
-reg signed [15:0] bias_hold;
+parameter MAC_PREF = 1'b0 ;
+parameter MAC_RUN  = 1'b1 ;
 
-reg [2:0] state, next_state;
-reg [4:0] load_cnt;
-reg [4:0] mac_feat;
-reg [6:0] neu_cnt;
-reg       mac_sub;
+reg signed [15:0]           x_buf [0:IN_DIM-1] ;
+reg signed [15:0]           bias_hold ;
 
-reg signed [31:0] acc;
-reg signed [15:0] w_i_lat;
+reg [2:0]                   state, next_state ;
+reg [4:0]                   load_cnt ;
+reg [4:0]                   mac_feat ;
+reg [6:0]                   neu_cnt ;
+reg                         mac_sub ;
 
-wire [6:0] neu_for_addr = neu_cnt;
+reg signed [31:0]           acc ;
+reg signed [15:0]           w_i_lat ;
 
-wire mac_last = (mac_feat == IN_DIM[4:0] - 5'd1);
+wire [6:0]                  neu_for_addr ;
+wire                        mac_last ;
+wire [4:0]                  feat_for_addr ;
+wire                        bias_latch_ce ;
+wire                        w_i_lat_ce ;
+wire signed [31:0]          mac_prod ;
+wire signed [31:0]          acc_final ;
+wire signed [31:0]          acc_shr8 ;
+wire signed [31:0]          acc_plus_b ;
+wire signed [15:0]          y_next_c ;
 
-// ROM addr: MAC_PREF -> feat 0; MAC_RUN beat k -> feat k+1 (prefetch). On mac_last
-// keep feat IN_DIM-1 (mac_feat+1 would wrap 5-bit 31+1 -> 0).
-wire [4:0] feat_for_addr =
+assign neu_for_addr = neu_cnt ;
+
+assign mac_last = (mac_feat == IN_DIM[4:0] - 5'd1) ;
+
+assign feat_for_addr =
     (state != S_MAC) ? 5'd0 :
     (mac_sub == MAC_PREF) ? 5'd0 :
     mac_last ? (IN_DIM[4:0] - 5'd1) :
-    (mac_feat + 5'd1);
+    (mac_feat + 5'd1) ;
 
-assign w_addr_o = {1'b0, neu_for_addr, feat_for_addr};
+assign w_addr_o = {1'b0, neu_for_addr, feat_for_addr} ;
 
-wire bias_latch_ce =
-    (state == S_MAC) && (mac_sub == MAC_RUN) && (mac_feat == 5'd0);
+assign bias_latch_ce =
+    (state == S_MAC) && (mac_sub == MAC_RUN) && (mac_feat == 5'd0) ;
 
-wire w_i_lat_ce =
-    (state == S_MAC) && ((mac_sub == MAC_PREF) || (mac_sub == MAC_RUN));
+assign w_i_lat_ce =
+    (state == S_MAC) && ((mac_sub == MAC_PREF) || (mac_sub == MAC_RUN)) ;
 
-wire signed [31:0] mac_prod =
+assign mac_prod =
     (state == S_MAC) && (mac_sub == MAC_RUN) ?
-        ($signed(x_buf[mac_feat]) * $signed(w_i_lat)) : 32'sd0;
+        ($signed(x_buf[mac_feat]) * $signed(w_i_lat)) : 32'sd0 ;
 
-wire signed [31:0] acc_final  = acc + mac_prod;
-wire signed [31:0] acc_shr8   = acc_final >>> 8;
-wire signed [31:0] acc_plus_b = acc_shr8 + $signed({{16{bias_hold[15]}}, bias_hold});
+assign acc_final  = acc + mac_prod ;
+assign acc_shr8   = acc_final >>> 8 ;
+assign acc_plus_b = acc_shr8 + $signed({{16{bias_hold[15]}}, bias_hold}) ;
 
-function signed [15:0] sat16_q88;
-    input signed [31:0] v;
-    begin
-        if (v > 32'sd32767)        sat16_q88 = 16'sh7FFF;
-        else if (v < -32'sd32768)  sat16_q88 = 16'sh8000;
-        else                        sat16_q88 = v[15:0];
-    end
-endfunction
+assign y_next_c =
+    (acc_plus_b > 32'sd32767) ? 16'sh7FFF :
+    (acc_plus_b < -32'sh8000) ? 16'sh8000 : acc_plus_b[15:0] ;
 
-wire signed [15:0] y_next_c = sat16_q88(acc_plus_b);
+assign busy = (state != S_IDLE) ;
 
-// FSM segment 1: state register
+// FSM state
 always @(posedge clk) begin
-    if (reset) state <= S_IDLE;
-    else       state <= next_state;
+    if (reset)
+        state <= S_IDLE ;
+    else
+        state <= next_state ;
 end
 
-// FSM segment 2: next-state logic
+// FSM next_state
 always @(*) begin
+    next_state = state ;
     case (state)
-        S_IDLE:  next_state = start ? S_LOAD : S_IDLE;
-        S_LOAD:  next_state = (load_cnt == IN_DIM[4:0] - 5'd1 && x_valid) ? S_MAC : S_LOAD;
+        S_IDLE:  next_state = start ? S_LOAD : S_IDLE ;
+        S_LOAD:  next_state = (load_cnt == IN_DIM[4:0] - 5'd1 && x_valid) ? S_MAC : S_LOAD ;
         S_MAC:   next_state = (mac_sub == MAC_RUN) && mac_last &&
-                              (neu_cnt == OUT_DIM[6:0] - 7'd1) ? S_DONE : S_MAC;
-        S_DONE:  next_state = S_IDLE;
-        default: next_state = S_IDLE;
+                              (neu_cnt == OUT_DIM[6:0] - 7'd1) ? S_DONE : S_MAC ;
+        S_DONE:  next_state = S_IDLE ;
+        default: next_state = S_IDLE ;
     endcase
 end
 
-// FSM segment 3: datapath
+// x_buf load (no array clear on reset in original behavior)
 always @(posedge clk) begin
-    done    <= 1'b0;
-    y_valid <= 1'b0;
-
-    if (state == S_LOAD && x_valid)
-        x_buf[load_cnt] <= x_i;
-
-    if (bias_latch_ce)
-        bias_hold <= b_i;
-
-    if (w_i_lat_ce)
-        w_i_lat <= w_i;
-
     if (reset) begin
-        load_cnt  <= 5'd0;
-        mac_feat  <= 5'd0;
-        neu_cnt   <= 7'd0;
-        mac_sub   <= MAC_PREF;
-        acc       <= 32'sd0;
-        bias_hold <= 16'sd0;
-        w_i_lat   <= 16'sd0;
-        y_o       <= 16'sd0;
-        y_neu_o   <= 7'd0;
+    end else if (state == S_LOAD && x_valid)
+        x_buf[load_cnt] <= x_i ;
+end
+
+always @(posedge clk) begin
+    if (reset)
+        bias_hold <= 16'sd0 ;
+    else if (bias_latch_ce)
+        bias_hold <= b_i ;
+    else if (state == S_IDLE)
+        bias_hold <= 16'sd0 ;
+end
+
+always @(posedge clk) begin
+    if (reset)
+        w_i_lat <= 16'sd0 ;
+    else if (w_i_lat_ce)
+        w_i_lat <= w_i ;
+    else if (state == S_IDLE)
+        w_i_lat <= 16'sd0 ;
+end
+
+// done, y_valid, datapath
+always @(posedge clk) begin
+    if (reset) begin
+        load_cnt  <= 5'd0 ;
+        mac_feat  <= 5'd0 ;
+        neu_cnt   <= 7'd0 ;
+        mac_sub   <= MAC_PREF ;
+        acc       <= 32'sd0 ;
+        y_o       <= 16'sd0 ;
+        y_neu_o   <= 7'd0 ;
     end else begin
+        done    <= 1'b0 ;
+        y_valid <= 1'b0 ;
+
         case (state)
             S_IDLE: begin
-                load_cnt  <= 5'd0;
-                mac_feat  <= 5'd0;
-                neu_cnt   <= 7'd0;
-                mac_sub   <= MAC_PREF;
-                acc       <= 32'sd0;
-                bias_hold <= 16'sd0;
-                w_i_lat   <= 16'sd0;
+                load_cnt  <= 5'd0 ;
+                mac_feat  <= 5'd0 ;
+                neu_cnt   <= 7'd0 ;
+                mac_sub   <= MAC_PREF ;
+                acc       <= 32'sd0 ;
             end
 
             S_LOAD: begin
                 if (x_valid) begin
                     if (load_cnt == IN_DIM[4:0] - 5'd1) begin
-                        load_cnt  <= 5'd0;
-                        mac_feat  <= 5'd0;
-                        neu_cnt   <= 7'd0;
-                        mac_sub   <= MAC_PREF;
-                        acc       <= 32'sd0;
+                        load_cnt  <= 5'd0 ;
+                        mac_feat  <= 5'd0 ;
+                        neu_cnt   <= 7'd0 ;
+                        mac_sub   <= MAC_PREF ;
+                        acc       <= 32'sd0 ;
                     end else begin
-                        load_cnt <= load_cnt + 5'd1;
+                        load_cnt <= load_cnt + 5'd1 ;
                     end
                 end
             end
 
             S_MAC: begin
                 if (mac_sub == MAC_PREF) begin
-                    mac_sub  <= MAC_RUN;
-                    mac_feat <= 5'd0;
-                    acc      <= 32'sd0;
+                    mac_sub  <= MAC_RUN ;
+                    mac_feat <= 5'd0 ;
+                    acc      <= 32'sd0 ;
                 end else begin
                     if (mac_last) begin
-                        y_o     <= y_next_c;
-                        y_neu_o <= neu_cnt;
-                        y_valid <= 1'b1;
+                        y_o     <= y_next_c ;
+                        y_neu_o <= neu_cnt ;
+                        y_valid <= 1'b1 ;
                         if (neu_cnt == OUT_DIM[6:0] - 7'd1) begin
-                            neu_cnt <= 7'd0;
+                            neu_cnt <= 7'd0 ;
                         end else begin
-                            neu_cnt   <= neu_cnt + 7'd1;
-                            mac_sub   <= MAC_PREF;
-                            mac_feat  <= 5'd0;
-                            acc       <= 32'sd0;
+                            neu_cnt  <= neu_cnt + 7'd1 ;
+                            mac_sub  <= MAC_PREF ;
+                            mac_feat <= 5'd0 ;
+                            acc      <= 32'sd0 ;
                         end
                     end else begin
-                        acc      <= acc + mac_prod;
-                        mac_feat <= mac_feat + 5'd1;
+                        acc      <= acc + mac_prod ;
+                        mac_feat <= mac_feat + 5'd1 ;
                     end
                 end
             end
 
             S_DONE: begin
-                done <= 1'b1;
+                done <= 1'b1 ;
             end
 
             default: ;
         endcase
     end
 end
-
-assign busy = (state != S_IDLE);
 
 endmodule

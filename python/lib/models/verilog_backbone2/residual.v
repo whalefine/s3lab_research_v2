@@ -13,8 +13,8 @@
 // element per cycle. The same instance is reused for residual1 (x + attn) and
 // residual2 (res1 + mlp) by muxing the operand sources in transformer_block.v.
 //
-// This module is fully synthesizable Verilog-2005. No latch (output regs cover
-// all cases under sync reset).
+// This module is fully synthesizable Verilog-2005. Saturation via wire only
+// (no function). No latch (output regs cover all cases under sync reset).
 // =============================================================================
 
 module residual #(
@@ -34,18 +34,11 @@ module residual #(
 wire signed [WIDTH:0] sum_w =
     {a_i[WIDTH-1], a_i} + {b_i[WIDTH-1], b_i};
 
-// Saturate (WIDTH+1)-bit signed sum to WIDTH-bit signed.
-function signed [WIDTH-1:0] sat_w;
-    input signed [WIDTH:0] v;
-    begin
-        if (v > $signed({1'b0, {(WIDTH-1){1'b1}}}))
-            sat_w = {1'b0, {(WIDTH-1){1'b1}}};
-        else if (v < $signed({1'b1, {(WIDTH-1){1'b0}}}))
-            sat_w = {1'b1, {(WIDTH-1){1'b0}}};
-        else
-            sat_w = v[WIDTH-1:0];
-    end
-endfunction
+// Saturate (WIDTH+1)-bit signed sum to WIDTH-bit signed (wire only, no function).
+wire signed [WIDTH-1:0] y_sat =
+    (sum_w > $signed({1'b0, {(WIDTH-1){1'b1}}})) ? {1'b0, {(WIDTH-1){1'b1}}} :
+    (sum_w < $signed({1'b1, {(WIDTH-1){1'b0}}})) ? {1'b1, {(WIDTH-1){1'b0}}} :
+    sum_w[WIDTH-1:0];
 
 // 1-cycle output pipeline. Sync reset only.
 always @(posedge clk) begin
@@ -53,7 +46,7 @@ always @(posedge clk) begin
         y_o <= {WIDTH{1'b0}};
         v_o <= 1'b0;
     end else begin
-        y_o <= sat_w(sum_w);
+        y_o <= y_sat;
         v_o <= v_i;
     end
 end
