@@ -48,9 +48,10 @@
 //   S_QK_MEAN        : qk_phase. Same pattern on Sram_q. * 2 = 20480.
 //   S_KV             : kv_phase. Parallel Sram_k + Sram_v read (different macros).
 //                       * 2 = 163840.
-//   S_ATTN           : at_phase. Phase 0 Sram_q read at at_q_flat; phase 1 update
-//                       at_acc, on at_dk == HEAD_DIM-1 also write ao to Sram_v.
-//                       * 2 = 20480.
+//   S_ATTN           : at_phase 4-step (timing-friendly, golden unchanged):
+//                       0 ADDR read Sram_q (+ zr@dk0); 1 MAC at_acc<=acc+term;
+//                       2 DOT latch at_dot_sat from at_acc; 3 AO *zr write Sram_v.
+//                       dk<7: ADDR<->MAC only; dk==7: +DOT+AO. ~2.5*10240+2*10240 cyc.
 //   S_PROJ streaming : pj_sub (4-state: START/USE/ADDR/WAIT). Reads ao via Sram_v
 //                       to feed lin_proj_x; ~2 cycles per beat.
 //   S_QKV x read : qkv_x_phase + norm_rd_* (2-phase read parent tok1 norm1 staging).
@@ -139,6 +140,11 @@ parameter PJ_ADDR  = 2'd1;
 parameter PJ_USE   = 2'd2;
 parameter PJ_WAIT  = 2'd3;
 
+parameter AT_PH_ADDR = 2'd0;
+parameter AT_PH_MAC  = 2'd1;
+parameter AT_PH_DOT  = 2'd2;
+parameter AT_PH_AO   = 2'd3;
+
 input                       clk;
 input                       reset;
 input                       start;
@@ -220,7 +226,8 @@ reg signed [15:0]           sp_k_r;
 reg                         km_phase;
 reg                         qk_phase;
 reg                         kv_phase;
-reg                         at_phase;
+reg [1:0]                   at_phase;
+reg signed [15:0]           at_dot_sat_r;
 reg [1:0]                   pj_sub;
 reg                         qkv_x_phase;
 reg                         zr_phase;
@@ -351,24 +358,24 @@ wire [7:0] at_kv_flat =
   + {5'd0, at_dout_reg};
 wire [10:0] at_zr_idx = ({2'd0, at_h_reg} * N_TOKENS) + {2'd0, at_n_reg};
 wire signed [15:0] at_q_data = s3_q;
+// S_ATTN MAC (phase AT_PH_MAC): one q*kv term into at_acc
 wire signed [31:0] at_term =
     $signed(at_q_data) * $signed(kv_buf[at_kv_flat]);
 wire signed [48:0] at_acc_next =
     (at_dk == 3'd0) ? $signed({{17{at_term[31]}}, at_term})
                     : at_acc + $signed({{17{at_term[31]}}, at_term});
-// fp #1: round dot sum once
-wire signed [48:0] at_dot_shr = (at_acc_next + 49'sd128) >>> 8;
-wire signed [15:0] at_dot_sat =
-    (at_dot_shr > 49'sd32767) ? 16'sh7FFF :
-    (at_dot_shr < -49'sd32768) ? 16'sh8000 : at_dot_shr[15:0];
-// fp #2: rnd_shr8(dot_sat * zr[h*N + n])
-wire signed [15:0] at_zr_data = at_zr_r;
-wire signed [31:0] at_zprod = $signed(at_dot_sat) * $signed(at_zr_data);
-wire signed [31:0] at_zprod_rnd_t = at_zprod + 32'sd128;
-wire signed [31:0] at_zprod_shr   = at_zprod_rnd_t >>> 8;
-wire signed [15:0] at_ao_val =
-    (at_zprod_shr > 32'sd32767) ? 16'sh7FFF :
-    (at_zprod_shr < -32'sd32768) ? 16'sh8000 : at_zprod_shr[15:0];
+// S_ATTN POST (phases AT_PH_DOT / AT_PH_AO): sequential from latched at_acc / at_dot_sat_r
+// maps _care_attn_q88: dot_sat = sat16_from49((acc+128)>>8); ao = rnd_shr8(dot_sat*zr)
+wire signed [48:0] at_dot_shr_from_acc = (at_acc + 49'sd128) >>> 8;
+wire signed [15:0] at_dot_sat_next =
+    (at_dot_shr_from_acc > 49'sd32767) ? 16'sh7FFF :
+    (at_dot_shr_from_acc < -49'sd32768) ? 16'sh8000 : at_dot_shr_from_acc[15:0];
+wire signed [31:0] at_zprod_raw = $signed(at_dot_sat_r) * $signed(at_zr_r);
+wire signed [31:0] at_zprod_rnd   = at_zprod_raw + 32'sd128;
+wire signed [31:0] at_zprod_shr_w = at_zprod_rnd >>> 8;
+wire signed [15:0] at_ao_sat_comb =
+    (at_zprod_shr_w > 32'sd32767) ? 16'sh7FFF :
+    (at_zprod_shr_w < -32'sd32768) ? 16'sh8000 : at_zprod_shr_w[15:0];
 // destination flat in ao_buf
 wire [13:0] at_ao_flat =
     ({5'd0, at_n_reg}) * EMBED_DIM
@@ -507,7 +514,7 @@ always @(*) begin
         S_QK_MEAN: next_state = (qk_oidx == QKM_ELEMS[10:0] - 11'd1 && qk_d == HEAD_DIM[2:0] - 3'd1 && qk_phase == 1'b1) ? S_Z_RECIP : S_QK_MEAN;
         S_Z_RECIP: next_state = (recip_done && zr_idx == QKM_ELEMS[10:0] - 11'd1) ? S_KV : S_Z_RECIP;
         S_KV:      next_state = (kv_oidx == KV_ELEMS[7:0] - 8'd1 && kv_n == N_TOKENS[8:0] - 9'd1 && kv_phase == 1'b1) ? S_ATTN : S_KV;
-        S_ATTN:    next_state = (at_oidx == HD_ELEMS[13:0] - 14'd1 && at_dk == HEAD_DIM[2:0] - 3'd1 && at_phase == 1'b1) ? S_PROJ : S_ATTN;
+        S_ATTN:    next_state = (at_oidx == HD_ELEMS[13:0] - 14'd1 && at_dk == HEAD_DIM[2:0] - 3'd1 && at_phase == AT_PH_AO) ? S_PROJ : S_ATTN;
         S_PROJ:    next_state = (lin_proj_done && px_tok == N_TOKENS[8:0] - 9'd1) ? S_DONE_ST : S_PROJ;
         S_DONE_ST: next_state = S_IDLE;
         default:   next_state = S_IDLE;
@@ -537,8 +544,16 @@ end
 always @(posedge clk) begin
     if (reset)
         at_zr_r <= 16'sd0;
-    else if (state == S_ATTN && at_phase == 1'b0 && at_dk == 3'd0)
+    else if (state == S_ATTN && at_phase == AT_PH_ADDR && at_dk == 3'd0)
         at_zr_r <= s6_q;
+end
+
+// S_ATTN POST: latch dot_sat after MAC completes (at_acc holds full dot)
+always @(posedge clk) begin
+    if (reset)
+        at_dot_sat_r <= 16'sd0;
+    else if (state == S_ATTN && at_phase == AT_PH_DOT)
+        at_dot_sat_r <= at_dot_sat_next;
 end
 
 // done, y_valid, sub-block starts, 2-phase datapath
@@ -579,7 +594,8 @@ always @(posedge clk) begin
         at_dout_reg     <= 3'd0;
         at_dk           <= 3'd0;
         at_acc          <= 49'sd0;
-        at_phase        <= 1'b0;
+        at_phase        <= AT_PH_ADDR;
+        at_dot_sat_r    <= 16'sd0;
         px_tok          <= 9'd0;
         proj_stream_cnt <= 6'd0;
         pj_sub          <= PJ_START;
@@ -612,7 +628,8 @@ always @(posedge clk) begin
                 at_n_reg        <= 9'd0;
                 at_dout_reg     <= 3'd0;
                 at_dk           <= 3'd0;
-                at_phase        <= 1'b0;
+                at_phase        <= AT_PH_ADDR;
+                at_dot_sat_r    <= 16'sd0;
                 px_tok          <= 9'd0;
                 proj_stream_cnt <= 6'd0;
                 pj_sub          <= PJ_START;
@@ -806,47 +823,49 @@ always @(posedge clk) begin
                     at_dout_reg <= 3'd0;
                     at_dk       <= 3'd0;
                     at_acc      <= 49'sd0;
-                    at_phase    <= 1'b0;
+                    at_phase    <= AT_PH_ADDR;
                 end
             end
 
             // -----------------------------------------------------------
-            // S_ATTN: 2-phase read of q (Sram_q). On phase 1 with at_dk ==
-            // HEAD_DIM-1, also write ao to Sram_v at at_ao_flat (cross-SRAM,
-            // no R+W conflict on either macro since q-read and ao-write target
-            // different macros).
-            // Phase 1: write attention output ao to Sram_v (mux).
+            // S_ATTN: 4-phase (ADDR/MAC/DOT/AO). MAC only updates at_acc; ao write
+            // on AT_PH_AO uses at_dot_sat_r + at_zr_r (shorter comb than old 1-beat).
             // -----------------------------------------------------------
             S_ATTN: begin
-                if (at_phase == 1'b0) begin
-                    at_phase <= 1'b1;
-                end else begin
+                if (at_phase == AT_PH_ADDR) begin
+                    at_phase <= AT_PH_MAC;
+                end else if (at_phase == AT_PH_MAC) begin
                     at_acc <= at_acc_next;
-                    if (at_dk == HEAD_DIM[2:0] - 3'd1) begin
-                        at_dk <= 3'd0;
-                        if (at_oidx == HD_ELEMS[13:0] - 14'd1) begin
-                            at_oidx     <= 14'd0;
-                            at_h_reg    <= 2'd0;
-                            at_n_reg    <= 9'd0;
-                            at_dout_reg <= 3'd0;
-                        end else begin
-                            at_oidx <= at_oidx + 14'd1;
-                            if (at_dout_reg == HEAD_DIM[2:0] - 3'd1) begin
-                                at_dout_reg <= 3'd0;
-                                if (at_n_reg == N_TOKENS[8:0] - 9'd1) begin
-                                    at_n_reg <= 9'd0;
-                                    at_h_reg <= at_h_reg + 2'd1;
-                                end else begin
-                                    at_n_reg <= at_n_reg + 9'd1;
-                                end
-                            end else begin
-                                at_dout_reg <= at_dout_reg + 3'd1;
-                            end
-                        end
-                    end else begin
-                        at_dk <= at_dk + 3'd1;
+                    if (at_dk == HEAD_DIM[2:0] - 3'd1)
+                        at_phase <= AT_PH_DOT;
+                    else begin
+                        at_dk    <= at_dk + 3'd1;
+                        at_phase <= AT_PH_ADDR;
                     end
-                    at_phase <= 1'b0;
+                end else if (at_phase == AT_PH_DOT) begin
+                    at_phase <= AT_PH_AO;
+                end else begin
+                    at_dk <= 3'd0;
+                    if (at_oidx == HD_ELEMS[13:0] - 14'd1) begin
+                        at_oidx     <= 14'd0;
+                        at_h_reg    <= 2'd0;
+                        at_n_reg    <= 9'd0;
+                        at_dout_reg <= 3'd0;
+                    end else begin
+                        at_oidx <= at_oidx + 14'd1;
+                        if (at_dout_reg == HEAD_DIM[2:0] - 3'd1) begin
+                            at_dout_reg <= 3'd0;
+                            if (at_n_reg == N_TOKENS[8:0] - 9'd1) begin
+                                at_n_reg <= 9'd0;
+                                at_h_reg <= at_h_reg + 2'd1;
+                            end else begin
+                                at_n_reg <= at_n_reg + 9'd1;
+                            end
+                        end else begin
+                            at_dout_reg <= at_dout_reg + 3'd1;
+                        end
+                    end
+                    at_phase <= AT_PH_ADDR;
                 end
                 if (next_state == S_PROJ) begin
                     px_tok          <= 9'd0;
@@ -1010,16 +1029,16 @@ always @(*) begin
             s3_ceb  = 1'b0;
             s3_web  = 1'b1;
             s3_addr = at_q_flat;
-            if ((at_phase == 1'b0) && (at_dk == 3'd0)) begin
+            if ((at_phase == AT_PH_ADDR) && (at_dk == 3'd0)) begin
                 s6_ceb  = 1'b0;
                 s6_web  = 1'b1;
                 s6_addr = at_zr_idx;
             end
-            if (at_phase == 1'b1 && at_dk == HEAD_DIM[2:0] - 3'd1) begin
+            if (at_phase == AT_PH_AO) begin
                 s5_ceb  = 1'b0;
                 s5_web  = 1'b0;
                 s5_addr = at_ao_flat;
-                s5_din  = at_ao_val;
+                s5_din  = at_ao_sat_comb;
             end
         end
 
