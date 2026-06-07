@@ -1,12 +1,13 @@
 // =============================================================================
 // vec_mac8.v
 //
-// 8-lane Q8.8 MAC engine for backbone3 linear layers.
-// Reference: verilog_head3/conv.v (OC_PAR=8 WPRE + 1-phase MAC pipeline).
+// 8-lane Q8.8 MAC engine for backbone3 linear layers (Option A: stream ROM).
+// Reference: verilog_backbone2/linear.v MAC_PREF + MAC_RUN (no full WPRE buffer).
 //
 // One session computes OUT_DIM lanes starting at neu_base_i:
-//   S_WPRE : 2-phase ROM prefetch -> wgt_buf[0:7][0:IN_DIM-1], bias_r[0:7]
-//   S_MAC  : mac_fill + IN_DIM accumulate beats (shared x_i, 8 parallel MACs)
+//   S_BIAS : 2-phase ROM prefetch -> bias_r[0:7]
+//   S_RUN  : per feat, 8 lanes x 2-phase weight ROM -> acc[lane] += x_i * w_i
+//            (fused fetch+MAC; no wgt_buf, no separate MAC pass over buffer)
 //
 // Weight flat addr (parent ROM mux): w_addr = (neu_base + lane) * IN_DIM + feat
 // Bias addr: b_addr = neu_base + lane
@@ -64,8 +65,8 @@ module vec_mac8 #(
 );
 
 parameter S_IDLE = 2'd0;
-parameter S_WPRE = 2'd1;
-parameter S_MAC  = 2'd2;
+parameter S_BIAS = 2'd1;
+parameter S_RUN  = 2'd2;
 
 localparam [IN_DIM_AW-1:0] FEAT_LAST = IN_DIM - 1;
 
@@ -77,15 +78,12 @@ reg [1:0]                   next_state;
 reg [NEU_AW-1:0]            neu_base_r;
 reg [NEU_AW-1:0]            out_dim_r;
 
-reg                         wpre_phase;
-reg [IN_DIM_AW-1:0]         wpre_feat;
-reg [3:0]                   wpre_lane;
-reg                         wpre_done;
 reg                         bpre_phase;
 reg [3:0]                   bpre_lane;
 reg                         bpre_done;
 
-reg                         mac_fill;
+reg                         w_phase;
+reg [3:0]                   w_lane;
 reg [IN_DIM_AW-1:0]         mac_feat;
 reg                         mac_done_r;
 
@@ -93,53 +91,49 @@ reg [W_ADDR_W-1:0]          w_addr_r;
 reg [B_ADDR_W-1:0]          b_addr_r;
 
 reg signed [DATA_W-1:0]     bias_r [0:LANES-1];
-reg signed [DATA_W-1:0]     wgt_buf [0:LANES-1][0:IN_DIM-1];
 reg signed [ACC_W-1:0]      acc_r [0:LANES-1];
 reg signed [ACC_W-1:0]      acc_sat_r [0:LANES-1];
 
-wire                        mac_feat_last;
-wire signed [DATA_W-1:0]    mac_x_op;
+wire                        feat_last;
+wire                        lane_last;
 wire [LANES-1:0]            lane_valid_w;
 
-reg signed [DATA_W-1:0]     mac_w_op [0:LANES-1];
-reg signed [2*DATA_W-1:0]   mac_prod [0:LANES-1];
-reg signed [ACC_W-1:0]      acc_next [0:LANES-1];
+wire signed [DATA_W-1:0]    mac_x_op;
+reg signed [2*DATA_W-1:0]   mac_prod;
+reg signed [ACC_W-1:0]      acc_next;
 
 wire                        cs_en;
-wire                        wpre_clr;
-wire                        wpre_w_rom_a0;
-wire                        wpre_w_rom_a1_last;
-wire                        wpre_w_rom_a1_more;
-wire                        wpre_w_rom_a1_lane;
+wire                        run_arm;
 wire                        bpre_rom_a0;
 wire                        bpre_rom_a1_last;
 wire                        bpre_rom_a1_more;
-wire                        mac_wpre_arm;
-wire                        mac_fill_rd;
-wire                        mac_accum_last;
-wire                        mac_accum_more;
+wire                        w_rom_a0;
+wire                        w_rom_a1;
+wire                        w_rom_a1_lane_more;
+wire                        w_rom_a1_feat_done;
 
-wire [NEU_AW-1:0]           wpre_neu_idx;
-wire [W_ADDR_W-1:0]         wpre_w_addr_calc;
+wire [NEU_AW-1:0]           w_neu_idx;
+wire [W_ADDR_W-1:0]         w_addr_calc;
 
 assign busy          = (state != S_IDLE);
 assign w_addr_o      = w_addr_r;
 assign b_addr_o      = b_addr_r;
 assign mac_feat_o    = mac_feat;
-assign mac_active_o  = (state == S_MAC) && !mac_done_r;
-assign x_consume_o   = (state == S_MAC) && !mac_done_r && !mac_fill;
+assign mac_active_o  = (state == S_RUN) && !mac_done_r;
+assign x_consume_o   = w_rom_a1_feat_done;
 
-assign mac_feat_last = (mac_feat == FEAT_LAST);
+assign feat_last = (mac_feat == FEAT_LAST);
+assign lane_last = (w_lane == LANES - 1);
 
 assign cs_en = 1'b1;
 
-assign wpre_neu_idx    = neu_base_r + {{(NEU_AW-4){1'b0}}, wpre_lane};
-assign wpre_w_addr_calc = wpre_neu_idx * IN_DIM + {{(W_ADDR_W-IN_DIM_AW){1'b0}}, wpre_feat};
+assign w_neu_idx   = neu_base_r + {{(NEU_AW-4){1'b0}}, w_lane};
+assign w_addr_calc = w_neu_idx * IN_DIM + {{(W_ADDR_W-IN_DIM_AW){1'b0}}, mac_feat};
 
 generate
     genvar gi;
     for (gi = 0; gi < LANES; gi = gi + 1) begin : gen_lane_valid
-        assign lane_valid_w[gi] = (neu_base_r + gi[NEU_AW-1:0] < out_dim_r);
+        assign lane_valid_w[gi] = (({1'b0, neu_base_r} + gi) < {1'b0, out_dim_r});
     end
 endgenerate
 
@@ -179,13 +173,13 @@ always @(*) begin
     case (state)
         S_IDLE: begin
             if (start)
-                next_state = S_WPRE;
+                next_state = S_BIAS;
         end
-        S_WPRE: begin
-            if (wpre_done && bpre_done)
-                next_state = S_MAC;
+        S_BIAS: begin
+            if (bpre_done)
+                next_state = S_RUN;
         end
-        S_MAC: begin
+        S_RUN: begin
             if (mac_done_r)
                 next_state = S_IDLE;
         end
@@ -209,71 +203,40 @@ always @(posedge clk) begin
     if (reset)
         mac_done <= 1'b0;
     else
-        mac_done <= (state == S_MAC) && mac_done_r;
+        mac_done <= (state == S_RUN) && mac_done_r;
 end
 
-assign wpre_clr = cs_en && (state == S_IDLE);
+assign run_arm = cs_en && (state == S_BIAS) && bpre_rom_a1_last;
 
-assign wpre_w_rom_a0 = cs_en && (state == S_WPRE) && !wpre_done && (wpre_phase == 1'b0);
+assign bpre_rom_a0 = cs_en && (state == S_BIAS) && !bpre_done && (bpre_phase == 1'b0);
 
-assign wpre_w_rom_a1_last = cs_en && (state == S_WPRE) && !wpre_done && (wpre_phase == 1'b1) &&
-                            (wpre_lane == LANES - 1) &&
-                            (wpre_feat == FEAT_LAST);
-
-assign wpre_w_rom_a1_more = cs_en && (state == S_WPRE) && !wpre_done && (wpre_phase == 1'b1) &&
-                            (wpre_lane == LANES - 1) &&
-                            (wpre_feat != FEAT_LAST);
-
-assign wpre_w_rom_a1_lane = cs_en && (state == S_WPRE) && !wpre_done && (wpre_phase == 1'b1) &&
-                            (wpre_lane != LANES - 1);
-
-assign bpre_rom_a0 = cs_en && (state == S_WPRE) && wpre_done && !bpre_done && (bpre_phase == 1'b0);
-
-assign bpre_rom_a1_last = cs_en && (state == S_WPRE) && wpre_done && !bpre_done &&
+assign bpre_rom_a1_last = cs_en && (state == S_BIAS) && !bpre_done &&
                           (bpre_phase == 1'b1) && (bpre_lane == LANES - 1);
 
-assign bpre_rom_a1_more = cs_en && (state == S_WPRE) && wpre_done && !bpre_done &&
+assign bpre_rom_a1_more = cs_en && (state == S_BIAS) && !bpre_done &&
                           (bpre_phase == 1'b1) && (bpre_lane != LANES - 1);
 
-// WPRE: weight/bias prefetch (2-phase ROM)
+assign w_rom_a0 = cs_en && (state == S_RUN) && !mac_done_r && (w_phase == 1'b0);
+
+assign w_rom_a1 = cs_en && (state == S_RUN) && !mac_done_r && (w_phase == 1'b1);
+
+assign w_rom_a1_lane_more = w_rom_a1 && !lane_last;
+
+assign w_rom_a1_feat_done = w_rom_a1 && lane_last && !feat_last;
+
+// BIAS: 2-phase ROM prefetch (8 lanes)
 always @(posedge clk) begin
     if (reset) begin
-        wpre_phase <= 1'b0;
-        wpre_feat  <= {IN_DIM_AW{1'b0}};
-        wpre_lane  <= 4'd0;
-        wpre_done  <= 1'b0;
         bpre_phase <= 1'b0;
         bpre_lane  <= 4'd0;
         bpre_done  <= 1'b0;
-        w_addr_r   <= {W_ADDR_W{1'b0}};
         b_addr_r   <= {B_ADDR_W{1'b0}};
         for (i_lane = 0; i_lane < LANES; i_lane = i_lane + 1)
             bias_r[i_lane] <= {DATA_W{1'b0}};
-    end else if (wpre_clr) begin
-        wpre_phase <= 1'b0;
-        wpre_feat  <= {IN_DIM_AW{1'b0}};
-        wpre_lane  <= 4'd0;
-        wpre_done  <= 1'b0;
+    end else if (state == S_IDLE) begin
         bpre_phase <= 1'b0;
         bpre_lane  <= 4'd0;
         bpre_done  <= 1'b0;
-    end else if (wpre_w_rom_a0) begin
-        w_addr_r   <= wpre_w_addr_calc;
-        wpre_phase <= 1'b1;
-    end else if (wpre_w_rom_a1_last) begin
-        wgt_buf[wpre_lane][wpre_feat] <= w_i;
-        wpre_lane  <= 4'd0;
-        wpre_done  <= 1'b1;
-        wpre_phase <= 1'b0;
-    end else if (wpre_w_rom_a1_more) begin
-        wgt_buf[wpre_lane][wpre_feat] <= w_i;
-        wpre_lane  <= 4'd0;
-        wpre_feat  <= wpre_feat + {{(IN_DIM_AW-1){1'b0}}, 1'b1};
-        wpre_phase <= 1'b0;
-    end else if (wpre_w_rom_a1_lane) begin
-        wgt_buf[wpre_lane][wpre_feat] <= w_i;
-        wpre_lane  <= wpre_lane + 4'd1;
-        wpre_phase <= 1'b0;
     end else if (bpre_rom_a0) begin
         b_addr_r   <= neu_base_r[B_ADDR_W-1:0] + {{(B_ADDR_W-4){1'b0}}, bpre_lane};
         bpre_phase <= 1'b1;
@@ -288,75 +251,75 @@ always @(posedge clk) begin
     end
 end
 
-assign mac_wpre_arm   = cs_en && (state == S_WPRE) && wpre_done && bpre_done;
-assign mac_fill_rd    = cs_en && (state == S_MAC) && !mac_done_r && mac_fill;
-assign mac_accum_last = cs_en && (state == S_MAC) && !mac_done_r && !mac_fill && mac_feat_last;
-assign mac_accum_more = cs_en && (state == S_MAC) && !mac_done_r && !mac_fill && !mac_feat_last;
-
-// MAC: 1-phase pipeline (mac_fill + IN_DIM accumulate beats)
+// RUN: fused 2-phase weight ROM + per-lane accumulate
 always @(posedge clk) begin
     if (reset) begin
-        mac_fill   <= 1'b1;
+        w_phase    <= 1'b0;
+        w_lane     <= 4'd0;
         mac_feat   <= {IN_DIM_AW{1'b0}};
         mac_done_r <= 1'b0;
-    end else if (mac_wpre_arm) begin
-        mac_fill   <= 1'b1;
+        w_addr_r   <= {W_ADDR_W{1'b0}};
+    end else if (run_arm) begin
+        w_phase    <= 1'b0;
+        w_lane     <= 4'd0;
         mac_feat   <= {IN_DIM_AW{1'b0}};
         mac_done_r <= 1'b0;
-    end else if (mac_fill_rd) begin
-        mac_fill <= 1'b0;
-    end else if (mac_accum_last) begin
-        mac_done_r <= 1'b1;
-    end else if (mac_accum_more) begin
+        w_addr_r   <= {W_ADDR_W{1'b0}};
+    end else if (w_rom_a0) begin
+        w_addr_r <= w_addr_calc;
+        w_phase  <= 1'b1;
+    end else if (w_rom_a1_lane_more) begin
+        w_phase <= 1'b0;
+        w_lane  <= w_lane + 4'd1;
+    end else if (w_rom_a1 && lane_last && !feat_last) begin
+        w_phase  <= 1'b0;
+        w_lane   <= 4'd0;
         mac_feat <= mac_feat + {{(IN_DIM_AW-1){1'b0}}, 1'b1};
+    end else if (w_rom_a1 && lane_last && feat_last) begin
+        mac_done_r <= 1'b1;
     end else if (state == S_IDLE) begin
-        mac_fill   <= 1'b1;
+        w_phase    <= 1'b0;
+        w_lane     <= 4'd0;
         mac_feat   <= {IN_DIM_AW{1'b0}};
         mac_done_r <= 1'b0;
     end
 end
 
-// MAC: per-lane accumulator update
+// acc_r / acc_sat_r
 always @(posedge clk) begin
     if (reset) begin
         for (i_lane = 0; i_lane < LANES; i_lane = i_lane + 1) begin
             acc_r[i_lane]     <= {ACC_W{1'b0}};
             acc_sat_r[i_lane] <= {ACC_W{1'b0}};
         end
-    end else if (mac_wpre_arm) begin
-        for (i_lane = 0; i_lane < LANES; i_lane = i_lane + 1)
-            acc_r[i_lane] <= {ACC_W{1'b0}};
-    end else if (mac_accum_last) begin
-        for (i_lane = 0; i_lane < LANES; i_lane = i_lane + 1) begin
-            if (lane_valid_w[i_lane])
-                acc_r[i_lane] <= acc_next[i_lane];
-            if (lane_valid_w[i_lane])
-                acc_sat_r[i_lane] <= acc_next[i_lane];
-        end
-    end else if (mac_accum_more) begin
-        for (i_lane = 0; i_lane < LANES; i_lane = i_lane + 1) begin
-            if (lane_valid_w[i_lane])
-                acc_r[i_lane] <= acc_next[i_lane];
-        end
-    end else if (state == S_IDLE) begin
+    end else if (run_arm) begin
         for (i_lane = 0; i_lane < LANES; i_lane = i_lane + 1) begin
             acc_r[i_lane]     <= {ACC_W{1'b0}};
             acc_sat_r[i_lane] <= {ACC_W{1'b0}};
         end
+    end else begin
+        if (w_rom_a1 && lane_valid_w[w_lane])
+            acc_r[w_lane] <= acc_next;
+        if (w_rom_a1 && lane_last && feat_last) begin
+            for (i_lane = 0; i_lane < LANES; i_lane = i_lane + 1) begin
+                if (lane_valid_w[i_lane]) begin
+                    if (i_lane == w_lane)
+                        acc_sat_r[i_lane] <= acc_next;
+                    else
+                        acc_sat_r[i_lane] <= acc_r[i_lane];
+                end
+            end
+        end
     end
 end
 
-// MAC: 8-lane combinational multiply-accumulate
+// Combinational MAC for current lane (weight latched via ROM 2-phase on w_rom_a1)
 always @(*) begin
-    for (i_lane = 0; i_lane < LANES; i_lane = i_lane + 1) begin
-        mac_w_op[i_lane] = wgt_buf[i_lane][mac_feat];
-        if ((state == S_MAC) && !mac_done_r && !mac_fill && lane_valid_w[i_lane]) begin
-            mac_prod[i_lane] = mac_x_op * mac_w_op[i_lane];
-            acc_next[i_lane] = acc_r[i_lane] + mac_prod[i_lane];
-        end else begin
-            mac_prod[i_lane] = {2*DATA_W{1'b0}};
-            acc_next[i_lane] = acc_r[i_lane];
-        end
+    mac_prod = {2*DATA_W{1'b0}};
+    acc_next = acc_r[w_lane];
+    if (w_rom_a1 && lane_valid_w[w_lane]) begin
+        mac_prod = mac_x_op * w_i;
+        acc_next = acc_r[w_lane] + mac_prod;
     end
 end
 
