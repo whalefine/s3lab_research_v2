@@ -1,21 +1,14 @@
 `timescale 1ns/10ps
 
-`include "common/vec_mac8.v"
-`include "linear_vec8.v"
 `include "recip_lut_seed.v"
 `include "recip_nr.v"
-`include "care_attention/attn_qkv.v"
-`include "care_attention/attn_preprocess.v"
-`include "care_attention/attn_z_recip.v"
-`include "care_attention/attn_kv.v"
-`include "care_attention/attn_core.v"
-`include "care_attention/attn_proj.v"
 `include "care_attention/care_attention.v"
 
 // =============================================================================
-// TEST_care_attention.v -- block0 E2E (N_TOKENS=320)
+// TEST_care_attention.v -- block0 E2E (N_TOKENS=320) -- WS rewrite
 //
-// DUT: care_attention full chain norm1 -> qkv -> pre -> zr -> kv -> core -> proj.
+// DUT: care_attention monolithic (WS-QKV+SPLIT -> KV -> QKM -> ZR -> CORE
+//                                 -> WS-PROJ -> OUT)
 // Input : backbone_blocks_0_after_norm1_out_bi.txt
 // Weight: backbone_blocks_0_attn_qkv_{weight,bias}_bi.txt
 //         backbone_blocks_0_attn_proj_{weight,bias}_bi.txt
@@ -23,7 +16,8 @@
 //
 // VCS:
 //   cd python/lib/models/verilog_backbone3/test
-//   vcs TEST_care_attention.v +incdir+.. +incdir+../common +lint=TFIPC-L +define+TSMC_CM_NO_WARNING | tee runvcs.log
+//   vcs TEST_care_attention.v +incdir+.. +incdir+../common \
+//       +lint=TFIPC-L +define+TSMC_CM_NO_WARNING | tee runvcs.log
 //   ./simv | tee simv.log
 //   grep -E '\\[PASS\\]|\\[FAIL\\]|TIMEOUT|care_attention done' simv.log
 // =============================================================================
@@ -63,6 +57,7 @@ reg         start;
 wire        norm_rd_en;
 wire [13:0] norm_rd_flat;
 wire [12:0] wgt_addr_o;
+wire [7:0]  bias_addr_o;
 wire        busy;
 wire        done;
 wire signed [15:0] norm_x;
@@ -107,8 +102,8 @@ reg [15:0] NORM1_ALL [0:OUT_ELEMS-1];
 reg [15:0] GOLD_OUT  [0:OUT_ELEMS-1];
 reg [15:0] OUT_MEM   [0:OUT_ELEMS-1];
 
-reg [15:0] QKV_W_MEM [0:QKV_W_DEPTH-1];
-reg [15:0] QKV_B_MEM [0:QKV_B_DEPTH-1];
+reg [15:0] QKV_W_MEM  [0:QKV_W_DEPTH-1];
+reg [15:0] QKV_B_MEM  [0:QKV_B_DEPTH-1];
 reg [15:0] PROJ_W_MEM [0:PROJ_W_DEPTH-1];
 reg [15:0] PROJ_B_MEM [0:PROJ_B_DEPTH-1];
 
@@ -135,28 +130,31 @@ reg [31:0] first_bad_out;
 reg [31:0] cycle_cnt;
 reg [31:0] y_recv_cnt;
 
-wire [7:0] qkv_b_addr_o;
-wire [7:0] proj_b_addr_o;
-wire [7:0] vm_b_addr_o;
-
-assign qkv_b_addr_o  = u_dut.u_qkv.u_lin_qkv.u_vec_mac8.b_addr_o;
-assign proj_b_addr_o = u_dut.u_proj.u_lin_proj.u_vec_mac8.b_addr_o;
-assign vm_b_addr_o   = (wgt_addr_o >= 13'd3072) ? proj_b_addr_o : qkv_b_addr_o;
-
+// -------------------------------------------------------------------------
+// ROM model (combinational, latched at negedge for 1-cycle protocol)
+// -------------------------------------------------------------------------
 assign norm_x = $signed(NORM1_ALL[norm_addr_rom_q]);
-assign wgt_i  = (wgt_addr_o >= 13'd3072) ?
-                $signed(PROJ_W_MEM[wgt_addr_o - 13'd3072]) :
-                $signed(QKV_W_MEM[wgt_addr_o]);
-assign bias_i = (wgt_addr_o >= 13'd3072) ?
-                $signed(PROJ_B_MEM[vm_b_addr_o[4:0]]) :
-                $signed(QKV_B_MEM[vm_b_addr_o]);
 
+assign wgt_i  = (w_addr_rom_q >= 13'd3072) ?
+                $signed(PROJ_W_MEM[w_addr_rom_q - 13'd3072]) :
+                $signed(QKV_W_MEM[w_addr_rom_q]);
+
+assign bias_i = (w_addr_rom_q >= 13'd3072) ?
+                $signed(PROJ_B_MEM[b_addr_rom_q[4:0]]) :
+                $signed(QKV_B_MEM[b_addr_rom_q[6:0]]);
+
+// -------------------------------------------------------------------------
+// SRAM read model (negedge latch -> posedge data)
+// -------------------------------------------------------------------------
 assign sram_q_q_i   = Q_MEM[q_raddr_q];
 assign sram_k_q_i   = K_MEM[k_raddr_q];
 assign sram_v_q_i   = V_MEM[v_raddr_q];
 assign sram_qkm_q_i = QKM_MEM[qkm_raddr_q[10:0]];
 assign sram_ao_q_i  = AO_MEM[ao_raddr_q[13:0]];
 
+// -------------------------------------------------------------------------
+// DUT
+// -------------------------------------------------------------------------
 care_attention #(
     .EMBED_DIM    (EMBED_DIM),
     .NUM_HEADS    (NUM_HEADS),
@@ -177,6 +175,7 @@ care_attention #(
     .wgt_i           (wgt_i),
     .bias_i          (bias_i),
     .wgt_addr_o      (wgt_addr_o),
+    .bias_addr_o     (bias_addr_o),
     .busy            (busy),
     .done            (done),
     .y_o             (y_o),
@@ -198,25 +197,31 @@ care_attention #(
     .sram_v_addr_o   (sram_v_addr_o),
     .sram_v_din_o    (sram_v_din_o),
     .sram_v_q_i      (sram_v_q_i),
-    .sram_qkm_ceb_o   (sram_qkm_ceb_o),
-    .sram_qkm_web_o   (sram_qkm_web_o),
-    .sram_qkm_addr_o  (sram_qkm_addr_o),
-    .sram_qkm_din_o   (sram_qkm_din_o),
-    .sram_qkm_q_i     (sram_qkm_q_i),
-    .sram_ao_ceb_o    (sram_ao_ceb_o),
-    .sram_ao_web_o    (sram_ao_web_o),
-    .sram_ao_addr_o   (sram_ao_addr_o),
-    .sram_ao_din_o    (sram_ao_din_o),
-    .sram_ao_q_i      (sram_ao_q_i)
+    .sram_qkm_ceb_o  (sram_qkm_ceb_o),
+    .sram_qkm_web_o  (sram_qkm_web_o),
+    .sram_qkm_addr_o (sram_qkm_addr_o),
+    .sram_qkm_din_o  (sram_qkm_din_o),
+    .sram_qkm_q_i    (sram_qkm_q_i),
+    .sram_ao_ceb_o   (sram_ao_ceb_o),
+    .sram_ao_web_o   (sram_ao_web_o),
+    .sram_ao_addr_o  (sram_ao_addr_o),
+    .sram_ao_din_o   (sram_ao_din_o),
+    .sram_ao_q_i     (sram_ao_q_i)
 );
 
+// -------------------------------------------------------------------------
+// Clock
+// -------------------------------------------------------------------------
 always #(CYCLE/2.0) clk = ~clk;
 
+// -------------------------------------------------------------------------
+// Negedge latch (ROM + SRAM read address capture)
+// -------------------------------------------------------------------------
 always @(negedge clk) begin
     if (norm_rd_en)
         norm_addr_rom_q <= norm_rd_flat;
     w_addr_rom_q <= wgt_addr_o;
-    b_addr_rom_q <= vm_b_addr_o;
+    b_addr_rom_q <= bias_addr_o;
 
     if (!sram_q_ceb_o && sram_q_web_o)
         q_raddr_q <= sram_q_addr_o;
@@ -230,6 +235,9 @@ always @(negedge clk) begin
         ao_raddr_q <= sram_ao_addr_o;
 end
 
+// -------------------------------------------------------------------------
+// SRAM write model (posedge capture)
+// -------------------------------------------------------------------------
 always @(posedge clk) begin
     if (!sram_q_ceb_o && !sram_q_web_o)
         Q_MEM[sram_q_addr_o] <= sram_q_din_o;
@@ -239,15 +247,21 @@ always @(posedge clk) begin
         V_MEM[sram_v_addr_o] <= sram_v_din_o;
     if (!sram_qkm_ceb_o && !sram_qkm_web_o)
         QKM_MEM[sram_qkm_addr_o[10:0]] <= sram_qkm_din_o;
-    if (u_dut.u_core.ao_wr_en)
-        AO_MEM[u_dut.u_core.ao_wr_addr] <= u_dut.u_core.ao_wr_data;
+    if (!sram_ao_ceb_o && !sram_ao_web_o)
+        AO_MEM[sram_ao_addr_o] <= sram_ao_din_o;
 end
 
+// -------------------------------------------------------------------------
+// Output capture
+// -------------------------------------------------------------------------
 always @(negedge clk) begin
     if (y_valid)
         OUT_MEM[px_tok_o * EMBED_DIM + y_neu_o] <= y_o;
 end
 
+// -------------------------------------------------------------------------
+// Cycle / output counter
+// -------------------------------------------------------------------------
 always @(posedge clk) begin
     if (reset) begin
         cycle_cnt  <= 32'd0;
@@ -259,6 +273,9 @@ always @(posedge clk) begin
     end
 end
 
+// -------------------------------------------------------------------------
+// Main test sequence
+// -------------------------------------------------------------------------
 initial begin
     $readmemb({`GOLDEN_ACT, "/backbone_blocks_0_after_norm1_out_bi.txt"}, NORM1_ALL);
     $readmemb({`GOLDEN_ACT, "/backbone_blocks_0_after_attn_attn_out_bi.txt"}, GOLD_OUT);
@@ -270,7 +287,7 @@ initial begin
     for (load_i = 0; load_i < OUT_ELEMS; load_i = load_i + 1)
         OUT_MEM[load_i] = 16'hxxxx;
 
-    $display("[TB] care_attention E2E block0 N_TOKENS=%0d OUT_ELEMS=%0d",
+    $display("[TB] care_attention WS-rewrite E2E block0 N_TOKENS=%0d OUT_ELEMS=%0d",
              N_TOKENS, OUT_ELEMS);
     $display("[TB] GOLDEN_ACT=%s", `GOLDEN_ACT);
     $display("[TB] GOLDEN_WGT=%s", `GOLDEN_WGT);
@@ -315,7 +332,7 @@ initial begin
              y_recv_cnt, OUT_ELEMS, mism_out);
 
     if (y_recv_cnt !== OUT_ELEMS)
-        $display("  [FAIL] y_recv_cnt mismatch (incomplete proj stream)");
+        $display("  [FAIL] y_recv_cnt mismatch (incomplete output stream)");
 
     if (mism_out !== 0)
         $display("  [FAIL] attn_out mismatch count=%0d first_bad=%0d dut=%h gold=%h",
@@ -328,7 +345,7 @@ initial begin
 end
 
 initial begin
-    #(CYCLE * 20_000_000);
+    #(CYCLE * 2_000_000);
     $display("[TB] TIMEOUT @ cycle %0d busy=%0d state=%0d",
              cycle_cnt, busy, u_dut.state);
     $finish;
