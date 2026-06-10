@@ -14,6 +14,8 @@
 // SRAM read contract (1P, CLK=~clk):
 //   posedge T:   addr, CEB=0, WEB=1
 //   posedge T+1: Q valid for addr@T
+// S_QKM 2-phase MAC (timing): even cnt READ sram_q; posedge latch qkm_q_r;
+//   odd cnt MAC acc += qkm_q_r * km_buf (no sram_q_q_i in multiply path).
 // S_OUT stream: out_phase=0 ADDR (sram_q_addr=out_cnt); out_phase=1 USE (y_o<=Q).
 //
 // SRAMs (single-port, CLK=~clk, 1-cycle read latency):
@@ -196,10 +198,11 @@ reg signed [15:0] km_buf [0:31];
 // S_KV_SCALE
 reg [6:0] kvs_idx;
 
-// S_QKM
+// S_QKM (2-phase per d: even=READ, odd=MAC; 17 beats per h,n)
 reg [1:0]  qkm_h;
 reg [8:0]  qkm_n;
-reg [3:0]  qkm_cnt;
+reg [4:0]  qkm_cnt;
+reg signed [15:0] qkm_q_r;
 reg signed [31:0] qkm_acc;
 
 // S_ZR
@@ -355,14 +358,14 @@ wire signed [15:0] kms_val  =
     (kms_shr > 48'sd32767)  ? 16'sh7FFF :
     (kms_shr < -48'sd32768) ? 16'sh8000 : kms_shr[15:0];
 
-// S_QKM combinational
-wire [2:0]  qkm_d_prev = qkm_cnt[2:0] - 3'd1;
+// S_QKM combinational (qkm_d_idx valid on even READ and following odd MAC)
+wire [2:0]  qkm_d_idx = qkm_cnt[3:1];
 wire [13:0] qkm_q_flat =
     {12'd0, qkm_h} * NTxHD[13:0] +
     {5'd0, qkm_n} * HEAD_DIM[13:0] +
-    {11'd0, qkm_d_prev};
-wire signed [15:0] qkm_km_val = km_buf[{qkm_h, qkm_d_prev}];
-wire signed [31:0] qkm_term   = $signed(sram_q_q_i) * qkm_km_val;
+    {11'd0, qkm_d_idx};
+wire signed [15:0] qkm_km_val = km_buf[{qkm_h, qkm_d_idx}];
+wire signed [31:0] qkm_term   = $signed(qkm_q_r) * qkm_km_val;
 wire signed [31:0] qkm_rnd    = qkm_acc + 32'sd128;
 wire signed [31:0] qkm_shr    = qkm_rnd >>> 8;
 wire signed [15:0] qkm_sat    =
@@ -488,12 +491,14 @@ always @(*) begin
         S_BLOAD:    if (bl_done) next_state = S_MAC;
         S_MAC:      if (mac_done) next_state = S_SAT;
         S_SAT: begin
-            if (sat_done) begin
-                if (!tok_last)        next_state = S_MAC;
-                else if (!group_last) next_state = S_WLOAD;
-                else if (ws_phase == 1'b0) next_state = S_KV;
-                else                  next_state = S_OUT;
-            end
+            if (sat_done && !tok_last)
+                next_state = S_MAC;
+            else if (sat_done && tok_last && !group_last)
+                next_state = S_WLOAD;
+            else if (sat_done && tok_last && group_last && ws_phase == 1'b0)
+                next_state = S_KV;
+            else if (sat_done && tok_last && group_last)
+                next_state = S_OUT;
         end
         S_KV: begin
             if (kv_sub == KV_MAC && kv_mac_dk == 3'd7 &&
@@ -501,13 +506,13 @@ always @(*) begin
                 next_state = S_KV_SCALE;
         end
         S_KV_SCALE: begin
-            if (kvs_idx == 7'd71) begin
-                if (kv_head == NUM_HEADS[1:0] - 2'd1) next_state = S_QKM;
-                else                                    next_state = S_KV;
-            end
+            if (kvs_idx == 7'd71 && kv_head == NUM_HEADS[1:0] - 2'd1)
+                next_state = S_QKM;
+            else if (kvs_idx == 7'd71)
+                next_state = S_KV;
         end
         S_QKM: begin
-            if (qkm_cnt == 4'd9 &&
+            if (qkm_cnt == 5'd16 &&
                 qkm_h == NUM_HEADS[1:0] - 2'd1 &&
                 qkm_n == N_TOKENS[8:0] - 9'd1)
                 next_state = S_ZR;
@@ -543,10 +548,10 @@ always @(posedge clk) begin
         group_cnt <= 4'd0;
     else if (state == S_CORE && at_done_now)
         group_cnt <= 4'd0;
-    else if (state == S_SAT && sat_done && tok_last) begin
-        if (!group_last) group_cnt <= group_cnt + 4'd1;
-        else             group_cnt <= 4'd0;
-    end
+    else if (state == S_SAT && sat_done && tok_last && !group_last)
+        group_cnt <= group_cnt + 4'd1;
+    else if (state == S_SAT && sat_done && tok_last && group_last)
+        group_cnt <= 4'd0;
 end
 
 // tok_cnt
@@ -555,10 +560,10 @@ always @(posedge clk) begin
         tok_cnt <= 9'd0;
     else if (state == S_IDLE)
         tok_cnt <= 9'd0;
-    else if (state == S_SAT && sat_done) begin
-        if (!tok_last) tok_cnt <= tok_cnt + 9'd1;
-        else           tok_cnt <= 9'd0;
-    end
+    else if (state == S_SAT && sat_done && !tok_last)
+        tok_cnt <= tok_cnt + 9'd1;
+    else if (state == S_SAT && sat_done && tok_last)
+        tok_cnt <= 9'd0;
 end
 
 // =========================================================================
@@ -571,15 +576,13 @@ always @(posedge clk) begin
     end else if (state != S_WLOAD) begin
         wl_cnt   <= 8'd0;
         wl_phase <= 1'b0;
-    end else begin
-        if (wl_phase == 1'b0)
-            wl_phase <= 1'b1;
-        else begin
-            wl_phase <= 1'b0;
-            if (wl_cnt != WL_MAX[7:0])
-                wl_cnt <= wl_cnt + 8'd1;
-        end
-    end
+    end else if (wl_phase == 1'b0)
+        wl_phase <= 1'b1;
+    else if (wl_cnt != WL_MAX[7:0]) begin
+        wl_phase <= 1'b0;
+        wl_cnt   <= wl_cnt + 8'd1;
+    end else
+        wl_phase <= 1'b0;
 end
 
 // Weight capture
@@ -609,15 +612,13 @@ always @(posedge clk) begin
     end else if (state != S_BLOAD) begin
         bl_cnt   <= 3'd0;
         bl_phase <= 1'b0;
-    end else begin
-        if (bl_phase == 1'b0)
-            bl_phase <= 1'b1;
-        else begin
-            bl_phase <= 1'b0;
-            if (bl_cnt != 3'd7)
-                bl_cnt <= bl_cnt + 3'd1;
-        end
-    end
+    end else if (bl_phase == 1'b0)
+        bl_phase <= 1'b1;
+    else if (bl_cnt != 3'd7) begin
+        bl_phase <= 1'b0;
+        bl_cnt   <= bl_cnt + 3'd1;
+    end else
+        bl_phase <= 1'b0;
 end
 
 // Bias capture
@@ -691,14 +692,13 @@ always @(posedge clk) begin
     if (reset) begin
         norm_rd_en   <= 1'b0;
         norm_rd_flat <= 14'd0;
+    end else if (state == S_MAC && ws_phase == 1'b0 &&
+               mac_cnt < IN_DIM[5:0]) begin
+        norm_rd_en   <= 1'b1;
+        norm_rd_flat <= {tok_cnt, 5'b0} + {8'd0, mac_cnt[5:0]};
     end else begin
         norm_rd_en   <= 1'b0;
         norm_rd_flat <= 14'd0;
-        if (state == S_MAC && ws_phase == 1'b0 &&
-            mac_cnt < IN_DIM[5:0]) begin
-            norm_rd_en   <= 1'b1;
-            norm_rd_flat <= {tok_cnt, 5'b0} + {8'd0, mac_cnt[5:0]};
-        end
     end
 end
 
@@ -707,18 +707,16 @@ always @(posedge clk) begin
     if (reset) begin
         proj_rd_en_r   <= 1'b0;
         proj_rd_feat_r <= 5'd0;
-    end else begin
+    end else if (state == S_BLOAD && ws_phase == 1'b1 &&
+               bl_cnt == 3'd7 && bl_phase == 1'b1) begin
+        proj_rd_en_r   <= 1'b1;
+        proj_rd_feat_r <= 5'd0;
+    end else if (state == S_MAC && ws_phase == 1'b1 &&
+               mac_cnt < IN_DIM[5:0]) begin
+        proj_rd_en_r   <= 1'b1;
+        proj_rd_feat_r <= mac_cnt[4:0];
+    end else
         proj_rd_en_r <= 1'b0;
-        if (state == S_BLOAD && ws_phase == 1'b1 &&
-            bl_cnt == 3'd7 && bl_phase == 1'b1) begin
-            proj_rd_en_r   <= 1'b1;
-            proj_rd_feat_r <= 5'd0;
-        end else if (state == S_MAC && ws_phase == 1'b1 &&
-                     mac_cnt < IN_DIM[5:0]) begin
-            proj_rd_en_r   <= 1'b1;
-            proj_rd_feat_r <= mac_cnt[4:0];
-        end
-    end
 end
 
 // =========================================================================
@@ -815,13 +813,12 @@ always @(posedge clk) begin
                     kv_rd_cnt <= kv_rd_cnt + 4'd1;
             end
             KV_MAC: begin
-                if (kv_mac_dk == 3'd7) begin
-                    if (kv_tok != N_TOKENS[8:0] - 9'd1) begin
-                        kv_tok    <= kv_tok + 9'd1;
-                        kv_sub    <= KV_RD;
-                        kv_rd_cnt <= 4'd0;
-                    end
-                end else
+                if (kv_mac_dk == 3'd7 &&
+                    kv_tok != N_TOKENS[8:0] - 9'd1) begin
+                    kv_tok    <= kv_tok + 9'd1;
+                    kv_sub    <= KV_RD;
+                    kv_rd_cnt <= 4'd0;
+                end else if (kv_mac_dk != 3'd7)
                     kv_mac_dk <= kv_mac_dk + 3'd1;
             end
             default: kv_sub <= KV_CLEAR;
@@ -885,46 +882,55 @@ end
 // =========================================================================
 // S_QKM: dot product q * km -> sram_qkm
 // =========================================================================
-// QKM counters
+// QKM counters (0..16 per h,n: even READ, odd MAC, 16=write latch)
 always @(posedge clk) begin
     if (reset) begin
         qkm_h   <= 2'd0;
         qkm_n   <= 9'd0;
-        qkm_cnt <= 4'd0;
+        qkm_cnt <= 5'd0;
     end else if (state != S_QKM) begin
         qkm_h   <= 2'd0;
         qkm_n   <= 9'd0;
-        qkm_cnt <= 4'd0;
-    end else begin
-        if (qkm_cnt == 4'd9) begin
-            qkm_cnt <= 4'd0;
-            if (qkm_n != N_TOKENS[8:0] - 9'd1)
-                qkm_n <= qkm_n + 9'd1;
-            else begin
-                qkm_n <= 9'd0;
-                if (qkm_h != NUM_HEADS[1:0] - 2'd1)
-                    qkm_h <= qkm_h + 2'd1;
-            end
-        end else
-            qkm_cnt <= qkm_cnt + 4'd1;
-    end
+        qkm_cnt <= 5'd0;
+    end else if (qkm_cnt == 5'd16 &&
+               qkm_n != N_TOKENS[8:0] - 9'd1) begin
+        qkm_cnt <= 5'd0;
+        qkm_n   <= qkm_n + 9'd1;
+    end else if (qkm_cnt == 5'd16 &&
+               qkm_n == N_TOKENS[8:0] - 9'd1 &&
+               qkm_h != NUM_HEADS[1:0] - 2'd1) begin
+        qkm_cnt <= 5'd0;
+        qkm_n   <= 9'd0;
+        qkm_h   <= qkm_h + 2'd1;
+    end else if (qkm_cnt == 5'd16) begin
+        qkm_cnt <= 5'd0;
+        qkm_n   <= 9'd0;
+    end else
+        qkm_cnt <= qkm_cnt + 5'd1;
 end
 
-// QKM accumulator
+// Q latch after READ beat (Q valid 1 cycle after addr; latch before odd MAC)
 always @(posedge clk) begin
-    if (state == S_QKM) begin
-        if (qkm_cnt == 4'd1)
-            qkm_acc <= qkm_term;
-        else if (qkm_cnt >= 4'd2 && qkm_cnt <= 4'd8)
-            qkm_acc <= qkm_acc + qkm_term;
-    end
+    if (reset)
+        qkm_q_r <= 16'sd0;
+    else if (state == S_QKM && qkm_cnt[0] == 1'b0 && qkm_cnt <= 5'd14)
+        qkm_q_r <= sram_q_q_i;
+end
+
+// QKM accumulator (odd cnt only; uses registered qkm_q_r, not sram_q_q_i)
+always @(posedge clk) begin
+    if (state == S_QKM && qkm_cnt == 5'd1)
+        qkm_acc <= qkm_term;
+    else if (state == S_QKM && qkm_cnt[0] == 1'b1 &&
+             qkm_cnt >= 5'd3 && qkm_cnt <= 5'd15)
+        qkm_acc <= qkm_acc + qkm_term;
 end
 
 // QKM write latch: hold 1 cycle past S_QKM so last beat (QKM->ZR) still writes
 always @(posedge clk) begin
     if (reset)
         qkm_wr_pending <= 1'b0;
-    else if (state == S_QKM && qkm_cnt == 4'd9) begin
+    else if (state == S_QKM && qkm_cnt == 5'd16) begin
         qkm_wr_pending <= 1'b1;
         qkm_wr_addr_r  <= qkm_wr_addr;
         qkm_wr_data_r  <= qkm_clamp;
@@ -942,36 +948,34 @@ always @(posedge clk) begin
         zr_n       <= 9'd0;
         zr_start_r <= 1'b0;
         zr_x_r     <= 16'sd0;
-    end else begin
+    end else if (state != S_ZR) begin
+        zr_sub     <= 2'd0;
+        zr_h       <= 2'd0;
+        zr_n       <= 9'd0;
         zr_start_r <= 1'b0;
-        if (state != S_ZR) begin
-            zr_sub <= 2'd0;
-            zr_h   <= 2'd0;
-            zr_n   <= 9'd0;
-        end else begin
-            case (zr_sub)
-                2'd0: zr_sub <= 2'd1;
-                2'd1: begin
-                    zr_x_r     <= $signed(sram_qkm_q_i);
-                    zr_start_r <= 1'b1;
-                    zr_sub     <= 2'd2;
-                end
-                2'd2: begin
-                    if (recip_done) begin
-                        zr_sub <= 2'd0;
-                        if (zr_n != N_TOKENS[8:0] - 9'd1)
-                            zr_n <= zr_n + 9'd1;
-                        else begin
-                            zr_n <= 9'd0;
-                            if (zr_h != NUM_HEADS[1:0] - 2'd1)
-                                zr_h <= zr_h + 2'd1;
-                        end
-                    end
-                end
-                default: zr_sub <= 2'd0;
-            endcase
-        end
-    end
+    end else if (zr_sub == 2'd0)
+        zr_sub <= 2'd1;
+    else if (zr_sub == 2'd1) begin
+        zr_x_r     <= $signed(sram_qkm_q_i);
+        zr_start_r <= 1'b1;
+        zr_sub     <= 2'd2;
+    end else if (zr_sub == 2'd2 && recip_done &&
+               zr_n != N_TOKENS[8:0] - 9'd1) begin
+        zr_sub     <= 2'd0;
+        zr_n       <= zr_n + 9'd1;
+        zr_start_r <= 1'b0;
+    end else if (zr_sub == 2'd2 && recip_done &&
+               zr_n == N_TOKENS[8:0] - 9'd1 &&
+               zr_h != NUM_HEADS[1:0] - 2'd1) begin
+        zr_sub     <= 2'd0;
+        zr_n       <= 9'd0;
+        zr_h       <= zr_h + 2'd1;
+        zr_start_r <= 1'b0;
+    end else if (zr_sub == 2'd2 && recip_done) begin
+        zr_sub     <= 2'd0;
+        zr_start_r <= 1'b0;
+    end else
+        zr_start_r <= 1'b0;
 end
 
 // ZR write latch: hold 1 cycle past S_ZR so last beat (ZR->CORE) still writes
@@ -1065,15 +1069,13 @@ always @(posedge clk) begin
     end else if (state != S_OUT) begin
         out_cnt   <= 14'd0;
         out_phase <= 1'b0;
-    end else begin
-        if (out_phase == 1'b0)
-            out_phase <= 1'b1;
-        else begin
-            out_phase <= 1'b0;
-            if (out_cnt < OUT_TOTAL[13:0] - 14'd1)
-                out_cnt <= out_cnt + 14'd1;
-        end
-    end
+    end else if (out_phase == 1'b0)
+        out_phase <= 1'b1;
+    else if (out_cnt < OUT_TOTAL[13:0] - 14'd1) begin
+        out_phase <= 1'b0;
+        out_cnt   <= out_cnt + 14'd1;
+    end else
+        out_phase <= 1'b0;
 end
 
 // =========================================================================
@@ -1085,15 +1087,13 @@ always @(posedge clk) begin
         y_valid  <= 1'b0;
         y_neu_o  <= 7'd0;
         px_tok_o <= 9'd0;
-    end else begin
+    end else if (state == S_OUT && out_phase == 1'b1) begin
+        y_o      <= $signed(sram_q_q_i);
+        y_valid  <= 1'b1;
+        px_tok_o <= out_cnt[13:5];
+        y_neu_o  <= {2'b0, out_cnt[4:0]};
+    end else
         y_valid <= 1'b0;
-        if (state == S_OUT && out_phase == 1'b1) begin
-            y_o      <= $signed(sram_q_q_i);
-            y_valid  <= 1'b1;
-            px_tok_o <= out_cnt[13:5];
-            y_neu_o  <= {2'b0, out_cnt[4:0]};
-        end
-    end
 end
 
 // Done pulse
@@ -1104,29 +1104,33 @@ always @(posedge clk) begin
 end
 
 // =========================================================================
-// SRAM mux (combinational)
+// SRAM mux (combinational; one if/else if chain per macro)
 // =========================================================================
+// sram_ao: CORE write or PROJ MAC read
 always @(*) begin
-    sram_q_ceb_o    = 1'b1;  sram_q_web_o    = 1'b1;
-    sram_q_addr_o   = 14'd0; sram_q_din_o    = 16'd0;
-    sram_k_ceb_o    = 1'b1;  sram_k_web_o    = 1'b1;
-    sram_k_addr_o   = 14'd0; sram_k_din_o    = 16'd0;
-    sram_v_ceb_o    = 1'b1;  sram_v_web_o    = 1'b1;
-    sram_v_addr_o   = 14'd0; sram_v_din_o    = 16'd0;
-    sram_qkm_ceb_o  = 1'b1;  sram_qkm_web_o  = 1'b1;
-    sram_qkm_addr_o = 14'd0; sram_qkm_din_o  = 16'd0;
-    sram_ao_ceb_o   = 1'b1;  sram_ao_web_o   = 1'b1;
-    sram_ao_addr_o  = 14'd0; sram_ao_din_o   = 16'd0;
-
-    // AO write: same-cycle on AT_AO (at_ao_flat + at_ao_sat comb); §7.7.3 producer beat
+    sram_ao_ceb_o  = 1'b1;
+    sram_ao_web_o  = 1'b1;
+    sram_ao_addr_o = 14'd0;
+    sram_ao_din_o  = 16'd0;
     if (state == S_CORE && at_phase == AT_AO) begin
         sram_ao_ceb_o  = 1'b0;
         sram_ao_web_o  = 1'b0;
         sram_ao_addr_o = at_ao_flat;
         sram_ao_din_o  = at_ao_sat;
+    end else if ((state == S_BLOAD || state == S_MAC) &&
+               ws_phase == 1'b1 && proj_rd_fire) begin
+        sram_ao_ceb_o  = 1'b0;
+        sram_ao_web_o  = 1'b1;
+        sram_ao_addr_o = {tok_cnt, 5'b0} + {9'd0, proj_rd_feat_mux};
     end
+end
 
-    // QKM/ZR deferred writes (state-independent; survive stage handoff)
+// sram_qkm: deferred QKM/ZR write or stage read
+always @(*) begin
+    sram_qkm_ceb_o  = 1'b1;
+    sram_qkm_web_o  = 1'b1;
+    sram_qkm_addr_o = 14'd0;
+    sram_qkm_din_o  = 16'd0;
     if (qkm_wr_pending) begin
         sram_qkm_ceb_o  = 1'b0;
         sram_qkm_web_o  = 1'b0;
@@ -1137,108 +1141,87 @@ always @(*) begin
         sram_qkm_web_o  = 1'b0;
         sram_qkm_addr_o = {3'd0, zr_wr_addr_r};
         sram_qkm_din_o  = zr_wr_data_r;
+    end else if (state == S_ZR && zr_sub == 2'd1) begin
+        sram_qkm_ceb_o  = 1'b0;
+        sram_qkm_web_o  = 1'b1;
+        sram_qkm_addr_o = {3'd0, zr_flat};
+    end else if (state == S_CORE && at_phase == AT_ZR_CAP) begin
+        sram_qkm_ceb_o  = 1'b0;
+        sram_qkm_web_o  = 1'b1;
+        sram_qkm_addr_o = {3'd0, at_zr_flat};
     end
+end
 
-    case (state)
-        // --- WS linear SAT write ---
-        S_SAT: begin
-            if (sat_wr_pending) begin
-                if (ws_phase == 1'b0) begin
-                    case (group_cnt[3:2])
-                        2'b00: begin  // Q -> sram_q
-                            sram_q_ceb_o  = 1'b0;
-                            sram_q_web_o  = 1'b0;
-                            sram_q_addr_o = qkv_wr_flat;
-                            sram_q_din_o  = sat_val_r;
-                        end
-                        2'b01: begin  // K -> sram_k
-                            sram_k_ceb_o  = 1'b0;
-                            sram_k_web_o  = 1'b0;
-                            sram_k_addr_o = qkv_wr_flat;
-                            sram_k_din_o  = sat_val_r;
-                        end
-                        2'b10: begin  // V -> sram_v
-                            sram_v_ceb_o  = 1'b0;
-                            sram_v_web_o  = 1'b0;
-                            sram_v_addr_o = qkv_wr_flat;
-                            sram_v_din_o  = sat_val_r;
-                        end
-                        default: ;
-                    endcase
-                end else begin  // PROJ -> sram_q (reuse)
-                    sram_q_ceb_o  = 1'b0;
-                    sram_q_web_o  = 1'b0;
-                    sram_q_addr_o = proj_wr_flat;
-                    sram_q_din_o  = sat_val_r;
-                end
-            end
-        end
+// sram_q: QKV/PROJ SAT write or stage read
+always @(*) begin
+    sram_q_ceb_o  = 1'b1;
+    sram_q_web_o  = 1'b1;
+    sram_q_addr_o = 14'd0;
+    sram_q_din_o  = 16'd0;
+    if (state == S_SAT && sat_wr_pending && ws_phase == 1'b0 &&
+        group_cnt[3:2] == 2'b00) begin
+        sram_q_ceb_o  = 1'b0;
+        sram_q_web_o  = 1'b0;
+        sram_q_addr_o = qkv_wr_flat;
+        sram_q_din_o  = sat_val_r;
+    end else if (state == S_SAT && sat_wr_pending && ws_phase == 1'b1) begin
+        sram_q_ceb_o  = 1'b0;
+        sram_q_web_o  = 1'b0;
+        sram_q_addr_o = proj_wr_flat;
+        sram_q_din_o  = sat_val_r;
+    end else if (state == S_QKM && qkm_cnt[0] == 1'b0 && qkm_cnt <= 5'd14) begin
+        sram_q_ceb_o  = 1'b0;
+        sram_q_web_o  = 1'b1;
+        sram_q_addr_o = qkm_q_flat;
+    end else if (state == S_CORE && at_phase == AT_Q_CAP) begin
+        sram_q_ceb_o  = 1'b0;
+        sram_q_web_o  = 1'b1;
+        sram_q_addr_o = at_q_flat;
+    end else if (state == S_OUT && out_phase == 1'b0) begin
+        sram_q_ceb_o  = 1'b0;
+        sram_q_web_o  = 1'b1;
+        sram_q_addr_o = out_cnt;
+    end
+end
 
-        // --- WS linear MAC input read (PROJ: sram_ao) ---
-        S_BLOAD,
-        S_MAC: begin
-            if (ws_phase == 1'b1 && proj_rd_fire) begin
-                sram_ao_ceb_o  = 1'b0;
-                sram_ao_web_o  = 1'b1;
-                sram_ao_addr_o = {tok_cnt, 5'b0} + {9'd0, proj_rd_feat_mux};
-            end
-        end
+// sram_k: QKV SAT write or KV read
+always @(*) begin
+    sram_k_ceb_o  = 1'b1;
+    sram_k_web_o  = 1'b1;
+    sram_k_addr_o = 14'd0;
+    sram_k_din_o  = 16'd0;
+    if (state == S_SAT && sat_wr_pending && ws_phase == 1'b0 &&
+        group_cnt[3:2] == 2'b01) begin
+        sram_k_ceb_o  = 1'b0;
+        sram_k_web_o  = 1'b0;
+        sram_k_addr_o = qkv_wr_flat;
+        sram_k_din_o  = sat_val_r;
+    end else if (state == S_KV && kv_sub == KV_RD &&
+               kv_rd_cnt >= 4'd1 && kv_rd_cnt <= 4'd8) begin
+        sram_k_ceb_o  = 1'b0;
+        sram_k_web_o  = 1'b1;
+        sram_k_addr_o = kv_sram_rd_flat;
+    end
+end
 
-        // --- KV: parallel read k + v ---
-        S_KV: begin
-            if (kv_sub == KV_RD && kv_rd_cnt >= 4'd1 && kv_rd_cnt <= 4'd8) begin
-                sram_k_ceb_o  = 1'b0;
-                sram_k_web_o  = 1'b1;
-                sram_k_addr_o = kv_sram_rd_flat;
-                sram_v_ceb_o  = 1'b0;
-                sram_v_web_o  = 1'b1;
-                sram_v_addr_o = kv_sram_rd_flat;
-            end
-        end
-
-        // --- QKM: read sram_q (qkm write via qkm_wr_pending above) ---
-        S_QKM: begin
-            if (qkm_cnt >= 4'd1 && qkm_cnt <= 4'd8) begin
-                sram_q_ceb_o  = 1'b0;
-                sram_q_web_o  = 1'b1;
-                sram_q_addr_o = qkm_q_flat;
-            end
-        end
-
-        // --- ZR: read sram_qkm (zr write via zr_wr_pending above) ---
-        S_ZR: begin
-            if (!qkm_wr_pending && !zr_wr_pending && zr_sub == 2'd1) begin
-                sram_qkm_ceb_o  = 1'b0;
-                sram_qkm_web_o  = 1'b1;
-                sram_qkm_addr_o = {3'd0, zr_flat};
-            end
-        end
-
-        // --- CORE: read sram_q + sram_qkm (writes via AT_AO above) ---
-        S_CORE: begin
-            if (at_phase == AT_Q_CAP) begin
-                sram_q_ceb_o  = 1'b0;
-                sram_q_web_o  = 1'b1;
-                sram_q_addr_o = at_q_flat;
-            end
-            if (!qkm_wr_pending && !zr_wr_pending && at_phase == AT_ZR_CAP) begin
-                sram_qkm_ceb_o  = 1'b0;
-                sram_qkm_web_o  = 1'b1;
-                sram_qkm_addr_o = {3'd0, at_zr_flat};
-            end
-        end
-
-        // --- OUT: read sram_q (ADDR phase0 / USE phase1, same as mlp_ws S_OUT) ---
-        S_OUT: begin
-            if (out_phase == 1'b0) begin
-                sram_q_ceb_o  = 1'b0;
-                sram_q_web_o  = 1'b1;
-                sram_q_addr_o = out_cnt;
-            end
-        end
-
-        default: ;
-    endcase
+// sram_v: QKV SAT write or KV read
+always @(*) begin
+    sram_v_ceb_o  = 1'b1;
+    sram_v_web_o  = 1'b1;
+    sram_v_addr_o = 14'd0;
+    sram_v_din_o  = 16'd0;
+    if (state == S_SAT && sat_wr_pending && ws_phase == 1'b0 &&
+        group_cnt[3:2] == 2'b10) begin
+        sram_v_ceb_o  = 1'b0;
+        sram_v_web_o  = 1'b0;
+        sram_v_addr_o = qkv_wr_flat;
+        sram_v_din_o  = sat_val_r;
+    end else if (state == S_KV && kv_sub == KV_RD &&
+               kv_rd_cnt >= 4'd1 && kv_rd_cnt <= 4'd8) begin
+        sram_v_ceb_o  = 1'b0;
+        sram_v_web_o  = 1'b1;
+        sram_v_addr_o = kv_sram_rd_flat;
+    end
 end
 
 endmodule

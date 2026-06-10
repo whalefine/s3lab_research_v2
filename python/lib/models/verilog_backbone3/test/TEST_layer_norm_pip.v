@@ -85,10 +85,12 @@ layer_norm_pip #(
     .busy            (busy),
     .done            (done),
     .y_o             (y_o),
-    .y_valid         (y_valid)
+    .y_valid         (y_valid),
+    .x_rd_pend_o     (),
+    .x_rd_wait_o     ()
 );
 
-// x SRAM: 1-cycle latency (negedge latch). w/b: feat_addr_o=addr same beat (backbone2).
+// x SRAM: negedge latch addr on x_rd_en; 2-cycle macro path in layer_norm_pip S_LOAD.
 assign x_i = $signed(MERGED_ALL[x_addr_rom_q]);
 assign w_i = $signed(W_MEM[feat_addr_o[4:0]]);
 assign b_i = $signed(B_MEM[feat_addr_o[4:0]]);

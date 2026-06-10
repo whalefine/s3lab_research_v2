@@ -5,7 +5,8 @@
 // run_backbone_numpy_shared_trunk.py layer_norm() and verilog_backbone2/layer_norm.v.
 //
 // Per token:
-//   S_LOAD       : 1-cycle SRAM read pipeline (x_rd_en @ T -> x_i @ T+1)
+//   S_LOAD       : 2-cycle SRAM read (x_rd_en @ T -> wait @ T+1 -> x_i @ T+2)
+//                  for CLK(~clk) macro 1-cycle Q latency
 //   S_MEAN       : mean_q88 = sat((sum_acc * RCP + 32768) >> 16)
 //   S_CENTER     : feat_buf <- sat(x - mean); sum_sq_acc += centered^2
 //   S_VAR        : var_eps = max(sat((sum_sq*RCP+2^23)>>24), 1)
@@ -37,7 +38,9 @@ module layer_norm_pip #(
     busy,
     done,
     y_o,
-    y_valid
+    y_valid,
+    x_rd_pend_o,
+    x_rd_wait_o
 );
 
 input                       clk;
@@ -54,6 +57,8 @@ output                      busy;
 output reg                  done;
 output reg signed [15:0]    y_o;
 output reg                  y_valid;
+output                      x_rd_pend_o;
+output                      x_rd_wait_o;
 
 localparam [FEAT_AW-1:0] FEAT_LAST = FEAT_DIM - 1;
 
@@ -79,7 +84,11 @@ reg signed [15:0]           mean_q88;
 reg signed [15:0]           var_q88;
 
 reg                         x_rd_pend;
+reg                         x_rd_wait;
 reg                         inv_start;
+
+assign x_rd_pend_o = x_rd_pend;
+assign x_rd_wait_o = x_rd_wait;
 
 wire                        inv_busy;
 wire                        inv_done;
@@ -115,7 +124,7 @@ wire                        norm_last_beat;
 
 assign op_idx = (state == S_NORM) ? norm_idx : addr;
 
-assign load_x_last_beat  = (state == S_LOAD) && x_rd_pend && (addr == FEAT_LAST);
+assign load_x_last_beat  = (state == S_LOAD) && x_rd_wait && (addr == FEAT_LAST);
 assign center_last_beat  = (state == S_CENTER) && (addr == FEAT_LAST);
 assign norm_last_beat    = (state == S_NORM) && (norm_idx == FEAT_LAST);
 
@@ -229,6 +238,7 @@ always @(posedge clk) begin
         mean_q88   <= 16'sd0;
         var_q88    <= 16'sd0;
         x_rd_pend  <= 1'b0;
+        x_rd_wait  <= 1'b0;
         y_o        <= 16'sd0;
         x_rd_flat  <= 14'd0;
     end else begin
@@ -238,16 +248,20 @@ always @(posedge clk) begin
                 sum_acc    <= 32'sd0;
                 sum_sq_acc <= 48'd0;
                 x_rd_pend  <= 1'b0;
+                x_rd_wait  <= 1'b0;
             end
 
             S_LOAD: begin
-                if (!x_rd_pend) begin
+                if (!x_rd_pend && !x_rd_wait) begin
                     x_rd_en   <= 1'b1;
                     x_rd_flat <= token_base_flat + {{(14-FEAT_AW){1'b0}}, addr};
                     x_rd_pend <= 1'b1;
+                end else if (x_rd_pend && !x_rd_wait) begin
+                    x_rd_wait <= 1'b1;
                 end else begin
                     feat_buf[addr] <= x_i;
                     sum_acc        <= sum_acc + $signed(x_i);
+                    x_rd_wait      <= 1'b0;
                     x_rd_pend      <= 1'b0;
                     if (addr != FEAT_LAST)
                         addr <= addr + {{(FEAT_AW-1){1'b0}}, 1'b1};

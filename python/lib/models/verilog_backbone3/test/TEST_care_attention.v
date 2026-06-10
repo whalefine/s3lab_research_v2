@@ -2,7 +2,7 @@
 
 `include "recip_lut_seed.v"
 `include "recip_nr.v"
-`include "care_attention/care_attention.v"
+`include "care_attention.v"
 
 // =============================================================================
 // TEST_care_attention.v -- block0 E2E (N_TOKENS=320) -- WS rewrite
@@ -17,9 +17,14 @@
 // VCS:
 //   cd python/lib/models/verilog_backbone3/test
 //   vcs TEST_care_attention.v +incdir+.. +incdir+../common \
-//       +lint=TFIPC-L +define+TSMC_CM_NO_WARNING | tee runvcs.log
+//       +lint=TFIPC-L +define+TSMC_CM_NO_WARNING \
+//       -debug_access+all -debug_region+cell | tee runvcs.log
 //   ./simv | tee simv.log
 //   grep -E '\\[PASS\\]|\\[FAIL\\]|TIMEOUT|care_attention done' simv.log
+//
+// Waveform / power (written on done or timeout):
+//   care_attention.fsdb       (Verdi)
+//   care_attention_rtl.saif   (SAIF toggle, scope u_dut)
 // =============================================================================
 
 `ifndef GOLDEN_ACT
@@ -277,6 +282,13 @@ end
 // Main test sequence
 // -------------------------------------------------------------------------
 initial begin
+    $fsdbDumpfile("care_attention.fsdb");
+    $fsdbDumpvars;
+    // $fsdbDumpMDA;
+
+    $set_toggle_region("u_dut");
+    $toggle_start();
+
     $readmemb({`GOLDEN_ACT, "/backbone_blocks_0_after_norm1_out_bi.txt"}, NORM1_ALL);
     $readmemb({`GOLDEN_ACT, "/backbone_blocks_0_after_attn_attn_out_bi.txt"}, GOLD_OUT);
     $readmemb({`GOLDEN_WGT, "/backbone_blocks_0_attn_qkv_weight_bi.txt"}, QKV_W_MEM);
@@ -341,6 +353,8 @@ initial begin
     else if (y_recv_cnt === OUT_ELEMS)
         $display("  [PASS] care_attention matches backbone_blocks_0_after_attn_attn_out");
 
+    $toggle_stop();
+    $toggle_report("care_attention_rtl.saif", 1.0e-9, "u_dut");
     $finish;
 end
 
@@ -348,6 +362,8 @@ initial begin
     #(CYCLE * 2_000_000);
     $display("[TB] TIMEOUT @ cycle %0d busy=%0d state=%0d",
              cycle_cnt, busy, u_dut.state);
+    $toggle_stop();
+    $toggle_report("care_attention_rtl.saif", 1.0e-9, "u_dut");
     $finish;
 end
 

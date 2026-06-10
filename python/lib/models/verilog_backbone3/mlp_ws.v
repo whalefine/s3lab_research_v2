@@ -16,8 +16,11 @@
 // SRAM allocation during MLP (all single-port, CLK = ~clk):
 //   sram_q   : norm2 output (FC1 input), read via parent norm_rd interface
 //   sram_k   : fc1 intermediate, tokens 0..127  (addr = tok*128+feat)
-//   sram_v   : fc1 intermediate, tokens 128..255
-//   sram_qkm : fc1 intermediate, tokens 256..319
+//              macro depth >= 16384 (128*MLP_DIM); 12288 overflows at tok>=96
+//   sram_v   : fc1 intermediate, tokens 128..255 (addr = tok[6:0]*128+feat)
+//              macro depth >= 16384; 12288 overflows at backbone tok>=224
+//   sram_qkm : fc1 intermediate, tokens 256..319 (addr = tok[5:0]*128+feat)
+//              macro depth >= 8192 (64*MLP_DIM); A[10:0] truncates at flat 8192
 //   sram_ao  : fc2 output buffer (addr = tok*32+feat), then S_OUT readout
 //
 // SRAM read contract (1P, CLK = ~clk):
@@ -238,7 +241,7 @@ assign wgt_addr_o = (state == S_WLOAD) ?
     (state == S_BLOAD) ? {rom_type, 13'd0} :
     16'd0;
 
-assign bias_addr_o = (state == S_BLOAD && bl_phase == 1'b0) ?
+assign bias_addr_o = (state == S_BLOAD) ?
     {1'b0, group_cnt[3:0], bl_cnt[2:0]} : 8'd0;
 
 // -------------------------------------------------------------------------
@@ -260,16 +263,14 @@ always @(*) begin
         S_BLOAD:   if (bl_done) next_state = S_MAC;
         S_MAC:     if (mac_done) next_state = S_SAT;
         S_SAT: begin
-            if (sat_done) begin
-                if (!tok_last)
-                    next_state = S_MAC;
-                else if (!group_last)
-                    next_state = S_WLOAD;
-                else if (layer == 1'b0)
-                    next_state = S_WLOAD;
-                else
-                    next_state = S_OUT;
-            end
+            if (sat_done && !tok_last)
+                next_state = S_MAC;
+            else if (sat_done && tok_last && !group_last)
+                next_state = S_WLOAD;
+            else if (sat_done && tok_last && group_last && layer == 1'b0)
+                next_state = S_WLOAD;
+            else if (sat_done && tok_last && group_last)
+                next_state = S_OUT;
         end
         S_OUT:     if (out_done) next_state = S_DONE_ST;
         S_DONE_ST: next_state = S_IDLE;
@@ -295,12 +296,10 @@ always @(posedge clk) begin
         group_cnt <= 5'd0;
     else if (state == S_IDLE)
         group_cnt <= 5'd0;
-    else if (state == S_SAT && sat_done && tok_last) begin
-        if (!group_last)
-            group_cnt <= group_cnt + 5'd1;
-        else
-            group_cnt <= 5'd0;
-    end
+    else if (state == S_SAT && sat_done && tok_last && !group_last)
+        group_cnt <= group_cnt + 5'd1;
+    else if (state == S_SAT && sat_done && tok_last && group_last)
+        group_cnt <= 5'd0;
 end
 
 // Token counter
@@ -309,12 +308,10 @@ always @(posedge clk) begin
         tok_cnt <= 9'd0;
     else if (state == S_IDLE)
         tok_cnt <= 9'd0;
-    else if (state == S_SAT && sat_done) begin
-        if (!tok_last)
-            tok_cnt <= tok_cnt + 9'd1;
-        else
-            tok_cnt <= 9'd0;
-    end
+    else if (state == S_SAT && sat_done && !tok_last)
+        tok_cnt <= tok_cnt + 9'd1;
+    else if (state == S_SAT && sat_done && tok_last)
+        tok_cnt <= 9'd0;
 end
 
 // -------------------------------------------------------------------------
@@ -327,15 +324,13 @@ always @(posedge clk) begin
     end else if (state != S_WLOAD) begin
         wl_cnt   <= 10'd0;
         wl_phase <= 1'b0;
-    end else begin
-        if (wl_phase == 1'b0)
-            wl_phase <= 1'b1;
-        else begin
-            wl_phase <= 1'b0;
-            if (!wl_last)
-                wl_cnt <= wl_cnt + 10'd1;
-        end
-    end
+    end else if (wl_phase == 1'b0)
+        wl_phase <= 1'b1;
+    else if (!wl_last) begin
+        wl_phase <= 1'b0;
+        wl_cnt   <= wl_cnt + 10'd1;
+    end else
+        wl_phase <= 1'b0;
 end
 
 // Weight capture into per-lane register files
@@ -365,15 +360,13 @@ always @(posedge clk) begin
     end else if (state != S_BLOAD) begin
         bl_cnt   <= 4'd0;
         bl_phase <= 1'b0;
-    end else begin
-        if (bl_phase == 1'b0)
-            bl_phase <= 1'b1;
-        else begin
-            bl_phase <= 1'b0;
-            if (bl_cnt != 4'd7)
-                bl_cnt <= bl_cnt + 4'd1;
-        end
-    end
+    end else if (bl_phase == 1'b0)
+        bl_phase <= 1'b1;
+    else if (bl_cnt != 4'd7) begin
+        bl_phase <= 1'b0;
+        bl_cnt   <= bl_cnt + 4'd1;
+    end else
+        bl_phase <= 1'b0;
 end
 
 // Bias capture
@@ -511,15 +504,13 @@ always @(posedge clk) begin
     end else if (state != S_OUT) begin
         out_cnt   <= 14'd0;
         out_phase <= 1'b0;
-    end else begin
-        if (out_phase == 1'b0)
-            out_phase <= 1'b1;
-        else begin
-            out_phase <= 1'b0;
-            if (out_cnt < OUT_TOTAL[13:0] - 14'd1)
-                out_cnt <= out_cnt + 14'd1;
-        end
-    end
+    end else if (out_phase == 1'b0)
+        out_phase <= 1'b1;
+    else if (out_cnt < OUT_TOTAL[13:0] - 14'd1) begin
+        out_phase <= 1'b0;
+        out_cnt   <= out_cnt + 14'd1;
+    end else
+        out_phase <= 1'b0;
 end
 
 // -------------------------------------------------------------------------
@@ -529,14 +520,13 @@ always @(posedge clk) begin
     if (reset) begin
         norm_rd_en   <= 1'b0;
         norm_rd_flat <= 14'd0;
+    end else if (state == S_MAC && layer == 1'b0 &&
+               mac_cnt < EMBED_DIM[7:0]) begin
+        norm_rd_en   <= 1'b1;
+        norm_rd_flat <= {tok_cnt, 5'b00000} + {7'd0, mac_cnt[6:0]};
     end else begin
         norm_rd_en   <= 1'b0;
         norm_rd_flat <= 14'd0;
-        if (state == S_MAC && layer == 1'b0 &&
-            mac_cnt < EMBED_DIM[7:0]) begin
-            norm_rd_en   <= 1'b1;
-            norm_rd_flat <= {tok_cnt, 5'b00000} + {7'd0, mac_cnt[6:0]};
-        end
     end
 end
 
@@ -551,18 +541,16 @@ always @(posedge clk) begin
     if (reset) begin
         fc2_sram_rd_en_r   <= 1'b0;
         fc2_sram_rd_feat_r <= 7'd0;
-    end else begin
+    end else if (state == S_BLOAD && layer == 1'b1 &&
+               bl_cnt == 4'd7 && bl_phase == 1'b1) begin
+        fc2_sram_rd_en_r   <= 1'b1;
+        fc2_sram_rd_feat_r <= 7'd0;
+    end else if (state == S_MAC && layer == 1'b1 &&
+               mac_cnt < MLP_DIM[7:0]) begin
+        fc2_sram_rd_en_r   <= 1'b1;
+        fc2_sram_rd_feat_r <= mac_cnt[6:0];
+    end else
         fc2_sram_rd_en_r <= 1'b0;
-        if (state == S_BLOAD && layer == 1'b1 &&
-            bl_cnt == 4'd7 && bl_phase == 1'b1) begin
-            fc2_sram_rd_en_r   <= 1'b1;
-            fc2_sram_rd_feat_r <= 7'd0;
-        end else if (state == S_MAC && layer == 1'b1 &&
-                     mac_cnt < MLP_DIM[7:0]) begin
-            fc2_sram_rd_en_r   <= 1'b1;
-            fc2_sram_rd_feat_r <= mac_cnt[6:0];
-        end
-    end
 end
 
 // -------------------------------------------------------------------------
@@ -572,13 +560,11 @@ always @(posedge clk) begin
     if (reset) begin
         y_o     <= 16'sd0;
         y_valid <= 1'b0;
-    end else begin
+    end else if (state == S_OUT && out_phase == 1'b1) begin
+        y_o     <= $signed(sram_ao_q_i);
+        y_valid <= 1'b1;
+    end else
         y_valid <= 1'b0;
-        if (state == S_OUT && out_phase == 1'b1) begin
-            y_o     <= $signed(sram_ao_q_i);
-            y_valid <= 1'b1;
-        end
-    end
 end
 
 // Done pulse
@@ -592,87 +578,89 @@ always @(posedge clk) begin
 end
 
 // -------------------------------------------------------------------------
-// SRAM mux (combinational, one block for all 4 SRAMs)
-//   Priority: S_SAT write > S_MAC read > S_OUT read
-//   sram_k/v/qkm: FC1 SAT write | FC2 MAC read
+// SRAM mux (combinational; one if/else if chain per macro)
+//   sram_k/v/qkm: FC1 SAT write | FC2 MAC/BLOAD read
 //   sram_ao:       FC2 SAT write | S_OUT read
 // -------------------------------------------------------------------------
+// sram_k: FC1 SAT write (tok 0..127) or FC2 scratch read
 always @(*) begin
-    sram_k_ceb_o    = 1'b1;
-    sram_k_web_o    = 1'b1;
-    sram_k_addr_o   = 14'd0;
-    sram_k_din_o    = 16'd0;
-    sram_v_ceb_o    = 1'b1;
-    sram_v_web_o    = 1'b1;
-    sram_v_addr_o   = 14'd0;
-    sram_v_din_o    = 16'd0;
+    sram_k_ceb_o  = 1'b1;
+    sram_k_web_o  = 1'b1;
+    sram_k_addr_o = 14'd0;
+    sram_k_din_o  = 16'd0;
+    if (state == S_SAT && sat_wr_pending && layer == 1'b0 &&
+        tok_cnt < 9'd128) begin
+        sram_k_ceb_o  = 1'b0;
+        sram_k_web_o  = 1'b0;
+        sram_k_addr_o = {tok_cnt[6:0], group_cnt[3:0], sat_wr_lane};
+        sram_k_din_o  = sat_val_r;
+    end else if ((state == S_BLOAD || state == S_MAC) &&
+               layer == 1'b1 && fc2_sram_rd_fire &&
+               tok_cnt < 9'd128) begin
+        sram_k_ceb_o  = 1'b0;
+        sram_k_web_o  = 1'b1;
+        sram_k_addr_o = {tok_cnt[6:0], fc2_sram_rd_feat_mux};
+    end
+end
+
+// sram_v: FC1 SAT write (tok 128..255) or FC2 scratch read
+always @(*) begin
+    sram_v_ceb_o  = 1'b1;
+    sram_v_web_o  = 1'b1;
+    sram_v_addr_o = 14'd0;
+    sram_v_din_o  = 16'd0;
+    if (state == S_SAT && sat_wr_pending && layer == 1'b0 &&
+        tok_cnt >= 9'd128 && tok_cnt < 9'd256) begin
+        sram_v_ceb_o  = 1'b0;
+        sram_v_web_o  = 1'b0;
+        sram_v_addr_o = {tok_cnt[6:0], group_cnt[3:0], sat_wr_lane};
+        sram_v_din_o  = sat_val_r;
+    end else if ((state == S_BLOAD || state == S_MAC) &&
+               layer == 1'b1 && fc2_sram_rd_fire &&
+               tok_cnt >= 9'd128 && tok_cnt < 9'd256) begin
+        sram_v_ceb_o  = 1'b0;
+        sram_v_web_o  = 1'b1;
+        sram_v_addr_o = {tok_cnt[6:0], fc2_sram_rd_feat_mux};
+    end
+end
+
+// sram_qkm: FC1 SAT write (tok 256..319) or FC2 scratch read
+always @(*) begin
     sram_qkm_ceb_o  = 1'b1;
     sram_qkm_web_o  = 1'b1;
     sram_qkm_addr_o = 14'd0;
     sram_qkm_din_o  = 16'd0;
-    sram_ao_ceb_o   = 1'b1;
-    sram_ao_web_o   = 1'b1;
-    sram_ao_addr_o  = 14'd0;
-    sram_ao_din_o   = 16'd0;
+    if (state == S_SAT && sat_wr_pending && layer == 1'b0 &&
+        tok_cnt >= 9'd256) begin
+        sram_qkm_ceb_o  = 1'b0;
+        sram_qkm_web_o  = 1'b0;
+        sram_qkm_addr_o = {1'b0, tok_cnt[5:0], group_cnt[3:0], sat_wr_lane};
+        sram_qkm_din_o  = sat_val_r;
+    end else if ((state == S_BLOAD || state == S_MAC) &&
+               layer == 1'b1 && fc2_sram_rd_fire &&
+               tok_cnt >= 9'd256) begin
+        sram_qkm_ceb_o  = 1'b0;
+        sram_qkm_web_o  = 1'b1;
+        sram_qkm_addr_o = {1'b0, tok_cnt[5:0], fc2_sram_rd_feat_mux};
+    end
+end
 
-    case (state)
-        S_BLOAD,
-        S_MAC: begin
-            if (layer == 1'b1 && fc2_sram_rd_fire) begin
-                if (tok_cnt < 9'd128) begin
-                    sram_k_ceb_o  = 1'b0;
-                    sram_k_web_o  = 1'b1;
-                    sram_k_addr_o = {tok_cnt[6:0], fc2_sram_rd_feat_mux};
-                end else if (tok_cnt < 9'd256) begin
-                    sram_v_ceb_o  = 1'b0;
-                    sram_v_web_o  = 1'b1;
-                    sram_v_addr_o = {tok_cnt[6:0], fc2_sram_rd_feat_mux};
-                end else begin
-                    sram_qkm_ceb_o  = 1'b0;
-                    sram_qkm_web_o  = 1'b1;
-                    sram_qkm_addr_o = {1'b0, tok_cnt[5:0], fc2_sram_rd_feat_mux};
-                end
-            end
-        end
-
-        S_SAT: begin
-            if (sat_wr_pending) begin
-                if (layer == 1'b0) begin
-                    if (tok_cnt < 9'd128) begin
-                        sram_k_ceb_o  = 1'b0;
-                        sram_k_web_o  = 1'b0;
-                        sram_k_addr_o = {tok_cnt[6:0], group_cnt[3:0], sat_wr_lane};
-                        sram_k_din_o  = sat_val_r;
-                    end else if (tok_cnt < 9'd256) begin
-                        sram_v_ceb_o  = 1'b0;
-                        sram_v_web_o  = 1'b0;
-                        sram_v_addr_o = {tok_cnt[6:0], group_cnt[3:0], sat_wr_lane};
-                        sram_v_din_o  = sat_val_r;
-                    end else begin
-                        sram_qkm_ceb_o  = 1'b0;
-                        sram_qkm_web_o  = 1'b0;
-                        sram_qkm_addr_o = {1'b0, tok_cnt[5:0], group_cnt[3:0], sat_wr_lane};
-                        sram_qkm_din_o  = sat_val_r;
-                    end
-                end else begin
-                    sram_ao_ceb_o  = 1'b0;
-                    sram_ao_web_o  = 1'b0;
-                    sram_ao_addr_o = {tok_cnt[8:0], group_cnt[1:0], sat_wr_lane};
-                    sram_ao_din_o  = sat_val_r;
-                end
-            end
-        end
-
-        S_OUT: begin
-            if (out_phase == 1'b0) begin
-                sram_ao_ceb_o  = 1'b0;
-                sram_ao_web_o  = 1'b1;
-                sram_ao_addr_o = out_cnt;
-            end
-        end
-
-        default: ;
-    endcase
+// sram_ao: FC2 SAT write or S_OUT read
+always @(*) begin
+    sram_ao_ceb_o  = 1'b1;
+    sram_ao_web_o  = 1'b1;
+    sram_ao_addr_o = 14'd0;
+    sram_ao_din_o  = 16'd0;
+    if (state == S_SAT && sat_wr_pending && layer == 1'b1) begin
+        sram_ao_ceb_o  = 1'b0;
+        sram_ao_web_o  = 1'b0;
+        sram_ao_addr_o = {tok_cnt[8:0], group_cnt[1:0], sat_wr_lane};
+        sram_ao_din_o  = sat_val_r;
+    end else if (state == S_OUT && out_phase == 1'b0) begin
+        sram_ao_ceb_o  = 1'b0;
+        sram_ao_web_o  = 1'b1;
+        sram_ao_addr_o = out_cnt;
+    end
 end
 
 endmodule

@@ -2,7 +2,9 @@
 // sglatrack_top.v -- verilog_backbone3 wrapper (backbone-only, Plan B)
 //
 // RTL below: `include dependency order (leaf -> top). Same-directory paths.
-// VCS: also pass memory/rom_*.v, Sram_*.v, TEST_backbone.v (do not duplicate RTL
+// VCS: also pass memory/rom_*.v, Sram_16384.v x1 (u_sram_k/v/qkm; 3 instances;
+//      not 12288 Sram_k/Sram_v nor 2048 Sram_qkm), other Sram_*.v,
+//      TEST_backbone.v (do not duplicate RTL
 //      .v on cmd line if using only this file + includes).
 //
 // Plan B: backbone norm stays in Sram_tok1 (no S_OUT stream); TB readback via
@@ -12,7 +14,10 @@
 //   Sram_tok1  u_sram_tok1    inter-block / norm1 / backbone norm
 //   Sram_tok2  u_sram_tok2    transformer_block x_buf
 //   Sram_q     u_sram_q       care q + tmp-on-q
-//   Sram_k/v/qkm             care_attention
+//   Sram_16384 u_sram_k      care k + MLP fc1 scratch tok 0..127 (depth 16384)
+//   Sram_16384 u_sram_v      care v + MLP fc1 scratch tok 128..255 (depth 16384)
+//   Sram_16384 u_sram_qkm    care qkm/zr + MLP fc1 scratch tok 256..319
+//                            (A[13:0] required; [10:0] truncates to 2048)
 // =============================================================================
 
 `include "inv_sqrt_lut_seed.v"
@@ -24,7 +29,7 @@
 `include "linear_vec8.v"
 `include "residual.v"
 `include "layer_norm_pip.v"
-`include "care_attention/care_attention.v"
+`include "care_attention.v"
 `include "mlp_ws.v"
 `include "transformer_block.v"
 `include "backbone_top.v"
@@ -188,6 +193,7 @@ backbone_top #(
     .sram_k_web_o       (sram_k_web),
     .sram_k_addr_o      (sram_k_addr),
     .sram_k_din_o       (sram_k_din),
+    .sram_k_q_i         (sram_k_q),
     .sram_v_ceb_o       (sram_v_ceb),
     .sram_v_web_o       (sram_v_web),
     .sram_v_addr_o      (sram_v_addr),
@@ -266,7 +272,7 @@ Sram_q u_sram_q (
     .Q     (sram_q_q)
 );
 
-Sram_k u_sram_k (
+Sram_16384 u_sram_k (
     .SLP   (1'b0),
     .DSLP  (1'b0),
     .SD    (1'b0),
@@ -288,7 +294,7 @@ Sram_k u_sram_k (
     .Q     (sram_k_q)
 );
 
-Sram_v u_sram_v (
+Sram_16384 u_sram_v (
     .SLP   (1'b0),
     .DSLP  (1'b0),
     .SD    (1'b0),
@@ -310,7 +316,7 @@ Sram_v u_sram_v (
     .Q     (sram_v_q)
 );
 
-Sram_qkm u_sram_qkm (
+Sram_16384 u_sram_qkm (
     .SLP   (1'b0),
     .DSLP  (1'b0),
     .SD    (1'b0),
@@ -321,7 +327,7 @@ Sram_qkm u_sram_qkm (
     .BIST  (1'b0),
     .CEBM  (),
     .WEBM  (),
-    .A     (sram_qkm_addr_mac[10:0]),
+    .A     (sram_qkm_addr_mac[13:0]),
     .D     (sram_qkm_din_mac),
     .BWEB  (16'b0),
     .AM    (),
