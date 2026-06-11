@@ -7,8 +7,9 @@
 //      TEST_backbone.v (do not duplicate RTL
 //      .v on cmd line if using only this file + includes).
 //
-// Plan B: backbone norm stays in Sram_tok1 (no S_OUT stream); TB readback via
-// tok1_readback_* after done (disabled under `ifdef SYNTHESIS). data_o tied off.
+// Plan B: backbone norm stays in Sram_tok1 (no S_OUT stream); TB/GLS readback via
+// tok1_readback_* after done (mux kept in netlist; SDC set_false_path on readback).
+// data_o tied off.
 //
 // SRAM macros (port mux in child):
 //   Sram_tok1  u_sram_tok1    inter-block / norm1 / backbone norm
@@ -51,7 +52,7 @@ module sglatrack_top #(
     input  wire                    data_valid,
     output wire signed [DATA_W-1:0] data_o,
     output wire                    data_o_valid,
-    // TB readback Sram_tok1 after done (sim only; disabled when +define+SYNTHESIS)
+    // TB/GLS readback Sram_tok1 after done (STA: set_false_path in synthesis SDC)
     input  wire                    tok1_readback,
     input  wire [13:0]             tok1_readback_addr,
     output wire [DATA_W-1:0]       tok1_readback_q
@@ -127,20 +128,13 @@ wire              sram_qkm_web_mac;
 wire [13:0]       sram_qkm_addr_mac;
 wire [DATA_W-1:0] sram_qkm_din_mac;
 
-// TB readback mux on Sram_tok1 (sim only; synthesis uses backbone path only)
-`ifdef SYNTHESIS
-assign sram_tok1_ceb_mac  = sram_tok1_ceb_bb;
-assign sram_tok1_web_mac  = sram_tok1_web_bb;
-assign sram_tok1_addr_mac = sram_tok1_addr_bb;
-assign sram_tok1_din_mac  = sram_tok1_din_bb;
-assign tok1_readback_q    = {DATA_W{1'b0}};
-`else
+// TB/GLS readback mux on Sram_tok1 (tok1_readback=1 only after done; else backbone)
+// STA: set_false_path on tok1_readback* (see verilog_backbone3/synthesis/sglatrack_top.sdc)
 assign sram_tok1_ceb_mac  = tok1_readback ? 1'b0               : sram_tok1_ceb_bb;
 assign sram_tok1_web_mac  = tok1_readback ? 1'b1               : sram_tok1_web_bb;
 assign sram_tok1_addr_mac = tok1_readback ? tok1_readback_addr : sram_tok1_addr_bb;
 assign sram_tok1_din_mac  = tok1_readback ? {DATA_W{1'b0}}     : sram_tok1_din_bb;
 assign tok1_readback_q    = sram_tok1_q;
-`endif
 
 assign sram_tok2_ceb_mac       = sram_tok2_ceb;
 assign sram_tok2_web_mac       = sram_tok2_web;
