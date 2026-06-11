@@ -253,6 +253,7 @@ initial begin
 end
 
 initial begin
+    $sdf_annotate("sglatrack_top.sdf", u_DUT);
     #(CYCLE * 80_000_000);
     $display("[TB] TIMEOUT: backbone_top did not finish (cycle %0d)", cycle_cnt);
     $toggle_stop();
