@@ -13,7 +13,8 @@
 //   y   : Activation/backbone_blocks_0_after_norm1_out_bi.txt
 //   W/B : Weight/backbone_blocks_0_norm1_{weight,bias}_bi.txt
 //
-// SRAM/ROM model: addr @ posedge T -> data valid @ posedge T+1 (negedge latch).
+// SRAM x: addr @ posedge T -> data @ T+1 (negedge latch).
+// W/B: combinational from feat_addr_o (P0 ROM addr; w/b latched P1; y_valid P2).
 //
 // VCS:
 //   cd python/lib/models/verilog_backbone3/test

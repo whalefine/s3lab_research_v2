@@ -89,14 +89,30 @@ reg        bt_s1_ceb;
 reg        bt_s1_web;
 reg [13:0] bt_s1_addr;
 reg [15:0] bt_s1_din;
+
+reg        tb_start;
+
+reg                bn_start;
+reg                bn_start_r;
+reg [8:0]          bn_tok_cnt;
+reg [13:0]         bn_cap_flat;
+reg [13:0]         bn_rd_addr_hold;
+
+reg                bn_wr_en;
+reg [13:0]         bn_wr_addr;
+reg [15:0]         bn_wr_din;
+
 wire [15:0] s1_q;
 
 wire tb_busy, tb_done;
 wire [15:0] tb_wgt_addr;
 wire [7:0]  tb_bias_addr;
-wire signed [15:0] bb_wgt_mux;
-wire signed [15:0] bb_bias_mux;
-reg  tb_start;
+
+// Forward declare before u_tb (assigns are below ROM section)
+wire signed [15:0] tb_norm_wgt_mux;
+wire signed [15:0] tb_norm_bias_mux;
+wire signed [15:0] tb_am_wgt_mux;
+wire signed [15:0] tb_am_bias_mux;
 
 wire        tb_tok1_ceb, tb_tok1_web;
 wire [13:0] tb_tok1_addr;
@@ -113,8 +129,10 @@ transformer_block #(
     .clk              (clk),
     .reset            (reset),
     .start            (tb_start),
-    .wgt_i            (bb_wgt_mux),
-    .bias_i           (bb_bias_mux),
+    .wgt_i            (tb_am_wgt_mux),
+    .bias_i           (tb_am_bias_mux),
+    .norm_wgt_i       (tb_norm_wgt_mux),
+    .norm_bias_i      (tb_norm_bias_mux),
     .wgt_addr_o       (tb_wgt_addr),
     .bias_addr_o      (tb_bias_addr),
     .busy             (tb_busy),
@@ -167,16 +185,6 @@ wire               bn_sram_rd;
 wire               bn_busy, bn_done;
 wire signed [15:0] bn_y_o;
 wire               bn_y_valid;
-
-reg                bn_start;
-reg                bn_start_r;
-reg [8:0]          bn_tok_cnt;
-reg [13:0]         bn_cap_flat;
-reg [13:0]         bn_rd_addr_hold;
-
-reg                bn_wr_en;
-reg [13:0]         bn_wr_addr;
-reg [15:0]         bn_wr_din;
 
 assign bn_sram_rd = bn_x_rd_en | bn_x_rd_pend | bn_x_rd_wait;
 
@@ -293,22 +301,30 @@ wire ceb_bnb    = !bn_active;
 
 // ---------------------------------------------------------------------------
 // Weight / bias mux -> transformer_block
+//   norm: dedicated bus (no FC1/QKV mux) for STA + layer_norm_pip 3-phase S_NORM
+//   attn/mlp: separate bus
 // ---------------------------------------------------------------------------
 wire is_qkv  = (wtype == 3'b010) && (local_addr < 13'd3072);
 wire is_proj = (wtype == 3'b010) && (local_addr >= 13'd3072);
 
-assign bb_wgt_mux =
+assign tb_norm_wgt_mux =
     (wtype == 3'b000) ? q_norm1_w :
     (wtype == 3'b001) ? q_norm2_w :
+    16'sd0;
+
+assign tb_norm_bias_mux =
+    (wtype == 3'b000) ? q_norm1_b :
+    (wtype == 3'b001) ? q_norm2_b :
+    16'sd0;
+
+assign tb_am_wgt_mux =
     (is_qkv)          ? (blk_lo ? q_qkv_w_03 : q_qkv_w_46) :
     (is_proj)         ? q_proj_w :
     (wtype == 3'b100) ? (blk_lo ? q_fc1_w_03 : q_fc1_w_46) :
     (wtype == 3'b101) ? (blk_lo ? q_fc2_w_03 : q_fc2_w_46) :
     16'sd0;
 
-assign bb_bias_mux =
-    (wtype == 3'b000) ? q_norm1_b :
-    (wtype == 3'b001) ? q_norm2_b :
+assign tb_am_bias_mux =
     (is_qkv)          ? q_qkv_b :
     (is_proj)         ? q_proj_b :
     (wtype == 3'b100) ? q_fc1_b :
@@ -612,82 +628,5 @@ assign y_valid = 1'b0;
 assign busy    = (state != S_IDLE);
 assign x_ready = (state == S_LOAD_IN) &&
                  (load_wr_ptr < TOK_FLAT[13:0]);
-
-// `ifdef DUMP_BB_NORM_DEBUG (sim only, default off)
-// Diagnose backbone_after_norm_backbone_out mismatch (layer_norm_pip x_rd / y_wr / mux).
-// Target tok0: x_rd_en+hold, x_rd_wait capture, y_valid->bn_wr_en, macro ceb/web.
-// Compile: +define+DUMP_BB_NORM_DEBUG
-// Grep: grep -E '\\[DBG_BN\\]' simv.log
-`ifdef DUMP_BB_NORM_DEBUG
-localparam DBG_BN_S_LOAD = 4'd1;
-localparam DBG_BN_S_NORM = 4'd6;
-
-reg [3:0] dbg_bn_ln_state_d;
-reg       dbg_bn_wr_en_d;
-reg [4:0] dbg_bn_x_rd_cnt;
-reg [4:0] dbg_bn_x_cap_cnt;
-reg [5:0] dbg_bn_y_cnt;
-
-always @(posedge clk) begin
-    dbg_bn_ln_state_d <= u_bn.state;
-    dbg_bn_wr_en_d    <= bn_wr_en;
-
-    if (reset) begin
-        dbg_bn_x_rd_cnt  <= 5'd0;
-        dbg_bn_x_cap_cnt <= 5'd0;
-        dbg_bn_y_cnt     <= 6'd0;
-    end else if (state != S_BACKBONE_NORM) begin
-        dbg_bn_x_rd_cnt  <= 5'd0;
-        dbg_bn_x_cap_cnt <= 5'd0;
-        dbg_bn_y_cnt     <= 6'd0;
-    end else begin
-        if (bn_start)
-            $display("[DBG_BN] start tok=%0d base_flat=%0d ln=%0d busy=%0d tb_busy=%0d",
-                     bn_tok_cnt, {bn_tok_cnt, 5'b0}, u_bn.state,
-                     bn_busy, tb_busy);
-
-        if (bn_x_rd_en && (bn_tok_cnt == 9'd0) && (dbg_bn_x_rd_cnt < 5'd4)) begin
-            $display("[DBG_BN] x_rd_en flat=%0d hold=%0d ceb=%b web=%b",
-                     bn_x_rd_flat, bn_rd_addr_hold, bt_s1_ceb, bt_s1_web);
-            dbg_bn_x_rd_cnt <= dbg_bn_x_rd_cnt + 5'd1;
-        end
-
-        if (bn_x_rd_wait && (bn_tok_cnt == 9'd0) && (dbg_bn_x_cap_cnt < 5'd4)) begin
-            $display("[DBG_BN] x_cap flat=%0d s1_q=%h hold=%0d ln=%0d",
-                     bn_rd_addr_hold, s1_q, bn_rd_addr_hold, u_bn.state);
-            dbg_bn_x_cap_cnt <= dbg_bn_x_cap_cnt + 5'd1;
-        end
-
-        if ((dbg_bn_ln_state_d != DBG_BN_S_LOAD) && (u_bn.state == DBG_BN_S_LOAD) &&
-            (bn_tok_cnt == 9'd0))
-            $display("[DBG_BN] enter S_LOAD tok=0");
-
-        if ((dbg_bn_ln_state_d != DBG_BN_S_NORM) && (u_bn.state == DBG_BN_S_NORM) &&
-            (bn_tok_cnt == 9'd0))
-            $display("[DBG_BN] enter S_NORM tok=0 feat=%0d w=%h b=%h rom=%0d",
-                     bn_feat_addr[4:0], bn_wgt_mux, bn_bias_mux, addr_bnorm);
-
-        if (bn_y_valid && (bn_tok_cnt < 9'd2)) begin
-            $display("[DBG_BN] y_valid tok=%0d flat=%0d y=%h feat=%0d ln=%0d",
-                     bn_tok_cnt, bn_cap_flat, bn_y_o,
-                     bn_feat_addr[4:0], u_bn.state);
-            if (bn_tok_cnt == 9'd0)
-                dbg_bn_y_cnt <= dbg_bn_y_cnt + 6'd1;
-        end
-
-        if (bn_wr_en && (bn_tok_cnt < 9'd2))
-            $display("[DBG_BN] wr_en tok=%0d flat=%0d din=%h ceb=%b web=%b addr=%0d tb_busy=%0d",
-                     bn_tok_cnt, bn_wr_addr, bn_wr_din,
-                     bt_s1_ceb, bt_s1_web, bt_s1_addr, tb_busy);
-
-        if (!dbg_bn_wr_en_d && bn_wr_en && (bn_tok_cnt == 9'd0))
-            $display("[DBG_BN] wr_rise flat=%0d din=%h", bn_wr_addr, bn_wr_din);
-
-        if (bn_done && (bn_tok_cnt < 9'd2))
-            $display("[DBG_BN] done tok=%0d y_cnt=%0d ln=%0d",
-                     bn_tok_cnt, dbg_bn_y_cnt, u_bn.state);
-    end
-end
-`endif
 
 endmodule

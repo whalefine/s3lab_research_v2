@@ -24,6 +24,8 @@ module transformer_block #(
 
     input  wire signed [15:0] wgt_i,
     input  wire signed [15:0] bias_i,
+    input  wire signed [15:0] norm_wgt_i,
+    input  wire signed [15:0] norm_bias_i,
     output wire [15:0] wgt_addr_o,
     output wire [7:0]  bias_addr_o,
 
@@ -261,8 +263,8 @@ layer_norm_pip #(
     .x_rd_en         (ln_x_rd_en),
     .x_rd_flat       (ln_x_rd_flat),
     .x_i             ($signed(sram_tok2_q_i)),
-    .w_i             (wgt_i),
-    .b_i             (bias_i),
+    .w_i             (norm_wgt_i),
+    .b_i             (norm_bias_i),
     .feat_addr_o     (ln_feat_addr),
     .busy            (ln_busy),
     .done            (ln_done),

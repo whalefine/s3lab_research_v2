@@ -11,16 +11,6 @@
 // Backbone: LOAD_IN(merged,tok1) -> blocks 0..6 -> BACKBONE_NORM(tok1)
 //
 // Golden: ./TXT_File/Activation/
-//
-// VCS debug define (optional):
-//   +define+DUMP_BB_NORM_DEBUG  -- backbone norm tok0/1 trace vs golden
-//   vcs test/TEST_backbone.v +incdir+. +incdir+./common memory/*.v \
-//     Sram_tok1.v Sram_tok2.v Sram_q.v Sram_16384.v \
-//     +lint=TFIPC-L +define+TSMC_CM_NO_WARNING \
-//     +define+DUMP_BB_NORM_DEBUG \
-//     -debug_access+all -debug_region+cell | tee runvcs.log
-//   ./simv | tee simv.log
-    //   grep -E '\\[DBG_BN\\]|\\[DBG_BN_NEG\\]|\\[STAGE\\]|\\[PASS\\]|\\[FAIL\\]' simv.log
 // =============================================================================
 
 `ifndef GOLDEN_ACT
@@ -46,6 +36,10 @@ reg         clk, reset, start;
 reg  [3:0]  sel_block_i;
 reg  signed [15:0] data_in;
 reg                data_valid;
+
+reg [3:0] bb_state_d;
+reg [3:0] tb_state_d;
+reg       tb_done_d;
 
 wire        busy;
 wire        x_ready;
@@ -95,10 +89,6 @@ wire        q_web = u_DUT.sram_q_web_mac;
 wire [13:0] q_addr = u_DUT.sram_q_addr_mac;
 wire [15:0] q_din  = u_DUT.sram_q_din_mac;
 
-reg [3:0] bb_state_d;
-reg [3:0] tb_state_d;
-reg       tb_done_d;
-
 // backbone_top FSM
 localparam BB_S_IDLE          = 4'd0;
 localparam BB_S_LOAD_IN       = 4'd1;
@@ -125,6 +115,17 @@ reg [15:0] SHADOW_Q    [0:TOK_FLAT-1];
 
 reg [13:0] t1_raddr_q, t2_raddr_q, q_raddr_q;
 
+reg [15:0] GOLD_STAGE [0:TOK_FLAT-1];
+reg [15:0] GOLD_MERGED [0:TOK_FLAT-1];
+reg [15:0] GOLD_BB     [0:TOK_FLAT-1];
+
+reg [31:0] cycle_cnt;
+reg [15:0] TEMPL_MEM [0:TEMPL_TOT-1];
+reg [15:0] SRCH_MEM  [0:SRCH_TOT-1];
+reg [13:0] tok_cnt;
+reg        done_seen;
+
+// SRAM read addr latch (negedge, CLK=~clk macro)
 always @(negedge clk) begin
     if (!t1_ceb && t1_web)
         t1_raddr_q <= t1_addr;
@@ -143,21 +144,12 @@ always @(posedge clk) begin
         SHADOW_Q[q_addr] <= q_din;
 end
 
-// Golden scratch + preloaded
-reg [15:0] GOLD_STAGE [0:TOK_FLAT-1];
-reg [15:0] GOLD_MERGED [0:TOK_FLAT-1];
-reg [15:0] GOLD_BB     [0:TOK_FLAT-1];
-reg [15:0] GOLD_B6_IN  [0:TOK_FLAT-1];
-
 always #(CYCLE/2.0) clk = ~clk;
 
-reg [31:0] cycle_cnt;
+// Cycle counter
 always @(posedge clk) cycle_cnt <= cycle_cnt + 1;
 
-reg [15:0] TEMPL_MEM [0:TEMPL_TOT-1];
-reg [15:0] SRCH_MEM  [0:SRCH_TOT-1];
-reg [13:0] tok_cnt;
-
+// Stimulus: stream template then search tokens into DUT
 always @(posedge clk) begin
     if (reset) begin
         tok_cnt    <= 14'd0;
@@ -310,16 +302,9 @@ task compare_shadow_bb_norm;
         $display("[STAGE] %0s @ cycle %0d  (shadow tok1 %0d words)", tag, cycle_cnt, expect_cnt);
         if (mism == 0)
             $display("  [PASS] %0s", tag);
-        else begin
+        else
             $display("  [FAIL] %0s  mismatches = %0d / %0d  first_bad_idx = %0d  RTL = %04h  GOLD = %04h",
                     tag, mism, expect_cnt, first_bad, rtl_bad, gold_bad);
-            `ifdef DUMP_BB_NORM_DEBUG
-            $display("  [DBG_BN] fail_ctx shadow[0]=%h gold_bb[0]=%h gold_b6_in[0]=%h",
-                    SHADOW_TOK1[0], GOLD_BB[0], GOLD_B6_IN[0]);
-            $display("  [DBG_BN] fail_ctx shadow[1]=%h gold_bb[1]=%h gold_b6_in[1]=%h",
-                    SHADOW_TOK1[1], GOLD_BB[1], GOLD_B6_IN[1]);
-            `endif
-        end
     end
 endtask
 
@@ -368,123 +353,7 @@ always @(posedge clk) begin
     end
 end
 
-`ifdef DUMP_BB_NORM_DEBUG
-// Backbone norm live compare vs golden (tok0 flat 0..31).
-// Compare: x_rd_wait(s1_q vs gold_b6_in), y_valid(y_o vs gold_bb), wr_en(web must be 0).
-wire [3:0]  bn_ln_state     = u_DUT.u_backbone.u_bn.state;
-wire [8:0]  bn_tok_cnt      = u_DUT.u_backbone.bn_tok_cnt;
-wire [13:0] bn_cap_flat     = u_DUT.u_backbone.bn_cap_flat;
-wire        bn_busy         = u_DUT.u_backbone.bn_busy;
-wire        bn_done         = u_DUT.u_backbone.bn_done;
-wire        bn_start         = u_DUT.u_backbone.bn_start;
-wire        bn_x_rd_en       = u_DUT.u_backbone.bn_x_rd_en;
-wire        bn_x_rd_wait     = u_DUT.u_backbone.bn_x_rd_wait;
-wire [13:0] bn_rd_addr_hold = u_DUT.u_backbone.bn_rd_addr_hold;
-wire        bn_y_valid      = u_DUT.u_backbone.bn_y_valid;
-wire [15:0] bn_y_o          = u_DUT.u_backbone.bn_y_o;
-wire        bn_wr_en         = u_DUT.u_backbone.bn_wr_en;
-wire [13:0] bn_wr_flat       = u_DUT.u_backbone.bn_wr_addr;
-wire [15:0] bn_wr_din        = u_DUT.u_backbone.bn_wr_din;
-wire [9:0]  bn_feat          = u_DUT.u_backbone.bn_feat_addr;
-wire [15:0] bn_wgt           = u_DUT.u_backbone.bn_wgt_mux;
-wire [15:0] bn_bias          = u_DUT.u_backbone.bn_bias_mux;
-wire [15:0] bn_s1_q          = u_DUT.u_backbone.s1_q;
-wire        bt_s1_ceb        = u_DUT.u_backbone.bt_s1_ceb;
-wire        bt_s1_web        = u_DUT.u_backbone.bt_s1_web;
-wire [13:0] bt_s1_addr       = u_DUT.u_backbone.bt_s1_addr;
-wire        tb_busy          = u_DUT.u_backbone.tb_busy;
-
-reg [5:0] dbg_bn_live_wr_cnt;
-reg [5:0] dbg_bn_x_mism;
-reg [5:0] dbg_bn_y_mism;
-reg [5:0] dbg_bn_wr_mism;
-reg [13:0] dbg_bn_first_x_bad;
-reg [13:0] dbg_bn_first_y_bad;
-reg [13:0] dbg_bn_first_wr_bad;
-
-// Macro tap at negedge (align CLK~clk SRAM sample edge)
-always @(negedge clk) begin
-    if (!reset && (bb_state == BB_S_BACKBONE_NORM) && (bn_tok_cnt == 9'd0)) begin
-        if (bn_x_rd_en && (bn_rd_addr_hold < 14'd4))
-            $display("[DBG_BN_NEG] x_rd_en flat=%0d mac_ceb=%b mac_web=%b mac_addr=%0d",
-                     bn_rd_addr_hold, t1_ceb, t1_web, t1_addr);
-        if (bn_x_rd_wait && (bn_rd_addr_hold < 14'd4))
-            $display("[DBG_BN_NEG] x_cap  flat=%0d mac_ceb=%b mac_web=%b mac_addr=%0d mac_q=%h gold_in=%h",
-                     bn_rd_addr_hold, t1_ceb, t1_web, t1_addr, bn_s1_q,
-                     GOLD_B6_IN[bn_rd_addr_hold]);
-        if (bn_wr_en && (bn_wr_flat < 14'd32))
-            $display("[DBG_BN_NEG] wr_en flat=%0d mac_ceb=%b mac_web=%b mac_addr=%0d mac_din=%h gold_bb=%h",
-                     bn_wr_flat, t1_ceb, t1_web, t1_addr, t1_din,
-                     GOLD_BB[bn_wr_flat]);
-    end
-end
-
-always @(posedge clk) begin
-    if (reset || (bb_state != BB_S_BACKBONE_NORM)) begin
-        dbg_bn_live_wr_cnt  <= 6'd0;
-        dbg_bn_x_mism       <= 6'd0;
-        dbg_bn_y_mism       <= 6'd0;
-        dbg_bn_wr_mism      <= 6'd0;
-        dbg_bn_first_x_bad  <= 14'h3fff;
-        dbg_bn_first_y_bad  <= 14'h3fff;
-        dbg_bn_first_wr_bad <= 14'h3fff;
-    end else begin
-        // x_rd_wait capture vs golden input
-        if (bn_x_rd_wait && (bn_tok_cnt == 9'd0) && (bn_rd_addr_hold < 14'd32)) begin
-            if (bn_s1_q !== GOLD_B6_IN[bn_rd_addr_hold]) begin
-                dbg_bn_x_mism <= dbg_bn_x_mism + 6'd1;
-                if (dbg_bn_first_x_bad == 14'h3fff)
-                    dbg_bn_first_x_bad <= bn_rd_addr_hold;
-            end
-            if (bn_rd_addr_hold < 14'd4)
-                $display("[DBG_BN] live_cap flat=%0d s1_q=%h gold_in=%h match=%0d tb_busy=%0d",
-                         bn_rd_addr_hold, bn_s1_q, GOLD_B6_IN[bn_rd_addr_hold],
-                         (bn_s1_q === GOLD_B6_IN[bn_rd_addr_hold]), tb_busy);
-        end
-
-        // norm output vs golden backbone_out
-        if (bn_y_valid && (bn_tok_cnt == 9'd0) && (bn_cap_flat < 14'd32)) begin
-            if (bn_y_o !== GOLD_BB[bn_cap_flat]) begin
-                dbg_bn_y_mism <= dbg_bn_y_mism + 6'd1;
-                if (dbg_bn_first_y_bad == 14'h3fff)
-                    dbg_bn_first_y_bad <= bn_cap_flat;
-            end
-            if (bn_cap_flat < 14'd8)
-                $display("[DBG_BN] live_y flat=%0d y=%h gold_bb=%h gold_in=%h w=%h b=%h ln=%0d",
-                         bn_cap_flat, bn_y_o, GOLD_BB[bn_cap_flat],
-                         GOLD_B6_IN[bn_cap_flat], bn_wgt, bn_bias, bn_ln_state);
-        end
-
-        // write beat: web must be 0; shadow update follows macro tap
-        if (bn_wr_en && (bn_wr_flat < 14'd32)) begin
-            if (bt_s1_web !== 1'b0)
-                dbg_bn_wr_mism <= dbg_bn_wr_mism + 6'd1;
-            if (bn_wr_din !== GOLD_BB[bn_wr_flat]) begin
-                dbg_bn_wr_mism <= dbg_bn_wr_mism + 6'd1;
-                if (dbg_bn_first_wr_bad == 14'h3fff)
-                    dbg_bn_first_wr_bad <= bn_wr_flat;
-            end
-            $display("[DBG_BN] live_wr flat=%0d rtl=%h gold_bb=%h shadow=%h web=%b tb_busy=%0d",
-                     bn_wr_flat, bn_wr_din, GOLD_BB[bn_wr_flat],
-                     SHADOW_TOK1[bn_wr_flat], bt_s1_web, tb_busy);
-            dbg_bn_live_wr_cnt <= dbg_bn_live_wr_cnt + 6'd1;
-        end
-
-        // tok0 done summary
-        if (bn_done && (bn_tok_cnt == 9'd0)) begin
-            $display("[DBG_BN] tok0_summary x_mism=%0d first_x_bad=%0d y_mism=%0d first_y_bad=%0d wr_mism=%0d first_wr_bad=%0d wr_cnt=%0d",
-                     dbg_bn_x_mism, dbg_bn_first_x_bad,
-                     dbg_bn_y_mism, dbg_bn_first_y_bad,
-                     dbg_bn_wr_mism, dbg_bn_first_wr_bad, dbg_bn_live_wr_cnt);
-            $display("[DBG_BN] tok0_summary shadow0=%h gold_bb0=%h gold_in0=%h",
-                     SHADOW_TOK1[0], GOLD_BB[0], GOLD_B6_IN[0]);
-        end
-    end
-end
-`endif
-
-reg done_seen;
-
+// Latch backbone done for final compare
 always @(posedge clk) begin
     if (reset)
         done_seen <= 1'b0;
@@ -501,7 +370,6 @@ initial begin
 
     $readmemb({`GOLDEN_ACT, "/merged_tokens_bi.txt"},                    GOLD_MERGED);
     $readmemb({`GOLDEN_ACT, "/backbone_after_norm_backbone_out_bi.txt"}, GOLD_BB);
-    $readmemb({`GOLDEN_ACT, "/backbone_blocks_6_after_block_out_bi.txt"}, GOLD_B6_IN);
     $readmemb({`GOLDEN_ACT, "/template_post_embed_input_bi.txt"},        TEMPL_MEM);
     $readmemb({`GOLDEN_ACT, "/search_post_embed_input_bi.txt"},         SRCH_MEM);
 

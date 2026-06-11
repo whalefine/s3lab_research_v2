@@ -26,8 +26,11 @@
 // SRAM read contract (1P, CLK = ~clk):
 //   posedge T:   addr, CEB=0, WEB=1
 //   posedge T+1: Q valid for addr@T
-// FC2 scratch read: registered addr (same as FC1 norm_rd), prefetch feat0 on
-//   last BLOAD beat so k[0] is valid when MAC mac_cnt=0 latches w_lane[0].
+// FC2 scratch read: registered addr; prefetch feat0 on last BLOAD beat.
+// S_MAC 3-stage x path (breaks SRAM Q -> multiplier STA path):
+//   posedge T:     issue x read (norm_rd / fc2_sram); latch w_lane[T]
+//   posedge T+1:   mac_x_r <= x@T; w_mul_r* <= w_rd_r*@T
+//   posedge T+2:   prod_r <= w_mul_r * mac_x_r; acc += prod_r@T+1
 //
 // ROM read contract (CLK = ~clk):
 //   posedge T:   wgt_addr_o / bias_addr_o
@@ -158,6 +161,16 @@ reg signed [15:0] w_rd_r5;
 reg signed [15:0] w_rd_r6;
 reg signed [15:0] w_rd_r7;
 
+reg signed [15:0] mac_x_r;
+reg signed [15:0] w_mul_r0;
+reg signed [15:0] w_mul_r1;
+reg signed [15:0] w_mul_r2;
+reg signed [15:0] w_mul_r3;
+reg signed [15:0] w_mul_r4;
+reg signed [15:0] w_mul_r5;
+reg signed [15:0] w_mul_r6;
+reg signed [15:0] w_mul_r7;
+
 reg signed [15:0] sat_val_r;
 reg               sat_wr_pending;
 reg [2:0]         sat_wr_lane;
@@ -188,8 +201,12 @@ end
 // Wires
 // -------------------------------------------------------------------------
 wire [7:0]  mac_limit = (layer == 1'b0) ? EMBED_DIM[7:0] : MLP_DIM[7:0];
-wire        mul_en    = (state == S_MAC) && (mac_cnt >= 8'd1) && (mac_cnt <= mac_limit);
-wire        acc_en    = (state == S_MAC) && (mac_cnt >= 8'd2);
+wire        mac_x_cap = (state == S_MAC) && (mac_cnt >= 8'd1) &&
+                        (mac_cnt <= mac_limit);
+wire        mul_en    = (state == S_MAC) && (mac_cnt >= 8'd2) &&
+                        (mac_cnt <= mac_limit + 8'd1);
+wire        acc_en    = (state == S_MAC) && (mac_cnt >= 8'd3) &&
+                        (mac_cnt <= mac_limit + 8'd2);
 
 wire [2:0] wl_lane = (layer == 1'b0) ? wl_cnt[7:5]  : wl_cnt[9:7];
 wire [6:0] wl_feat = (layer == 1'b0) ? {2'b0, wl_cnt[4:0]} : wl_cnt[6:0];
@@ -199,7 +216,7 @@ wire        wl_last = (layer == 1'b0) ? (wl_cnt == FC1_WL_MAX[9:0])
                                       : (wl_cnt == FC2_WL_MAX[9:0]);
 wire        wl_done = wl_last && (wl_phase == 1'b1);
 wire        bl_done = (bl_cnt == 4'd7) && (bl_phase == 1'b1);
-wire        mac_done = (mac_cnt == mac_limit + 8'd1);
+wire        mac_done = (mac_cnt == mac_limit + 8'd2);
 
 wire        sat_done   = (sat_lane == 4'd9);
 wire        tok_last   = (tok_cnt == N_TOKENS[8:0] - 9'd1);
@@ -379,7 +396,7 @@ always @(posedge clk) begin
 end
 
 // -------------------------------------------------------------------------
-// MAC counter (pipelined: 0=latch w[0] + issue k[0], 1..limit=MUL+issue)
+// MAC counter (pipelined: 0=issue x[0]+latch w[0]; 1=capture; 2..=MUL+issue)
 // -------------------------------------------------------------------------
 always @(posedge clk) begin
     if (reset)
@@ -404,20 +421,45 @@ always @(posedge clk) begin
     end
 end
 
-// MAC multiply stage (registered, cuts multiplier from accumulator path)
+// MAC x/w capture (1 cycle after SRAM Q valid; pairs with w_rd_r@issue)
+always @(posedge clk) begin
+    if (reset) begin
+        mac_x_r  <= 16'sd0;
+        w_mul_r0 <= 16'sd0;
+        w_mul_r1 <= 16'sd0;
+        w_mul_r2 <= 16'sd0;
+        w_mul_r3 <= 16'sd0;
+        w_mul_r4 <= 16'sd0;
+        w_mul_r5 <= 16'sd0;
+        w_mul_r6 <= 16'sd0;
+        w_mul_r7 <= 16'sd0;
+    end else if (mac_x_cap) begin
+        mac_x_r  <= mac_x;
+        w_mul_r0 <= w_rd_r0;
+        w_mul_r1 <= w_rd_r1;
+        w_mul_r2 <= w_rd_r2;
+        w_mul_r3 <= w_rd_r3;
+        w_mul_r4 <= w_rd_r4;
+        w_mul_r5 <= w_rd_r5;
+        w_mul_r6 <= w_rd_r6;
+        w_mul_r7 <= w_rd_r7;
+    end
+end
+
+// MAC multiply stage (reg x reg; SRAM Q not on comb multiplier input)
 always @(posedge clk) begin
     if (reset) begin
         for (i_lane = 0; i_lane < LANES; i_lane = i_lane + 1)
             prod_r[i_lane] <= 32'sd0;
     end else if (mul_en) begin
-        prod_r[0] <= w_rd_r0 * mac_x;
-        prod_r[1] <= w_rd_r1 * mac_x;
-        prod_r[2] <= w_rd_r2 * mac_x;
-        prod_r[3] <= w_rd_r3 * mac_x;
-        prod_r[4] <= w_rd_r4 * mac_x;
-        prod_r[5] <= w_rd_r5 * mac_x;
-        prod_r[6] <= w_rd_r6 * mac_x;
-        prod_r[7] <= w_rd_r7 * mac_x;
+        prod_r[0] <= w_mul_r0 * mac_x_r;
+        prod_r[1] <= w_mul_r1 * mac_x_r;
+        prod_r[2] <= w_mul_r2 * mac_x_r;
+        prod_r[3] <= w_mul_r3 * mac_x_r;
+        prod_r[4] <= w_mul_r4 * mac_x_r;
+        prod_r[5] <= w_mul_r5 * mac_x_r;
+        prod_r[6] <= w_mul_r6 * mac_x_r;
+        prod_r[7] <= w_mul_r7 * mac_x_r;
     end
 end
 
@@ -532,9 +574,9 @@ end
 
 // -------------------------------------------------------------------------
 // FC2 scratch SRAM read (registered addr, aligned with w_lane latch)
-//   posedge T:   fc2_sram_rd_feat_r <= mac_cnt (issue k[mac_cnt])
-//   posedge T+1: sram_k_q valid for feat@T; w_lane[mac_cnt@T] latched same T
-//   posedge T+2: MUL uses w_rd_r (w@T) * k@T+1
+//   posedge T:     issue k[mac_cnt]; latch w_lane[mac_cnt]
+//   posedge T+1:   sram_*_q valid for feat@T; mac_x_r / w_mul_r capture
+//   posedge T+2:   prod_r <= w_mul_r * mac_x_r
 // Prefetch: last BLOAD beat issues feat0 one cycle before MAC mac_cnt=0.
 // -------------------------------------------------------------------------
 always @(posedge clk) begin

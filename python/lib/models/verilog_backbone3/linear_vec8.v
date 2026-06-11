@@ -78,6 +78,9 @@ reg [IN_DIM_AW-1:0]         load_cnt;
 reg [NEU_AW-1:0]            neu_base_r;
 reg [3:0]                   sat_lane;
 
+reg signed [ACC_W-1:0]      acc_pick;
+reg signed [DATA_W-1:0]     bias_pick;
+
 wire                        vm_start;
 wire                        vm_busy;
 wire                        vm_mac_done;
@@ -107,8 +110,6 @@ wire signed [DATA_W-1:0]    vm_x_feed;
 wire                        load_last_beat;
 wire                        sat_lane_valid;
 wire                        more_neu_groups;
-reg signed [ACC_W-1:0]      acc_pick;
-reg signed [DATA_W-1:0]     bias_pick;
 wire signed [ACC_W-1:0]     acc_shr8_w;
 wire signed [ACC_W-1:0]     acc_plus_b_w;
 wire signed [DATA_W-1:0]    y_sat_w;

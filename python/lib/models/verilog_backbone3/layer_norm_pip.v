@@ -11,7 +11,10 @@
 //   S_CENTER     : feat_buf <- sat(x - mean); sum_sq_acc += centered^2
 //   S_VAR        : var_eps = max(sat((sum_sq*RCP+2^23)>>24), 1)
 //   S_INV        : inv_sqrt_nr(var_eps) -> inv_std
-//   S_NORM       : feat_addr_o=addr; y uses w_i/b_i (same as backbone2/layer_norm.v)
+//   S_NORM       : 3-phase per feature (breaks ROM Q -> multiplier STA path):
+//                  P0: feat_addr_o=norm_idx; ci_std_r <= rnd(feat_buf[i]*inv_std)
+//                  P1: feat_addr_o=norm_idx_out; w_r<=w_i; b_r<=b_i (ROM Q@P0 valid)
+//                  P2: y <= sat(rnd(w_r*ci_std_r)+b_r); y_valid
 //
 // Golden: Activation/backbone_blocks_<b>_after_norm1_out_bi.txt
 // Golden-Weight: Weight/backbone_blocks_<b>_norm1_{weight,bias}_bi.txt
@@ -75,6 +78,12 @@ reg [3:0]                   state;
 reg [3:0]                   next_state;
 reg [FEAT_AW-1:0]           addr;
 reg [FEAT_AW-1:0]           norm_idx;
+reg [FEAT_AW-1:0]           norm_idx_out;
+reg [1:0]                   norm_phase;
+
+reg signed [15:0]           ci_std_r;
+reg signed [15:0]           w_r;
+reg signed [15:0]           b_r;
 
 reg signed [15:0]           feat_buf [0:FEAT_DIM-1];
 
@@ -102,10 +111,6 @@ wire signed [15:0]          var_q88_comb;
 wire signed [15:0]          var_eps;
 wire [31:0]                 ci_std_raw;
 wire signed [15:0]          ci_std;
-wire [31:0]                 wci_raw;
-wire signed [15:0]          wci;
-wire signed [31:0]          y_full;
-wire signed [15:0]          y_sat;
 wire [31:0]                 csq;
 
 wire signed [31:0]          mean_prod;
@@ -114,7 +119,12 @@ wire signed [31:0]          mean_shr;
 wire signed [15:0]          mean_q88_comb;
 
 wire signed [31:0]          ci_std_t;
-wire signed [31:0]          wci_t;
+
+wire signed [31:0]          wci_raw_reg;
+wire signed [31:0]          wci_t_reg;
+wire signed [15:0]          wci_reg;
+wire signed [31:0]          y_full_reg;
+wire signed [15:0]          y_sat_reg;
 
 wire [FEAT_AW-1:0]          op_idx;
 
@@ -124,9 +134,15 @@ wire                        norm_last_beat;
 
 assign op_idx = (state == S_NORM) ? norm_idx : addr;
 
+// P0: ROM addr = norm_idx; P1/P2: norm_idx_out (aligned with latched w/b)
+assign feat_addr_o = (state == S_NORM && (norm_phase == 2'd1 || norm_phase == 2'd2)) ?
+    {{(10-FEAT_AW){1'b0}}, norm_idx_out} :
+    {{(10-FEAT_AW){1'b0}}, op_idx};
+
 assign load_x_last_beat  = (state == S_LOAD) && x_rd_wait && (addr == FEAT_LAST);
 assign center_last_beat  = (state == S_CENTER) && (addr == FEAT_LAST);
-assign norm_last_beat    = (state == S_NORM) && (norm_idx == FEAT_LAST);
+assign norm_last_beat    = (state == S_NORM) && (norm_phase == 2'd2) &&
+                           (norm_idx == FEAT_LAST);
 
 assign centered17 = $signed({feat_buf[op_idx][15], feat_buf[op_idx]}) -
                     $signed({mean_q88[15], mean_q88});
@@ -151,20 +167,18 @@ assign ci_std     =
     (ci_std_t > 32'sh7FFF_FFFF) ? 16'sh7FFF :
     (ci_std_t < -32'sh8000_0000) ? -16'sh8000 : ci_std_t[23:8];
 
-assign wci_raw = $signed(w_i) * ci_std;
-assign wci_t   = wci_raw + 32'sd128;
-assign wci     =
-    (wci_t > 32'sh7FFF_FFFF) ? 16'sh7FFF :
-    (wci_t < -32'sh8000_0000) ? -16'sh8000 : wci_t[23:8];
+assign wci_raw_reg = $signed(w_r) * $signed(ci_std_r);
+assign wci_t_reg   = wci_raw_reg + 32'sd128;
+assign wci_reg     =
+    (wci_t_reg > 32'sh7FFF_FFFF) ? 16'sh7FFF :
+    (wci_t_reg < -32'sh8000_0000) ? -16'sh8000 : wci_t_reg[23:8];
 
-assign y_full = $signed(wci) + $signed(b_i);
-assign y_sat  =
-    (y_full > 32'sh7FFF) ? 16'sh7FFF :
-    (y_full < -32'sh8000) ? -16'sh8000 : y_full[15:0];
+assign y_full_reg = $signed(wci_reg) + $signed(b_r);
+assign y_sat_reg  =
+    (y_full_reg > 32'sh7FFF) ? 16'sh7FFF :
+    (y_full_reg < -32'sh8000) ? -16'sh8000 : y_full_reg[15:0];
 
 assign csq = $signed(centered) * $signed(centered);
-
-assign feat_addr_o = {{(10-FEAT_AW){1'b0}}, op_idx};
 
 assign busy = (state != S_IDLE);
 
@@ -232,7 +246,12 @@ always @(posedge clk) begin
 
     if (reset) begin
         addr       <= {FEAT_AW{1'b0}};
-        norm_idx   <= {FEAT_AW{1'b0}};
+        norm_idx     <= {FEAT_AW{1'b0}};
+        norm_idx_out <= {FEAT_AW{1'b0}};
+        norm_phase   <= 2'd0;
+        ci_std_r     <= 16'sd0;
+        w_r          <= 16'sd0;
+        b_r          <= 16'sd0;
         sum_acc    <= 32'sd0;
         sum_sq_acc <= 48'd0;
         mean_q88   <= 16'sd0;
@@ -244,11 +263,14 @@ always @(posedge clk) begin
     end else begin
         case (state)
             S_IDLE: begin
-                addr       <= {FEAT_AW{1'b0}};
-                sum_acc    <= 32'sd0;
-                sum_sq_acc <= 48'd0;
-                x_rd_pend  <= 1'b0;
-                x_rd_wait  <= 1'b0;
+                addr         <= {FEAT_AW{1'b0}};
+                norm_idx     <= {FEAT_AW{1'b0}};
+                norm_idx_out <= {FEAT_AW{1'b0}};
+                norm_phase   <= 2'd0;
+                sum_acc      <= 32'sd0;
+                sum_sq_acc   <= 48'd0;
+                x_rd_pend    <= 1'b0;
+                x_rd_wait    <= 1'b0;
             end
 
             S_LOAD: begin
@@ -292,17 +314,29 @@ always @(posedge clk) begin
             end
 
             S_INV: begin
-                if (inv_done)
-                    norm_idx <= {FEAT_AW{1'b0}};
+                if (inv_done) begin
+                    norm_idx     <= {FEAT_AW{1'b0}};
+                    norm_idx_out <= {FEAT_AW{1'b0}};
+                    norm_phase   <= 2'd0;
+                end
             end
 
             S_NORM: begin
-                y_o     <= y_sat;
-                y_valid <= 1'b1;
-                if (norm_idx != FEAT_LAST)
-                    norm_idx <= norm_idx + {{(FEAT_AW-1){1'b0}}, 1'b1};
-                else
-                    norm_idx <= {FEAT_AW{1'b0}};
+                if (norm_phase == 2'd0) begin
+                    ci_std_r     <= ci_std;
+                    norm_idx_out <= norm_idx;
+                    norm_phase   <= 2'd1;
+                end else if (norm_phase == 2'd1) begin
+                    w_r        <= w_i;
+                    b_r        <= b_i;
+                    norm_phase <= 2'd2;
+                end else begin
+                    y_o        <= y_sat_reg;
+                    y_valid    <= 1'b1;
+                    norm_phase <= 2'd0;
+                    if (norm_idx != FEAT_LAST)
+                        norm_idx <= norm_idx + {{(FEAT_AW-1){1'b0}}, 1'b1};
+                end
             end
 
             S_DONE: begin

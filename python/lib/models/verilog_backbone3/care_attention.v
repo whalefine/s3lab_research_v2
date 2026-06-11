@@ -174,6 +174,9 @@ reg signed [15:0] sat_val_r;
 reg        sat_wr_pending;
 reg [2:0]  sat_wr_lane;
 
+reg signed [31:0] acc_pick;
+reg signed [15:0] bias_pick;
+
 // PROJ sram_ao read control
 reg       proj_rd_en_r;
 reg [4:0] proj_rd_feat_r;
@@ -295,8 +298,6 @@ wire [4:0] proj_rd_feat_mux =
      bl_cnt == 3'd7 && bl_phase == 1'b1) ? 5'd0 : proj_rd_feat_r;
 
 // SAT pipeline combinational
-reg signed [31:0] acc_pick;
-reg signed [15:0] bias_pick;
 wire signed [31:0] sat_shr8  = acc_pick >>> 8;
 wire signed [31:0] sat_add_b = sat_shr8 + {{16{bias_pick[15]}}, bias_pick};
 

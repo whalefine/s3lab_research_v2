@@ -1,17 +1,17 @@
 `timescale 1ns/10ps
 
-`include "../inv_sqrt_lut_seed.v"
-`include "../inv_sqrt_nr.v"
-`include "../recip_lut_seed.v"
-`include "../recip_nr.v"
-`include "../common/vec_mac8.v"
-`include "../common/q88_ops.v"
-`include "../linear_vec8.v"
-`include "../residual.v"
-`include "../layer_norm_pip.v"
-`include "../care_attention.v"
-`include "../mlp_ws.v"
-`include "../transformer_block.v"
+`include "inv_sqrt_lut_seed.v"
+`include "inv_sqrt_nr.v"
+`include "recip_lut_seed.v"
+`include "recip_nr.v"
+`include "common/vec_mac8.v"
+`include "common/q88_ops.v"
+`include "linear_vec8.v"
+`include "residual.v"
+`include "layer_norm_pip.v"
+`include "care_attention.v"
+`include "mlp_ws.v"
+`include "transformer_block.v"
 
 // =============================================================================
 // TEST_transformer_block.v -- block0 end-to-end with per-stage golden check
@@ -70,7 +70,7 @@ parameter FC2_B_DEPTH    = EMBED_DIM;
 // SRAM sizes
 parameter K_MEM_DEPTH   = 16384;
 parameter V_MEM_DEPTH   = 16384;
-parameter QKM_MEM_DEPTH = 2048;
+parameter QKM_MEM_DEPTH = 64 * MLP_DIM;  // tokens 256..319 fc1 scratch (mlp_ws)
 
 // =========================================================================
 // DUT signals
@@ -127,6 +127,38 @@ reg [15:0] QKM_MEM  [0:QKM_MEM_DEPTH-1];
 reg [13:0] tok1_raddr_q, tok2_raddr_q, q_raddr_q;
 reg [13:0] k_raddr_q, v_raddr_q, qkm_raddr_q;
 
+reg [15:0] GOLD_NORM1 [0:TOK_FLAT-1];
+reg [15:0] GOLD_ATTN  [0:TOK_FLAT-1];
+reg [15:0] GOLD_RES1  [0:TOK_FLAT-1];
+reg [15:0] GOLD_NORM2 [0:TOK_FLAT-1];
+reg [15:0] GOLD_MLP   [0:TOK_FLAT-1];
+reg [15:0] GOLD_BLOCK [0:TOK_FLAT-1];
+reg [15:0] INPUT_MEM  [0:TOK_FLAT-1];
+
+reg [15:0] NORM1_W [0:NORM_W_DEPTH-1];
+reg [15:0] NORM1_B [0:NORM_W_DEPTH-1];
+reg [15:0] NORM2_W [0:NORM_W_DEPTH-1];
+reg [15:0] NORM2_B [0:NORM_W_DEPTH-1];
+
+reg [15:0] QKV_W   [0:QKV_W_DEPTH-1];
+reg [15:0] QKV_B   [0:QKV_B_DEPTH-1];
+reg [15:0] PROJ_W  [0:PROJ_W_DEPTH-1];
+reg [15:0] PROJ_B  [0:PROJ_B_DEPTH-1];
+
+reg [15:0] FC1_W   [0:FC1_W_DEPTH-1];
+reg [15:0] FC1_B   [0:FC1_B_DEPTH-1];
+reg [15:0] FC2_W   [0:FC2_W_DEPTH-1];
+reg [15:0] FC2_B   [0:FC2_B_DEPTH-1];
+
+reg [15:0] w_addr_q;
+reg [7:0]  b_addr_q;
+
+reg [31:0] cycle_cnt;
+integer    chk_i;
+reg [31:0] chk_mism;
+reg [31:0] chk_first;
+reg [3:0]  prev_state;
+
 // SRAM read: negedge latch
 always @(negedge clk) begin
     if (!sram_tok1_ceb_o && sram_tok1_web_o)
@@ -148,7 +180,7 @@ assign sram_tok2_q_i = TOK2_MEM[tok2_raddr_q];
 assign sram_q_q_i    = Q_MEM[q_raddr_q];
 assign sram_k_q_i    = K_MEM[k_raddr_q];
 assign sram_v_q_i    = V_MEM[v_raddr_q];
-assign sram_qkm_q_i  = QKM_MEM[qkm_raddr_q[10:0]];
+assign sram_qkm_q_i  = QKM_MEM[qkm_raddr_q[12:0]];
 
 // SRAM write: posedge capture (matches existing TB convention)
 always @(posedge clk) begin
@@ -163,37 +195,8 @@ always @(posedge clk) begin
     if (!sram_v_ceb_o && !sram_v_web_o)
         V_MEM[sram_v_addr_o] <= sram_v_din_o;
     if (!sram_qkm_ceb_o && !sram_qkm_web_o)
-        QKM_MEM[sram_qkm_addr_o[10:0]] <= sram_qkm_din_o;
+        QKM_MEM[sram_qkm_addr_o[12:0]] <= sram_qkm_din_o;
 end
-
-// =========================================================================
-// Golden memories
-// =========================================================================
-reg [15:0] GOLD_NORM1 [0:TOK_FLAT-1];
-reg [15:0] GOLD_ATTN  [0:TOK_FLAT-1];
-reg [15:0] GOLD_RES1  [0:TOK_FLAT-1];
-reg [15:0] GOLD_NORM2 [0:TOK_FLAT-1];
-reg [15:0] GOLD_MLP   [0:TOK_FLAT-1];
-reg [15:0] GOLD_BLOCK [0:TOK_FLAT-1];
-reg [15:0] INPUT_MEM  [0:TOK_FLAT-1];
-
-// =========================================================================
-// Weight / bias ROMs
-// =========================================================================
-reg [15:0] NORM1_W [0:NORM_W_DEPTH-1];
-reg [15:0] NORM1_B [0:NORM_W_DEPTH-1];
-reg [15:0] NORM2_W [0:NORM_W_DEPTH-1];
-reg [15:0] NORM2_B [0:NORM_W_DEPTH-1];
-
-reg [15:0] QKV_W   [0:QKV_W_DEPTH-1];
-reg [15:0] QKV_B   [0:QKV_B_DEPTH-1];
-reg [15:0] PROJ_W  [0:PROJ_W_DEPTH-1];
-reg [15:0] PROJ_B  [0:PROJ_B_DEPTH-1];
-
-reg [15:0] FC1_W   [0:FC1_W_DEPTH-1];
-reg [15:0] FC1_B   [0:FC1_B_DEPTH-1];
-reg [15:0] FC2_W   [0:FC2_W_DEPTH-1];
-reg [15:0] FC2_B   [0:FC2_B_DEPTH-1];
 
 // =========================================================================
 // ROM address decode
@@ -213,8 +216,6 @@ wire signed [15:0] norm_bias =
     16'sd0;
 
 // Attn/MLP weight/bias: negedge-latched (1-cycle ROM latency)
-reg [15:0] w_addr_q;
-reg [7:0]  b_addr_q;
 wire [2:0] wtype_lat = w_addr_q[15:13];
 
 always @(negedge clk) begin
@@ -238,9 +239,11 @@ wire signed [15:0] attn_mlp_bias =
     (wtype_lat == 3'b101) ? $signed(FC2_B[b_addr_q[4:0]]) :
     16'sd0;
 
-// Final mux: norm uses live (combinational), attn/mlp uses latched
-assign wgt_i  = (wtype_live == 3'b000 || wtype_live == 3'b001) ? norm_wgt  : attn_mlp_wgt;
-assign bias_i = (wtype_live == 3'b000 || wtype_live == 3'b001) ? norm_bias : attn_mlp_bias;
+// Final mux: norm dedicated port (2-phase layer_norm ROM); attn/mlp latched
+assign wgt_i       = attn_mlp_wgt;
+assign bias_i      = attn_mlp_bias;
+wire signed [15:0] norm_wgt_i  = norm_wgt;
+wire signed [15:0] norm_bias_i = norm_bias;
 
 // =========================================================================
 // DUT
@@ -255,6 +258,8 @@ transformer_block #(
     .start            (start),
     .wgt_i            (wgt_i),
     .bias_i           (bias_i),
+    .norm_wgt_i       (norm_wgt_i),
+    .norm_bias_i      (norm_bias_i),
     .wgt_addr_o       (wgt_addr_o),
     .bias_addr_o      (bias_addr_o),
     .busy             (busy),
@@ -299,7 +304,6 @@ always #(CYCLE/2.0) clk = ~clk;
 // =========================================================================
 // Counters
 // =========================================================================
-reg [31:0] cycle_cnt;
 always @(posedge clk) begin
     if (reset) cycle_cnt <= 32'd0;
     else       cycle_cnt <= cycle_cnt + 32'd1;
@@ -308,10 +312,6 @@ end
 // =========================================================================
 // Per-stage comparison (runs after each state transition)
 // =========================================================================
-integer chk_i;
-reg [31:0] chk_mism;
-reg [31:0] chk_first;
-reg [3:0] prev_state;
 always @(posedge clk) prev_state <= u_dut.state;
 
 // NORM1 check: tok1 vs GOLD_NORM1 when entering S_ATTN_FEED

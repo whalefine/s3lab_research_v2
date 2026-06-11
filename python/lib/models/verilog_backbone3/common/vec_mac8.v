@@ -94,13 +94,14 @@ reg signed [DATA_W-1:0]     bias_r [0:LANES-1];
 reg signed [ACC_W-1:0]      acc_r [0:LANES-1];
 reg signed [ACC_W-1:0]      acc_sat_r [0:LANES-1];
 
+reg signed [2*DATA_W-1:0]   mac_prod;
+reg signed [ACC_W-1:0]      acc_next;
+
 wire                        feat_last;
 wire                        lane_last;
 wire [LANES-1:0]            lane_valid_w;
 
 wire signed [DATA_W-1:0]    mac_x_op;
-reg signed [2*DATA_W-1:0]   mac_prod;
-reg signed [ACC_W-1:0]      acc_next;
 
 wire                        cs_en;
 wire                        run_arm;
