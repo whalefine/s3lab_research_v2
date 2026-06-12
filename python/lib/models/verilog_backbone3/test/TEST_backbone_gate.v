@@ -33,30 +33,37 @@
 // =============================================================================
 // TEST_backbone_gate.v -- sglatrack_top(backbone-only) GLS final-check
 //
-// Flat netlist: no hierarchy tap. After done, read Sram_tok1 via top tok1_readback_*.
-// Requires sglatrack_top_syn from RTL that keeps readback mux (verilog_backbone3
-// sglatrack_top.v Plan A; do NOT tie tok1_readback_q off under +define+SYNTHESIS).
-// SDC: set_false_path on tok1_readback* (see verilog_backbone3/synthesis/sglatrack_top.sdc).
+// Flat netlist: after done, read Sram_tok1 via top tok1_readback_*.
+// Stimulus on negedge clk (GLS+SDF: avoids loadin_wr_din_reg $hold -> X state).
 //
 // Golden: ./TXT_File/Activation/
 //
-// VCS (from sim root with sglatrack_top_syn.v, memory2/, stdcell .v):
-//   vcs test/TEST_backbone_gate.v \
-//       +lint=TFIPC-L +define+TSMC_CM_NO_WARNING \
-//       +notimingcheck +delay_mode_zero \
-//       -debug_access+all -debug_region+cell | tee runvcs_gate.log
-//   ./simv | tee simv_gate.log
+// Zero-delay functional GLS (no SDF):
+//   vcs test/TEST_backbone_gate.v +notimingcheck +delay_mode_zero ...
 //
-// read_saif (if used in synthesis): -instance u_DUT  (not TEST_backbone/u_DUT)
+// With SDF (compile +define+GATE_SDF; do NOT use +delay_mode_zero):
+//   vcs test/TEST_backbone_gate.v +define+GATE_SDF ...
+//   ./simv | tee simv_gate.log
+// TB drives inputs INPUT_SETUP after negedge (SDF clock-tree margin; no +notimingcheck).
+//
+// Zero-delay (no SDF): omit +define+GATE_SDF, use +notimingcheck +delay_mode_zero
+//
+// Optional: +define+GATE_SDF_FILE=\"./sglatrack_top.sdf\"
+// read_saif: -instance u_DUT
 // =============================================================================
 
-`ifndef GOLDEN_ACT
 `define GOLDEN_ACT "./TXT_File/Activation"
-`endif
+`define GATE_SDF_FILE "sglatrack_top.sdf"
 
 module TEST_backbone_gate;
 
 parameter CYCLE = 3.0;
+// After negedge, wait before changing inputs (setup for DUT posedge FF under SDF)
+`ifdef GATE_SDF
+parameter INPUT_SETUP = 0.75;
+`else
+parameter INPUT_SETUP = 0.0;
+`endif
 
 parameter EMBED_DIM   = 32;
 parameter FEAT_H      = 16;
@@ -117,27 +124,29 @@ always #(CYCLE/2.0) clk = ~clk;
 
 always @(posedge clk) cycle_cnt <= cycle_cnt + 1;
 
-always @(posedge clk) begin
+// negedge + INPUT_SETUP: stable before DUT posedge (GLS+SDF, no +notimingcheck)
+always @(negedge clk) begin
+    #(INPUT_SETUP);
     if (reset) begin
-        tok_cnt    <= 14'd0;
-        data_in    <= 16'sd0;
-        data_valid <= 1'b0;
+        tok_cnt    = 14'd0;
+        data_in    = 16'sd0;
+        data_valid = 1'b0;
     end else if ((start || busy) && x_ready) begin
         if (tok_cnt < TEMPL_TOT) begin
-            data_valid <= 1'b1;
-            data_in    <= TEMPL_MEM[tok_cnt];
-            tok_cnt    <= tok_cnt + 14'd1;
+            data_valid = 1'b1;
+            data_in    = TEMPL_MEM[tok_cnt];
+            tok_cnt    = tok_cnt + 14'd1;
         end else if (tok_cnt < TOK_TOTAL) begin
-            data_valid <= 1'b1;
-            data_in    <= SRCH_MEM[tok_cnt - TEMPL_TOT];
-            tok_cnt    <= tok_cnt + 14'd1;
+            data_valid = 1'b1;
+            data_in    = SRCH_MEM[tok_cnt - TEMPL_TOT];
+            tok_cnt    = tok_cnt + 14'd1;
         end else begin
-            data_valid <= 1'b0;
-            data_in    <= 16'sd0;
+            data_valid = 1'b0;
+            data_in    = 16'sd0;
         end
     end else if (start || busy) begin
-        data_valid <= 1'b0;
-        data_in    <= 16'sd0;
+        data_valid = 1'b0;
+        data_in    = 16'sd0;
     end
 end
 
@@ -148,13 +157,19 @@ task readback_tok1_all;
     input [31:0] word_cnt;
     integer      idx;
     begin
+        @(negedge clk);
+        #(INPUT_SETUP);
         tok1_readback = 1'b1;
         for (idx = 0; idx < word_cnt; idx = idx + 1) begin
+            @(negedge clk);
+            #(INPUT_SETUP);
             tok1_readback_addr = idx[13:0];
             @(posedge clk);
             @(posedge clk);
             READ_TOK1[idx] = tok1_readback_q;
         end
+        @(negedge clk);
+        #(INPUT_SETUP);
         tok1_readback      = 1'b0;
         tok1_readback_addr = 14'd0;
     end
@@ -199,10 +214,14 @@ always @(posedge clk) begin
 end
 
 initial begin
-`ifdef DUMP_FSDB
+`ifdef GATE_SDF
+    $display("[TB] SDF annotate: %s -> u_DUT", `GATE_SDF_FILE);
+    $sdf_annotate(`GATE_SDF_FILE, u_DUT);
+    $display("[TB] SDF annotate done (timing checks enabled; TB INPUT_SETUP=%0.2f ns)", INPUT_SETUP);
+`endif
+
     $fsdbDumpfile("sglatrack_top_gate.fsdb");
     $fsdbDumpvars;
-`endif
 
     $set_toggle_region("u_DUT");
     $toggle_start();
@@ -214,7 +233,12 @@ initial begin
     $display("[TB] backbone E2E final-check (GLS)  N_TOKENS=%0d  TOK_FLAT=%0d", N_TOKENS, TOK_FLAT);
     $display("[TB] Golden dir: %s", `GOLDEN_ACT);
     $display("[TB] Compare: backbone_after_norm_backbone_out_bi.txt vs tok1_readback_q");
-    $display("[TB] CYCLE=%0.1f ns  (match synthesis clock period)", CYCLE);
+    $display("[TB] CYCLE=%0.1f ns  stimulus=negedge+%0.2f ns", CYCLE, INPUT_SETUP);
+`ifdef GATE_SDF
+    $display("[TB] GATE_SDF enabled  file=%s", `GATE_SDF_FILE);
+`else
+    $display("[TB] GATE_SDF disabled");
+`endif
 
     clk                = 0;
     reset              = 1;
@@ -229,12 +253,20 @@ initial begin
 
     sel_block_i = 4'd6;
 
+    // Clock + reset release (async reset recovery under SDF)
     #(CYCLE) reset = 1;
-    #(CYCLE) reset = 0;
+`ifdef GATE_SDF
+    repeat (20) @(posedge clk);
+`endif
+    @(negedge clk);
+    #(INPUT_SETUP);
+    reset = 0;
 
     @(negedge clk);
+    #(INPUT_SETUP);
     start = 1;
     @(negedge clk);
+    #(INPUT_SETUP);
     start = 0;
 
     $display("[TB] start pulsed @ cycle %0d", cycle_cnt);
@@ -253,7 +285,6 @@ initial begin
 end
 
 initial begin
-    $sdf_annotate("sglatrack_top.sdf", u_DUT);
     #(CYCLE * 80_000_000);
     $display("[TB] TIMEOUT: backbone_top did not finish (cycle %0d)", cycle_cnt);
     $toggle_stop();
