@@ -768,14 +768,14 @@ sigmoid_lut #(.DATA_W(DATA_W)) u_sig_siz (
 );
 
 rom_box_head_tail_ctr_offset_size_weight u_rom_w (
-    .A(rom_w_a), .AM(), .CEBM(), .BIST(1'b0),
+    .A(rom_w_a), .AM(8'b0), .CEBM(), .BIST(1'b0),
     .CEB(rom_ceb_w), .CLK(~clk),
     .SD(1'b0), .PUDELAY(),
     .RTSEL(2'b01), .PTSEL(2'b01), .TRB(2'b01), .TM(1'b0),
     .Q(rom_w_q));
 
 rom_box_head_tail_ctr_offset_size_bias u_rom_b (
-    .A(rom_b_a), .AM(), .CEBM(), .BIST(1'b0),
+    .A(rom_b_a), .AM(7'b0), .CEBM(), .BIST(1'b0),
     .CEB(rom_ceb_b), .CLK(~clk),
     .SD(1'b0), .PUDELAY(),
     .RTSEL(2'b01), .PTSEL(2'b01), .TRB(2'b01), .TM(1'b0),

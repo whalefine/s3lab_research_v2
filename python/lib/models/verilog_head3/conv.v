@@ -191,13 +191,13 @@ generate
         assign rom_ceb_w3 = 1'b1 ;
         assign w_i        = rom_c1_use_w2 ? rom_w2_q : rom_w1_q ;
         rom_box_head_shared_conv1_folded_weight1 u_rom_w1 (
-            .A(rom_w_a), .AM(), .CEBM(), .BIST(1'b0),
+            .A(rom_w_a), .AM(14'b0), .CEBM(), .BIST(1'b0),
             .CEB(rom_ceb_w1), .CLK(~clk),
             .SD(1'b0), .PUDELAY(),
             .RTSEL(2'b01), .PTSEL(2'b01), .TRB(2'b01), .TM(1'b0),
             .Q(rom_w1_q));
         rom_box_head_shared_conv1_folded_weight2 u_rom_w2 (
-            .A(rom_w_a), .AM(), .CEBM(), .BIST(1'b0),
+            .A(rom_w_a), .AM(14'b0), .CEBM(), .BIST(1'b0),
             .CEB(rom_ceb_w2), .CLK(~clk),
             .SD(1'b0), .PUDELAY(),
             .RTSEL(2'b01), .PTSEL(2'b01), .TRB(2'b01), .TM(1'b0),
@@ -211,19 +211,19 @@ generate
         assign w_i        = rom_c2_use_w3 ? rom_w3_q :
                             rom_c2_use_w2 ? rom_w2_q : rom_w1_q ;
         rom_box_head_shared_conv2_folded_weight1 u_rom_w1 (
-            .A(rom_w_a), .AM(), .CEBM(), .BIST(1'b0),
+            .A(rom_w_a), .AM(14'b0), .CEBM(), .BIST(1'b0),
             .CEB(rom_ceb_w1), .CLK(~clk),
             .SD(1'b0), .PUDELAY(),
             .RTSEL(2'b01), .PTSEL(2'b01), .TRB(2'b01), .TM(1'b0),
             .Q(rom_w1_q));
         rom_box_head_shared_conv2_folded_weight2 u_rom_w2 (
-            .A(rom_w_a), .AM(), .CEBM(), .BIST(1'b0),
+            .A(rom_w_a), .AM(14'b0), .CEBM(), .BIST(1'b0),
             .CEB(rom_ceb_w2), .CLK(~clk),
             .SD(1'b0), .PUDELAY(),
             .RTSEL(2'b01), .PTSEL(2'b01), .TRB(2'b01), .TM(1'b0),
             .Q(rom_w2_q));
         rom_box_head_shared_conv2_folded_weight3 u_rom_w3 (
-            .A(rom_w_a), .AM(), .CEBM(), .BIST(1'b0),
+            .A(rom_w_a), .AM(14'b0), .CEBM(), .BIST(1'b0),
             .CEB(rom_ceb_w3), .CLK(~clk),
             .SD(1'b0), .PUDELAY(),
             .RTSEL(2'b01), .PTSEL(2'b01), .TRB(2'b01), .TM(1'b0),
@@ -232,7 +232,7 @@ generate
 endgenerate
 
 rom_box_head_shared_conv1_2_folded_bias u_rom_c12b (
-    .A(rom_c12b_a), .AM(), .CEBM(), .BIST(1'b0),
+    .A(rom_c12b_a), .AM(8'b0), .CEBM(), .BIST(1'b0),
     .CEB(rom_ceb_b), .CLK(~clk),
     .SD(1'b0), .PUDELAY(),
     .RTSEL(2'b01), .PTSEL(2'b01), .TRB(2'b01), .TM(1'b0),
