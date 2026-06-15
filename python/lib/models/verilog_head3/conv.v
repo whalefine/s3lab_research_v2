@@ -9,6 +9,8 @@
 // wgt_buf: parent Sram_tok1 in head_top. WPRE phase1 write; MAC phase0 read, phase1 comb wgt_rd_i.
 //
 // WPRE: 2-phase ROM prefetch; MAC: 1-phase pipelined (read feat k+1 while MAC feat k).
+// MAC_2PHASE=1: per-feat 2-cycle MAC — phase0 mult+latch mac_prod_r, phase1 acc+=mac_prod_r.
+// MAC_XPIPE=1 (needs MAC_2PHASE): +x latch — SRAM Q→x_mac_r, then x_mac_r→mult→mac_prod_r→acc.
 // =============================================================================
 
 module conv (
@@ -63,6 +65,10 @@ parameter ROM_PROFILE = 1 ;
 parameter OC_PAR      = 1 ;
 // 1: (acc+2^(FRAC_W-1))>>>FRAC_W+bias matches numpy fp() after conv; 0: trunc
 parameter ROUND_Y     = 0 ;
+// 1: split multiply / accumulate into 2 cycles (shorter comb path); 0: 1-phase MAC
+parameter MAC_2PHASE  = 0 ;
+// 1: register SRAM x before multiply (3 sub-cycles/feat); requires MAC_2PHASE=1
+parameter MAC_XPIPE   = 0 ;
 
 input                       clk     ;
 input                       rst_n   ;
@@ -107,9 +113,12 @@ reg  [3:0]               bpre_lane ;
 reg                      bpre_done ;
 
 reg                      mac_fill ;
+reg  [1:0]               mac_sub ;   // XPIPE: 0=xlatch 1=mult 2=acc; !XPIPE 2PHASE: 0=mult 1=acc
 reg  [FEAT_AW-1:0]       mac_feat ;
 reg                      mac_done ;
 reg                      mac_xi_pad_r ;
+reg  signed [DATA_W-1:0]   x_mac_r ;
+reg  signed [2*DATA_W-1:0] mac_prod_r [0:OC_PAR-1] ;
 
 reg  signed [DATA_W-1:0] bias_r [0:OC_PAR-1] ;
 reg  signed [DATA_W-1:0] wgt_buf [0:OC_PAR-1][0:FEAT_PER_OC-1] ;
@@ -141,7 +150,6 @@ wire [X_AW-1:0]          x_addr_nxt ;
 wire                     pad_nxt ;
 wire                     mac_feat_last ;
 
-wire signed [DATA_W-1:0]       mac_x_op ;
 integer i_lane ;
 reg signed [DATA_W-1:0]  mac_w_op [0:OC_PAR-1] ;
 reg signed [2*DATA_W-1:0] mac_prod [0:OC_PAR-1] ;
@@ -233,9 +241,10 @@ rom_box_head_shared_conv1_2_folded_bias u_rom_c12b (
 assign busy          = busy_r ;
 assign done          = done_r ;
 assign x_addr        = x_addr_r ;
-// mac_phase_o=1: parent should feed x_i (SRAM Q from prior read); 0: fill cycle only
-assign mac_phase_o   = (CS == S_MAC) && !mac_done && !mac_fill ;
-// Issue read for feat0 on fill; else read feat mac_feat+1 (Q valid next cycle for MAC)
+// mac_phase_o=1: parent feeds x_i (SRAM Q); xlatch (!XPIPE mult) sub-cycle only
+assign mac_phase_o   = MAC_2PHASE ? ((CS == S_MAC) && !mac_done && !mac_fill && (mac_sub == 2'd0))
+                      : ((CS == S_MAC) && !mac_done && !mac_fill) ;
+// Issue read on fill; XPIPE on mult sub-cycle; else read feat mac_feat+1 on mult sub-cycle
 wire [FEAT_AW-1:0]       mac_feat_rd   = mac_feat + 1 ;
 wire [6:0]               rd_ic         = mac_feat_rd / KK ;
 wire [3:0]               rd_kh         = (mac_feat_rd % KK) / K ;
@@ -245,9 +254,14 @@ wire signed [HW_AW:0]    rd_iw_s       = $signed({1'b0, ow_r}) + $signed({2'b00,
 wire                     rd_pad_nxt    = (rd_ih_s < 0) || (rd_ih_s >= IN_H) || (rd_iw_s < 0) || (rd_iw_s >= IN_W) ;
 wire [X_AW-1:0]          x_addr_rd_nxt = rd_pad_nxt ? {X_AW{1'b0}} :
                          (rd_ic * (IN_H*IN_W) + rd_ih_s[HW_AW-1:0] * IN_W + rd_iw_s[HW_AW-1:0]) ;
-wire [X_AW-1:0] mac_rd_addr = mac_fill ? x_addr_nxt :
-                              mac_feat_last ? x_addr_r : x_addr_rd_nxt ;
-assign x_addr_mac_rd = (CS == S_MAC && !mac_done) ? mac_rd_addr : x_addr_r ;
+wire [X_AW-1:0] mac_rd_addr_1p = mac_fill ? x_addr_nxt :
+                                 mac_feat_last ? x_addr_r : x_addr_rd_nxt ;
+wire              mac_rd_issue_2p = mac_fill ||
+                                    ((MAC_XPIPE ? (mac_sub == 2'd1) : (mac_sub == 2'd0)) && !mac_feat_last) ;
+wire [X_AW-1:0] mac_rd_addr_2p = mac_fill ? x_addr_nxt :
+                                 mac_rd_issue_2p ? x_addr_rd_nxt : x_addr_r ;
+assign x_addr_mac_rd = (CS == S_MAC && !mac_done)
+                       ? (MAC_2PHASE ? mac_rd_addr_2p : mac_rd_addr_1p) : x_addr_r ;
 assign wgt_wr_en   = 1'b0 ;
 assign wgt_wr_addr = {FEAT_AW{1'b0}} ;
 assign wgt_wr_data = {DATA_W{1'b0}} ;
@@ -263,7 +277,9 @@ assign ow_last       = (ow_r == OUT_W - 1) ;
 assign oh_last       = (oh_r == OUT_H - 1) ;
 assign oc_last       = (oc_base_r + OC_PAR >= OUT_CH) ;
 assign sat_lane_valid = (oc_base_r + sat_lane < OUT_CH) ;
-assign mac_active_o   = (CS == S_MAC) ;
+assign mac_active_o   = MAC_2PHASE ? ((CS == S_MAC) && !mac_done &&
+                                      (mac_fill || mac_rd_issue_2p))
+                      : (CS == S_MAC) ;
 assign cur_oh_o       = oh_r ;
 assign mac_ic        = mac_feat / KK ;
 assign mac_kh        = (mac_feat % KK) / K ;
@@ -275,8 +291,9 @@ assign x_addr_nxt    = pad_nxt ? {X_AW{1'b0}} :
                        (mac_ic * (IN_H*IN_W) + ih_s[HW_AW-1:0] * IN_W + iw_s[HW_AW-1:0]) ;
 assign mac_feat_last = (mac_feat == FEAT_PER_OC - 1) ;
 
-// pad locked when read issued (same as 2-phase phase0 x_in_pad -> phase1 MAC)
-assign mac_x_op  = mac_xi_pad_r ? {DATA_W{1'b0}} : $signed(x_i) ;
+// pad locked when read issued; XPIPE mult uses registered x_mac_r
+wire signed [DATA_W-1:0] mac_x_raw  = mac_xi_pad_r ? {DATA_W{1'b0}} : $signed(x_i) ;
+wire signed [DATA_W-1:0] mac_x_mult = MAC_XPIPE ? x_mac_r : mac_x_raw ;
 // FSM CS
 always @(posedge clk) begin
     if (!rst_n)
@@ -418,8 +435,24 @@ end
 // MAC: mac_*, x_addr_r, acc_r, acc_sat_r (flat if / else if)
 wire mac_wpre_arm   = cs_en && (CS == S_WPRE) && wpre_done && bpre_done ;
 wire mac_fill_rd    = cs_en && (CS == S_MAC) && !mac_done && mac_fill ;
-wire mac_accum_last = cs_en && (CS == S_MAC) && !mac_done && !mac_fill && mac_feat_last ;
-wire mac_accum_more = cs_en && (CS == S_MAC) && !mac_done && !mac_fill && !mac_feat_last ;
+wire mac_xp_xlat     = cs_en && (CS == S_MAC) && !mac_done && !mac_fill &&
+                       MAC_2PHASE && MAC_XPIPE && (mac_sub == 2'd0) ;
+wire mac_xp_mult     = cs_en && (CS == S_MAC) && !mac_done && !mac_fill &&
+                       MAC_2PHASE && MAC_XPIPE && (mac_sub == 2'd1) ;
+wire mac_xp_acc_last = cs_en && (CS == S_MAC) && !mac_done && !mac_fill &&
+                       MAC_2PHASE && MAC_XPIPE && (mac_sub == 2'd2) && mac_feat_last ;
+wire mac_xp_acc_more = cs_en && (CS == S_MAC) && !mac_done && !mac_fill &&
+                       MAC_2PHASE && MAC_XPIPE && (mac_sub == 2'd2) && !mac_feat_last ;
+wire mac_2p_mult    = cs_en && (CS == S_MAC) && !mac_done && !mac_fill &&
+                      MAC_2PHASE && !MAC_XPIPE && (mac_sub == 2'd0) ;
+wire mac_2p_acc_last = cs_en && (CS == S_MAC) && !mac_done && !mac_fill &&
+                       MAC_2PHASE && !MAC_XPIPE && (mac_sub == 2'd1) && mac_feat_last ;
+wire mac_2p_acc_more = cs_en && (CS == S_MAC) && !mac_done && !mac_fill &&
+                       MAC_2PHASE && !MAC_XPIPE && (mac_sub == 2'd1) && !mac_feat_last ;
+wire mac_accum_last = cs_en && (CS == S_MAC) && !mac_done && !mac_fill &&
+                      !MAC_2PHASE && mac_feat_last ;
+wire mac_accum_more = cs_en && (CS == S_MAC) && !mac_done && !mac_fill &&
+                      !MAC_2PHASE && !mac_feat_last ;
 wire mac_sat_lane   = cs_en && (CS == S_SAT) && sat_lane_valid && (sat_lane < OC_PAR - 1) ;
 wire mac_sat_wrap   = cs_en && (CS == S_SAT) &&
                         !(sat_lane_valid && (sat_lane < OC_PAR - 1)) ;
@@ -427,23 +460,73 @@ wire mac_sat_wrap   = cs_en && (CS == S_SAT) &&
 always @(posedge clk) begin
     if (!rst_n) begin
         mac_fill     <= 1'b1 ;
+        mac_sub      <= 2'd0 ;
         mac_feat     <= 0 ;
         mac_done     <= 1'b0 ;
         x_addr_r     <= 0 ;
+        x_mac_r      <= 0 ;
         mac_xi_pad_r <= 1'b0 ;
         sat_lane     <= 0 ;
         for (i_lane = 0; i_lane < OC_PAR; i_lane = i_lane + 1) begin
-            acc_r[i_lane]     <= 0 ;
-            acc_sat_r[i_lane] <= 0 ;
+            acc_r[i_lane]      <= 0 ;
+            acc_sat_r[i_lane]  <= 0 ;
+            mac_prod_r[i_lane] <= 0 ;
         end
     end else if (mac_wpre_arm) begin
         mac_fill  <= 1'b1 ;
+        mac_sub   <= 2'd0 ;
         mac_feat  <= 0 ;
         mac_done  <= 1'b0 ;
         sat_lane  <= 0 ;
         for (i_lane = 0; i_lane < OC_PAR; i_lane = i_lane + 1)
             acc_r[i_lane] <= 0 ;
-    end else if (mac_fill_rd) begin
+    end else if (mac_fill_rd && MAC_2PHASE) begin
+        x_addr_r     <= x_addr_nxt ;
+        mac_xi_pad_r <= pad_nxt ;
+        mac_fill     <= 1'b0 ;
+        mac_sub      <= 2'd0 ;
+    end else if (mac_xp_xlat) begin
+        x_mac_r <= mac_x_raw ;
+        mac_sub <= 2'd1 ;
+    end else if (mac_xp_mult) begin
+        for (i_lane = 0; i_lane < OC_PAR; i_lane = i_lane + 1)
+            mac_prod_r[i_lane] <= mac_prod[i_lane] ;
+        if (!mac_feat_last) begin
+            x_addr_r     <= x_addr_rd_nxt ;
+            mac_xi_pad_r <= rd_pad_nxt ;
+        end
+        mac_sub <= 2'd2 ;
+    end else if (mac_xp_acc_last) begin
+        for (i_lane = 0; i_lane < OC_PAR; i_lane = i_lane + 1) begin
+            acc_r[i_lane] <= (oc_base_r + i_lane < OUT_CH) ? acc_next[i_lane] : acc_r[i_lane] ;
+            acc_sat_r[i_lane] <= (oc_base_r + i_lane < OUT_CH) ? acc_next[i_lane] : acc_sat_r[i_lane] ;
+        end
+        mac_done <= 1'b1 ;
+    end else if (mac_xp_acc_more) begin
+        for (i_lane = 0; i_lane < OC_PAR; i_lane = i_lane + 1)
+            acc_r[i_lane] <= (oc_base_r + i_lane < OUT_CH) ? acc_next[i_lane] : acc_r[i_lane] ;
+        mac_feat <= mac_feat + 1 ;
+        mac_sub  <= 2'd0 ;
+    end else if (mac_2p_mult) begin
+        for (i_lane = 0; i_lane < OC_PAR; i_lane = i_lane + 1)
+            mac_prod_r[i_lane] <= mac_prod[i_lane] ;
+        if (!mac_feat_last) begin
+            x_addr_r     <= x_addr_rd_nxt ;
+            mac_xi_pad_r <= rd_pad_nxt ;
+        end
+        mac_sub <= 2'd1 ;
+    end else if (mac_2p_acc_last) begin
+        for (i_lane = 0; i_lane < OC_PAR; i_lane = i_lane + 1) begin
+            acc_r[i_lane] <= (oc_base_r + i_lane < OUT_CH) ? acc_next[i_lane] : acc_r[i_lane] ;
+            acc_sat_r[i_lane] <= (oc_base_r + i_lane < OUT_CH) ? acc_next[i_lane] : acc_sat_r[i_lane] ;
+        end
+        mac_done <= 1'b1 ;
+    end else if (mac_2p_acc_more) begin
+        for (i_lane = 0; i_lane < OC_PAR; i_lane = i_lane + 1)
+            acc_r[i_lane] <= (oc_base_r + i_lane < OUT_CH) ? acc_next[i_lane] : acc_r[i_lane] ;
+        mac_feat <= mac_feat + 1 ;
+        mac_sub  <= 2'd0 ;
+    end else if (mac_fill_rd && !MAC_2PHASE) begin
         x_addr_r     <= x_addr_nxt ;
         mac_xi_pad_r <= pad_nxt ;
         mac_fill     <= 1'b0 ;
@@ -462,6 +545,7 @@ always @(posedge clk) begin
         sat_lane <= sat_lane + 1 ;
     else if (mac_sat_wrap) begin
         mac_fill  <= 1'b1 ;
+        mac_sub   <= 2'd0 ;
         mac_feat  <= 0 ;
         mac_done  <= 1'b0 ;
         sat_lane  <= 0 ;
@@ -476,8 +560,9 @@ reg signed [DATA_W-1:0] y_sat_w ;
 always @(*) begin
     for (i_lane = 0; i_lane < OC_PAR; i_lane = i_lane + 1) begin
         mac_w_op[i_lane] = wgt_buf[i_lane][mac_feat] ;
-        mac_prod[i_lane] = mac_x_op * mac_w_op[i_lane] ;
-        acc_next[i_lane] = acc_r[i_lane] + mac_prod[i_lane] ;
+        mac_prod[i_lane] = mac_x_mult * mac_w_op[i_lane] ;
+        acc_next[i_lane] = MAC_2PHASE ? (acc_r[i_lane] + mac_prod_r[i_lane])
+                                      : (acc_r[i_lane] + mac_prod[i_lane]) ;
     end
     acc_shifted = ROUND_Y ? ((acc_sat_r[sat_lane] + (32'sd1 << (FRAC_W-1))) >>> FRAC_W)
                           : (acc_sat_r[sat_lane] >>> FRAC_W) ;
