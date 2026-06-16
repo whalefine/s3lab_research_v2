@@ -11,6 +11,7 @@
 // WPRE: 2-phase ROM prefetch; MAC: 1-phase pipelined (read feat k+1 while MAC feat k).
 // MAC_2PHASE=1: per-feat 2-cycle MAC — phase0 mult+latch mac_prod_r, phase1 acc+=mac_prod_r.
 // MAC_XPIPE=1 (needs MAC_2PHASE): +x latch — SRAM Q→x_mac_r, then x_mac_r→mult→mac_prod_r→acc.
+// mac_feat_rd_r: registered (mac_feat+1) for prefetch pad/addr; breaks comb +1/div path (GLS setup).
 // =============================================================================
 
 module conv (
@@ -115,6 +116,7 @@ reg                      bpre_done ;
 reg                      mac_fill ;
 reg  [1:0]               mac_sub ;   // XPIPE: 0=xlatch 1=mult 2=acc; !XPIPE 2PHASE: 0=mult 1=acc
 reg  [FEAT_AW-1:0]       mac_feat ;
+reg  [FEAT_AW-1:0]       mac_feat_rd_r ; // prefetch index mac_feat+1 (1-cycle ahead of comb +1)
 reg                      mac_done ;
 reg                      mac_xi_pad_r ;
 reg  signed [DATA_W-1:0]   x_mac_r ;
@@ -244,11 +246,10 @@ assign x_addr        = x_addr_r ;
 // mac_phase_o=1: parent feeds x_i (SRAM Q); xlatch (!XPIPE mult) sub-cycle only
 assign mac_phase_o   = MAC_2PHASE ? ((CS == S_MAC) && !mac_done && !mac_fill && (mac_sub == 2'd0))
                       : ((CS == S_MAC) && !mac_done && !mac_fill) ;
-// Issue read on fill; XPIPE on mult sub-cycle; else read feat mac_feat+1 on mult sub-cycle
-wire [FEAT_AW-1:0]       mac_feat_rd   = mac_feat + 1 ;
-wire [6:0]               rd_ic         = mac_feat_rd / KK ;
-wire [3:0]               rd_kh         = (mac_feat_rd % KK) / K ;
-wire [3:0]               rd_kw         = (mac_feat_rd % KK) % K ;
+// Issue read on fill; XPIPE on mult sub-cycle; else prefetch feat mac_feat_rd_r (= mac_feat+1)
+wire [6:0]               rd_ic         = mac_feat_rd_r / KK ;
+wire [3:0]               rd_kh         = (mac_feat_rd_r % KK) / K ;
+wire [3:0]               rd_kw         = (mac_feat_rd_r % KK) % K ;
 wire signed [HW_AW:0]    rd_ih_s       = $signed({1'b0, oh_r}) + $signed({2'b00, rd_kh}) - PAD ;
 wire signed [HW_AW:0]    rd_iw_s       = $signed({1'b0, ow_r}) + $signed({2'b00, rd_kw}) - PAD ;
 wire                     rd_pad_nxt    = (rd_ih_s < 0) || (rd_ih_s >= IN_H) || (rd_iw_s < 0) || (rd_iw_s >= IN_W) ;
@@ -456,6 +457,16 @@ wire mac_accum_more = cs_en && (CS == S_MAC) && !mac_done && !mac_fill &&
 wire mac_sat_lane   = cs_en && (CS == S_SAT) && sat_lane_valid && (sat_lane < OC_PAR - 1) ;
 wire mac_sat_wrap   = cs_en && (CS == S_SAT) &&
                         !(sat_lane_valid && (sat_lane < OC_PAR - 1)) ;
+
+// Purpose: registered prefetch index mac_feat+1 (sole driver of mac_feat_rd_r)
+always @(posedge clk) begin
+    if (!rst_n)
+        mac_feat_rd_r <= 0 ;
+    else if (mac_wpre_arm || mac_sat_wrap || mac_fill_rd)
+        mac_feat_rd_r <= 1 ;
+    else if (mac_xp_acc_more || mac_2p_acc_more || mac_accum_more)
+        mac_feat_rd_r <= mac_feat + 2'd2 ;
+end
 
 always @(posedge clk) begin
     if (!rst_n) begin
