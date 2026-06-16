@@ -278,8 +278,8 @@ always @(posedge clk) begin
         wgt_buf[wpre_feat] <= w_i ;
 end
 
-// bias_r
-always @(negedge clk) begin
+// bias_r: async reset on negedge FF (reset -> CDN, not D-mux critical path)
+always @(negedge clk or negedge rst_n) begin
     if (!rst_n)
         bias_r <= 16'sd0 ;
     else if (wpre_bias_ce)
