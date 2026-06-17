@@ -260,8 +260,15 @@ def build_box_head(cfg, hidden_dim):
         in_channel = hidden_dim
         out_channel = cfg.MODEL.HEAD.NUM_CHANNELS
         feat_sz = int(cfg.DATA.SEARCH.SIZE / stride)
+        int_bits = int(getattr(cfg.MODEL.HEAD, "FIXED_INT_BITS", 8))
+        frac_bits = int(getattr(cfg.MODEL.HEAD, "FIXED_FRAC_BITS", 8))
         center_head = CenterPredictorSharedTrunkDump(
-            inplanes=in_channel, channel=out_channel, feat_sz=feat_sz, stride=stride
+            inplanes=in_channel,
+            channel=out_channel,
+            feat_sz=feat_sz,
+            stride=stride,
+            int_bits=int_bits,
+            frac_bits=frac_bits,
         )
         return center_head
     elif cfg.MODEL.HEAD.TYPE == "CENTER_FIXED":

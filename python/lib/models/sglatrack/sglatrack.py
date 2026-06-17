@@ -62,6 +62,12 @@ from lib.models.sglatrack.vit_CARE_relu6_dim32_fixed_dump import (
 from lib.models.sglatrack.vit_CARE_relu6_dim32_fixed_shared_trunk_dump import (
     vit_tiny32_care_fixed_shared_trunk_dump_patch16_224 as vit_care_relu6_dim32_fixed_shared_trunk_dump_base_patch16_224,
 )
+from lib.models.sglatrack.vit_CARE_relu6_dim192_fixed_q77 import (
+    vit_tiny192_care_fixed_q77_patch16_224 as vit_care_relu6_dim192_fixed_q77_base_patch16_224,
+)
+from lib.models.sglatrack.vit_CARE_relu6_dim192_fixed_q77_dump import (
+    vit_tiny192_care_fixed_q77_shared_trunk_dump_patch16_224 as vit_care_relu6_dim192_fixed_q77_shared_trunk_dump_base_patch16_224,
+)
 from lib.models.sglatrack.vit_CARE_relu6_BN import vit_base_patch16_224 as vit_care_relu6_bn_base_patch16_224
 from lib.models.sglatrack.vit_CARE_gelu import vit_base_patch16_224 as vit_care_gelu_base_patch16_224
 from lib.models.sglatrack.vit_MALA import vit_base_patch16_224 as vit_mala_base_patch16_224
@@ -424,6 +430,18 @@ def build_sglatrack(cfg, training=True):
     elif cfg.MODEL.BACKBONE.TYPE == 'vit_care_relu6_dim32_fixed_shared_trunk_dump_base_patch16_224':
         # 與 dim32_fixed_dump 同一 backbone；鍵名供 shared-trunk head dump yaml
         backbone = vit_care_relu6_dim32_fixed_shared_trunk_dump_base_patch16_224(
+            pretrained, drop_path_rate=cfg.TRAIN.DROP_PATH_RATE
+        )
+        hidden_dim = backbone.embed_dim
+        patch_start_index = 1
+    elif cfg.MODEL.BACKBONE.TYPE == 'vit_care_relu6_dim192_fixed_q77_base_patch16_224':
+        backbone = vit_care_relu6_dim192_fixed_q77_base_patch16_224(
+            pretrained, drop_path_rate=cfg.TRAIN.DROP_PATH_RATE
+        )
+        hidden_dim = backbone.embed_dim
+        patch_start_index = 1
+    elif cfg.MODEL.BACKBONE.TYPE == 'vit_care_relu6_dim192_fixed_q77_shared_trunk_dump_base_patch16_224':
+        backbone = vit_care_relu6_dim192_fixed_q77_shared_trunk_dump_base_patch16_224(
             pretrained, drop_path_rate=cfg.TRAIN.DROP_PATH_RATE
         )
         hidden_dim = backbone.embed_dim

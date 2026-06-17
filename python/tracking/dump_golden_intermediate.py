@@ -31,7 +31,8 @@ Pipeline（對齊 .cursor/rules/python-to-rtl-plan.mdc）：
 
 允許的 dump backbone：`vit_care_relu6_fixed_dump_base_patch16_224`（768 維）、
 `vit_care_relu6_dim32_fixed_dump_base_patch16_224`（32 維）、
-`vit_care_relu6_dim32_fixed_shared_trunk_dump_base_patch16_224`（32 維，與上者同一 backbone，供 shared-trunk head dump yaml）。
+`vit_care_relu6_dim32_fixed_shared_trunk_dump_base_patch16_224`（32 維，與上者同一 backbone，供 shared-trunk head dump yaml）、
+`vit_care_relu6_dim192_fixed_q77_shared_trunk_dump_base_patch16_224`（192 維 Q7.7 shared-trunk dump）。
 """
 
 from __future__ import annotations
@@ -62,6 +63,7 @@ _DUMP_ALLOWED_BACKBONE_TYPES = (
     "vit_care_relu6_fixed_dump_base_patch16_224",
     "vit_care_relu6_dim32_fixed_dump_base_patch16_224",
     "vit_care_relu6_dim32_fixed_shared_trunk_dump_base_patch16_224",
+    "vit_care_relu6_dim192_fixed_q77_shared_trunk_dump_base_patch16_224",
 )
 
 
@@ -109,6 +111,7 @@ def _load_model(script_name: str, cfg, checkpoint_path: str, device: str):
     model = model_module.build_sglatrack(cfg, training=False)
     ckpt = torch.load(checkpoint_path, map_location="cpu")
     state = ckpt["net"] if isinstance(ckpt, dict) and "net" in ckpt else ckpt
+    state = {k: v for k, v in state.items() if "distill_teacher_feat_align" not in k}
     missing, unexpected = model.load_state_dict(state, strict=False)
     if device == "cuda":
         model = model.cuda()
@@ -149,13 +152,16 @@ def main():
     cfg, yaml_path = _load_cfg(args.script, args.config)
 
     backbone_type = cfg.MODEL.BACKBONE.TYPE
+    fp_int = int(getattr(cfg.MODEL.HEAD, "FIXED_INT_BITS", 8))
+    fp_frac = int(getattr(cfg.MODEL.HEAD, "FIXED_FRAC_BITS", 8))
     if backbone_type not in _DUMP_ALLOWED_BACKBONE_TYPES:
         raise RuntimeError(
             "dump_golden_intermediate.py 需配合 *_fixed_dump 系 backbone，"
             f"目前 cfg.MODEL.BACKBONE.TYPE = {backbone_type}。"
             f"請使用下列之一於 yaml：{list(_DUMP_ALLOWED_BACKBONE_TYPES)} "
-            "(例：`--config vit_coco_uav123_care_relu6_fixed_dump` 或 "
-            "`vit_coco_uav123_care_relu6_dim32_fixed_dump`)。"
+            "(例：`--config vit_coco_uav123_care_relu6_fixed_dump`、"
+            "`vit_coco_uav123_care_relu6_dim32_fixed_dump`、"
+            "`vit_coco_got10k_distill_mae_teacher_orr_afkd_s60000_bs32_dim192_augreg_shared_trunk_fixed_q77_dump`)。"
         )
 
     model, missing, unexpected = _load_model(args.script, cfg, args.checkpoint, args.device)
@@ -214,17 +220,16 @@ def main():
 
     # --- patch_embed + pos_embed (Python-only 前處理) --------------------
     # 這段同步 dump 以便跨檢查，但 RTL 的正式輸入是 template_post_embed / search_post_embed。
-    # 與 vit_CARE_relu6_fixed_hand.py / BaseBackboneFix._forward_impl 一致，
-    # patch_embed、pos_embed 以及相加結果都要做 Q8.8 截斷，確保 bit-accurate。
+    # patch_embed、pos_embed 以及相加結果依 yaml 的 FIXED_INT/FRAC_BITS 截斷。
     with torch.no_grad():
         z_patch = model.backbone.patch_embed(template_tensor)
         x_patch = model.backbone.patch_embed(search_tensor)
-        z_patch = to_fixed_point(z_patch, 8, 8)
-        x_patch = to_fixed_point(x_patch, 8, 8)
-        z_pos = to_fixed_point(model.backbone.pos_embed_z, 8, 8)
-        x_pos = to_fixed_point(model.backbone.pos_embed_x, 8, 8)
-        template_post_embed = to_fixed_point(z_patch + z_pos, 8, 8)
-        search_post_embed = to_fixed_point(x_patch + x_pos, 8, 8)
+        z_patch = to_fixed_point(z_patch, fp_int, fp_frac)
+        x_patch = to_fixed_point(x_patch, fp_int, fp_frac)
+        z_pos = to_fixed_point(model.backbone.pos_embed_z, fp_int, fp_frac)
+        x_pos = to_fixed_point(model.backbone.pos_embed_x, fp_int, fp_frac)
+        template_post_embed = to_fixed_point(z_patch + z_pos, fp_int, fp_frac)
+        search_post_embed = to_fixed_point(x_patch + x_pos, fp_int, fp_frac)
 
     manifest_entries = []
     _save_npy(output_dir, "template_after_patch_embed_out.npy", z_patch, manifest_entries,
@@ -260,8 +265,8 @@ def main():
     # head input / score_map / size_map / offset_map / cal_bbox_bbox 由
     # CenterPredictorDump 內部 dump（透過 HEAD.TYPE=CENTER_DUMP 啟用）。
     # 這裡僅補存 sglatrack.forward_head 在 reshape 後的 pred_boxes。
-    # 依 Q8.8 對拍規則，存檔前先做固定點截斷。
-    pred_boxes_head = to_fixed_point(pred_boxes_head, 8, 8)
+    # 依固定點對拍規則，存檔前先做截斷。
+    pred_boxes_head = to_fixed_point(pred_boxes_head, fp_int, fp_frac)
     _save_npy(output_dir, "box_head_after_forward_head_pred_boxes.npy",
               pred_boxes_head, manifest_entries,
               stage="head.forward_head", source="sglatrack.forward_head.pred_boxes")
@@ -271,11 +276,11 @@ def main():
         device = pred_score_map.device
         output_window = hann2d(torch.tensor([feat_sz, feat_sz]).long(), centered=True).to(device)
         response = output_window * pred_score_map
-        response = to_fixed_point(response, 8, 8)
+        response = to_fixed_point(response, fp_int, fp_frac)
         _save_npy(output_dir, "tracker_after_output_window_response.npy", response,
                   manifest_entries, stage="tracker.post", source="hann2d * score_map")
         bbox_after = model.box_head.cal_bbox(response, pred_size_map, pred_offset_map)
-        bbox_after = to_fixed_point(bbox_after, 8, 8)
+        bbox_after = to_fixed_point(bbox_after, fp_int, fp_frac)
         _save_npy(output_dir, "tracker_after_cal_bbox_bbox.npy", bbox_after,
                   manifest_entries, stage="tracker.post",
                   source="box_head.cal_bbox(response, size_map, offset_map)")
@@ -283,12 +288,12 @@ def main():
         pred_box = (pred_boxes.mean(dim=0) * search_size / x_resize_factor).tolist()
         mapped = _map_box_back(state, pred_box, x_resize_factor, search_size)
         mapped_t = torch.tensor(mapped)
-        mapped_t = to_fixed_point(mapped_t, 8, 8)
+        mapped_t = to_fixed_point(mapped_t, fp_int, fp_frac)
         _save_npy(output_dir, "tracker_after_map_box_back_bbox.npy", mapped_t,
                   manifest_entries, stage="tracker.post", source="tracker.map_box_back")
         final_bbox = clip_box(mapped, H, W, margin=10)
         final_t = torch.tensor(final_bbox)
-        final_t = to_fixed_point(final_t, 8, 8)
+        final_t = to_fixed_point(final_t, fp_int, fp_frac)
         _save_npy(output_dir, "tracker_after_final_bbox_bbox.npy", final_t,
                   manifest_entries, stage="tracker.post", source="clip_box")
         x1, y1, bw, bh = final_bbox
@@ -319,7 +324,7 @@ def main():
         "feat_sz": feat_sz,
         "export_time": _dt.datetime.now().isoformat(timespec="seconds"),
         "naming_rule": "{module_path_flat}_after_{function_name}_{signal_name}.npy",
-        "default_q_format": "Q8.8",
+        "default_q_format": f"Q{fp_int}.{fp_frac}",
         "device": args.device,
         "missing_keys": list(missing),
         "unexpected_keys": list(unexpected),
