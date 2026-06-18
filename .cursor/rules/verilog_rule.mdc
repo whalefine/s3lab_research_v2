@@ -1,17 +1,16 @@
 ---
-description: Verilog-2005 RTL synthesis rules (FSM, latch avoidance, ROM/SRAM read contracts). Portable across projects; project-specific golden paths live in other rules.
+description: Portable Verilog-2001 RTL rules (FSM, latch avoidance, parallel-if split, cross-always multi-driven, ROM/SRAM read contracts). Copy to any project; chip-specific golden paths belong in separate rules.
 globs:
   - "**/*.v"
-  - "python/lib/models/verilog_backbone2/**/*.v"
-  - "python/lib/models/verilog_head2/**/*.v"
-  - "python/lib/models/verilog2/**/*.v"
-alwaysApply: false
+alwaysApply: true
 ---
 
 # Verilog RTL 設計規範
 
+**適用範圍**：可複製到任意 Verilog-2001 RTL 專案。全文以**可合成、可維護**為主；**§7 起**含常見 **TSMC 1P SRAM／ROM `CLK(~clk)`** 範例與除錯備忘——若你的 macro／供應商不同，保留**契約三行**與**ADDR/USE 兩段**思想，替換接腳與 latency 即可。晶片或專案專用的 golden 路徑、檔名對照請放在**另一份**規則，勿寫進本檔。
+
 ## 語言規則
-- 僅使用 Verilog-2005 語法，禁止 SystemVerilog 特性（logic, always_ff, always_comb, interface, typedef, enum, struct, package, assertions）
+- 僅使用 Verilog-2001 語法，禁止 SystemVerilog 特性（logic, always_ff, always_comb, interface, typedef, enum, struct, package, assertions）
 - 所有 RTL 必須可合成（synthesizable），禁止 initial（硬體邏輯）、# delay、fork/join、force/release
 - **`reg` 不可在 `always` 區塊內宣告**（含 `if` 內）；暫存器一律在 module 層級宣告
 
@@ -19,6 +18,7 @@ alwaysApply: false
 - Parameter 宣告在前，reg 宣告居中，always block 在後
 - 不交錯 reg 宣告與 always block（`assign`／`always` 之後不得再新增 `reg`；debug 用暫存器須與其他 `reg` 同區）
 - 每個 always block 前必須有一行用途註解
+- 時序 datapath 遇**平行多個 `if`** 須依 **「時序 always：平行 `if` 拆分」** 處理；拆分後須排除 **跨 `always` 多驅動**（见同節）；組合邏輯仍須 **區塊頂端 default**，避免 latch
 
 ## 模組化設計
 - 採用 top-down 架構：top → controller → datapath modules
@@ -28,7 +28,7 @@ alwaysApply: false
 ## FSM 設計
 - FSM 必須獨立為三段式：state register / next-state logic / output logic
 - 使用 parameter 定義狀態名稱
-- FSM 不可與 datapath 混寫
+- **`state` 暫存** 與 **`next_state` 組合** 各一個 `always`；**datapath／控制輸出** 可拆成多個 `posedge` `always`（见下方 **「時序 always：平行 `if` 拆分」**），但 **不可** 與 `state`／`next_state` 寫在同一 block
 
 ## 時序與組合邏輯
 - `always @(posedge clk)` 用於 sequential，`always @(*)` 用於 combinational
@@ -38,7 +38,7 @@ alwaysApply: false
 
 ### 避免產生 latch（組合邏輯完整性，必守）
 
-綜合工具在 **`always @(*)`**（或對敏感列表內所有變化都會執行的組合 `always`）中，若某個被賦值的 `reg`／`wire` **並非每一條執行路徑都有賦值**，會推論 **latch** 以「記住上一拍值」。本專案 **一律禁止** 依賴此類 latch；須改寫為明確暫存器（`posedge clk`）或補齊賦值。
+綜合工具在 **`always @(*)`**（或對敏感列表內所有變化都會執行的組合 `always`）中，若某個被賦值的 `reg`／`wire` **並非每一條執行路徑都有賦值**，會推論 **latch** 以「記住上一拍值」。**一律禁止** 依賴此類 latch；須改寫為明確暫存器（`posedge clk`）或補齊賦值。
 
 #### 常見成因（寫 code 時逐項自查）
 
@@ -73,6 +73,154 @@ alwaysApply: false
 ### 面積/延遲
 - 說明設計是 parallel / partially parallel / multi-cycle iterative
 - 估算 MAC 數量、cycle 數、pipeline 深度
+
+### 時序 always：平行多個 `if` 的拆分（可合成、仿真友善，必守）
+
+單一 `always @(posedge clk)` 內若有多個**平行** `if`（彼此**不是** `else if` 鏈），且常與 `case (state)` 或其它 `case` **寫在同一區塊**，常見後果：
+
+- 綜合把 **狀態、使能、計數器** 與 **暫存器 Q 的回授** 揉成大片組合邏輯；
+- **Gate-level**（或含 async 控制腳的 FF）仿真出現 **X**、使能／清除腳異常、FSM「卡住」；
+- 同一 `reg` 同拍多個 NBA 賦值時，**敘述順序**即語意；拆成多個 `always` 後若未還原優先順序，**功能會變**。
+
+重構目標：**行為與重構前 RTL sim 一致**（有參考模型則一併對拍）；拆分本身不解決時序，但可降低上述風險。
+
+#### 與組合 latch 的差別
+
+| | 組合 `always @(*)` | 時序 `always @(posedge clk)` |
+|--|-------------------|------------------------------|
+| 平行 `if` 無 `else` | 易推論 **latch**（禁止） | 通常為 **帶 enable 的 FF**（允許） |
+| 本節要處理的問題 | 漏賦值路徑 | **多驅動**、**Q 回授**、**NBA 順序** |
+
+#### 何時拆、何時不拆
+
+| 情況 | 作法 |
+|------|------|
+| **LHS 互不相同**（例：`done`、`sub_start`、`wr_ptr` 分属不同寄存器） | 拆到**各自** `always`；每 block 前**一行用途註解** |
+| **單週期脈衝／strobe**（`start`、`done`、`valid`、`rd_en`） | 獨立 `always`：`reset` 後每拍先清預設值，再在條件成立時置位 |
+| **同一 `reg` 同拍可能被多段 NBA 寫入** | **禁止**拆成多個 `always`；保留**單一** block，改 **`if` / `else if` 鏈** 並註明**優先順序** |
+| **重構前有多段敘述、同拍覆寫同一 reg** | 拆開後用 **`else if` 順序** 還原「誰覆寫誰」（见下節模式表） |
+| **shadow／latch 暫存**（例：從 SRAM `Q` 鎖一筆供後續拍使用） | **獨立** `posedge` `always`；**僅此 block** 驅動該 `reg`（含 `reset`） |
+| **大型 datapath `always` 的 `reset` 分支** | **勿** 對已在專用 `always` 驅動的 `reg` 再寫 `<= 0`（见下節「跨 always 多驅動」） |
+
+#### 還原 NBA 優先順序（通用模式）
+
+重構時對照**舊檔敘述順序**（仿真器對同一 `always` 內多個 `<=` 以區塊順序決定最終 NBA）。常見模式：
+
+| 模式 | 舊版典型寫法 | 拆分後 `else if` 建議（`reset`／`ST_IDLE` 清零仍最前） |
+|------|--------------|------------------------------------------------------|
+| **A. `case` 覆寫前面的 `if`** | 區塊上方 `if (inc_en) ptr<=ptr+1;`，下方 `case` 內 `if (phase_done) ptr<=0` | **完成／重置條件先於遞增**：`else if (phase_done) …` **早於** `else if (inc_en) …` |
+| **B. 進入子狀態時先清零指標** | 上方 `if (stream_en) … phase`，下方 `case` 內 `if (!unit_busy) ptr<=0` | **`!unit_busy`（或等同 idle）重置先於 stream** |
+| **C. 同 state 內「完成」與「進度」並列** | `case` 內：`if (stream…) …` 與平行 `if (unit_done) cnt<=0` | **`unit_done` 先於 stream**：`if (unit_done) … else if (stream…) …` |
+| **D. 外層區塊 + 內層 `case` 同拍改同一組 reg** | `if (state==ST_X) { 更新 A,B,C; }` 後接 `case(state)` 再改 A,B | **維持同一 `always` 且保留原語句先後**；或合併為單一 `if (state==ST_X)` 並依原順序排列 |
+
+> 模式代號僅供對照；實作時在註解寫「對應舊版第 N 段／模式 X」，勿依賴專案專有名稱。
+
+#### 推薦拆分粒度（controller／datapath）
+
+1. **握手輸出**（`done`、`err`、`busy` 的 registered 版本）— 可獨立 `always`
+2. **對外或子模組的單週期脈衝**（`*_start`、`*_kick`）— 一類一個 `always`（每拍 default 無效）
+3. **計數器、指標、phase bit** — 依模式表拆，或單一 `always` + `else if` 鏈
+4. **記憶體寫入 latch**（`wr_addr_lat`、`wr_data_lat`、`wr_pulse`）— 與 FSM `state` 分離
+5. **同拍強耦合**（多個 reg 在同一拍互相依賴更新）— **留在同一** `always`
+6. **僅隨 `case (state)` 變化的模式／索引暫存** — 可獨立 `always`
+
+#### 脈衝訊號模板（單週期有效）
+
+```verilog
+// Purpose: one-cycle pulse to start downstream unit
+always @(posedge clk) begin
+    if (reset)
+        unit_start <= 1'b0;
+    else begin
+        unit_start <= 1'b0;                    // default: deasserted every cycle
+        if ((state == ST_ACTIVE) && !unit_busy)
+            unit_start <= 1'b1;
+    end
+end
+```
+
+#### 同 reg 多來源：單一 always + 優先鏈模板
+
+```verilog
+// Purpose: stream_cnt; completion resets beat progress (pattern C)
+always @(posedge clk) begin
+    if (reset)
+        stream_cnt <= 'd0;
+    else if (state == ST_IDLE)
+        stream_cnt <= 'd0;
+    else if (state == ST_STREAM) begin
+        if (unit_done)
+            stream_cnt <= 'd0;
+        else if (stream_cnt == 'd0)
+            stream_cnt <= 'd1;
+        else if (stream_cnt <= LAST_INDEX)
+            stream_cnt <= stream_cnt + 1'b1;
+    end
+end
+```
+
+#### 避免暫存器 Q 參與同拍清除／使能（與拆分搭配）
+
+- **禁止** 在更新 `foo` 的 `always` 裡，用**當拍剛被 NBA 驅動的 `foo`**（或由其直接產生的組合條件）作為**同一 always 內**的清除／禁止條件；改 **延遲一拍** 的 `foo_d`／`foo_q`，或將 `foo` 僅放在**另一個** `always`。
+- **禁止** 把 `state`／`next_state` 與大量 datapath、脈衝、計數器寫在同一 `posedge` block（仍遵守三段式 FSM）。
+
+#### 跨 `always` 多驅動（拆分後必查，RTL／GLS 皆會出問題）
+
+將大型 `posedge` block 拆成多個 `always` 後，常見遺漏：**專用 latch `always` 已驅動某 `reg`，但舊的「總控」`always` 在 `if (reset)` 或 `case` 裡仍對同一 `reg` 賦值** → 形成 **RTL multi-driven**；RTL 仿真可能仍「看似正常」，**gate-level** 常出現 **internal net 雙驅動、async clear（CN）為 X、控制脈衝失效**。
+
+**規則（必守）**
+
+1. **每個 `reg` 的 NBA 賦值（`<=`）只能出現在一個 `posedge clk` `always` 的 LHS**（三態／多工／`assign`+tri 等明確規格除外）。
+2. **專用 shadow／latch `always`** 須包辦該訊號的 **`reset`、功能 latch、必要 default**；其他 `always` **不得**再寫此訊號。
+3. 從「總控」`always` 的 **`if (reset)` 清單**刪除已外移的 `reg` 時，**勿改語意**：`reset` 仍由專用 block 清 0。
+4. 修改後用 **全檔掃描**（腳本或 `rg`）確認：每個 `reg` 名稱在 `always @(posedge clk)` 內的 `<=` LHS **至多一處**。
+
+**推薦：專用 latch `always` 模板**
+
+```verilog
+// Purpose: latch one SRAM/sample value for phase1 (sole driver of shadow_r)
+always @(posedge clk) begin
+    if (reset)
+        shadow_r <= 16'sd0;
+    else if ((state == ST_USE) && sample_en)
+        shadow_r <= sram_q;   // or bus data
+end
+```
+
+**反模式（須刪除總控 block 內的重複行）**
+
+```verilog
+// BAD: shadow_r driven here AND in dedicated latch always above
+always @(posedge clk) begin
+    if (reset) begin
+        stream_cnt <= 'd0;
+        shadow_r   <= 16'sd0;   // <-- remove; belongs only in latch always
+    end
+    // ...
+end
+```
+
+**與 GLS／網表除錯的關係（通用，非 golden 路徑）**
+
+| 現象 | 可能根因 | 建議 |
+|------|----------|------|
+| 控制 `reg` 在 GLS 為 X，RTL 正常 | 合成後 **同一 wire 多個 `.ZN` driver**；或 **CN/CLR 路徑** 被組合雲污染 | 在 netlist 對該 net **`grep` driver 數**；回 RTL 查 **跨 `always` 多驅動** |
+| 僅改 D 端條件、GLS 不變 | 問題在 **清除／使能腳** 或 **別模組與本模組位址／控制合併** | 勿只調 functional `if`；先排除 **multi-driven** 與 **async 控制** |
+| 子模組 `wgt_addr` 與 top FSM 在 netlist 合併 | 多為 **綜合合併 + 多驅動**，非 ROM 內容錯 | RTL 側：**idle 鎖死或暫存** 輸出埠；並確保 **每個 `reg` 單一 always** |
+
+> 專案若另有 gate-level 對拍流程，細節见 `numpy-trunk-to-verilog.mdc` §10；本節只規範 **RTL 寫法**，避免產生可綜合出的多驅動網。
+
+#### 修改後自查
+
+- [ ] **無**兩個以上 `posedge` `always` 對**同一 `reg`** 做 `<=`（除非三態／多工／`assign`+tri 規格已文件化）
+- [ ] 專用 latch／shadow `reg`：**僅**在其專用 `always` 出現；已從「總控」`always` 的 `reset`／`case` **刪除**重複賦值
+- [ ] 原 `ST_IDLE`（或 `reset`）對各控制 reg 的清零，已分到**負責該 reg 的那一個** `always`（勿在兩處各清一次）
+- [ ] 脈衝類訊號每拍有 **default 無效**（或等價行為）
+- [ ] `else if` 順序與註解已對照**重構前**敘述順序
+- [ ] RTL 仿真與重構前一致；若需 gate-level 驗證，用**該專案**既有綜合／網表流程重跑後再比對
+- [ ] （可選）對修改過的 `.v` 跑 **LHS 重複掃描**，零重複再送綜
+
+組合 `always @(*)` 仍遵守 **「避免產生 latch」**；本節處理的是**時序**區塊的平行 `if`、**跨 always 多驅動**、Q 回授與 GLS 風險。
 
 ## 記憶體／ROM 讀取（通用，golden 對拍必讀）
 
@@ -112,9 +260,9 @@ alwaysApply: false
 
 ### 4. 與軟體 golden 的關係
 
-- Python／numpy **預設** 常是「位址與資料同拍、無 macro 延遲」；RTL 有延遲時，要么 **RTL 對齊軟體語意**（加暫存／錯拍），要么 **先改 golden 產生流程並重跑**（见專案 `numpy-trunk-to-verilog` 規則），**不可** 兩邊各用一套時間軸卻直接比最終輸出。
+- 高階模型（C／Python／MATLAB 等）**預設** 常是「位址與資料同拍、無 macro 延遲」；RTL 有延遲時，要么 **RTL 對齊參考語意**（加暫存／錯拍），要么 **先改參考模型產生流程並重跑**，**不可** 兩邊時間軸不同卻直接比最終輸出。
 - 對拍失敗時，**先** 比「讀取契約是否一致」與「第一個使用讀出資料的節點」，再查捨入／飽和；勿只調最終輸出。
-- 模組邊界註解可寫 golden 來源類型（例如 `Weight/*_bi.txt`、`Activation/*_bi.txt`），但 **規則本身不列舉檔名**；具體路徑以專案 golden 規則為準。
+- 模組邊界註解可註明參考向量來源（檔名、位寬、Q 格式），但 **本規則不列舉路徑**；由專案文件維護。
 
 ### 5. 除錯與驗證（通用）
 
@@ -317,8 +465,198 @@ Consumer（top／controller）若用 **組合 `if (y_valid)`** 驅動 SRAM **`WE
 - **in-place read-modify-write** on 1P SRAM：**必須** 拆兩拍（或 shadow scalar + 寫回拍），不可依賴 reg 陣列「同拍讀舊寫新」語意。
 - 模組頭 **契約三行**（§7.7.2）須標明本模組採用哪種 phase 名稱。
 
+##### 7.7.10 輸出埠與 STA（`assign y_o = sram_q`）
+
+- **禁止** 在未評估 STA 前，把 **top-level output** 直接 **`assign` 到 SRAM `Q`**（例：`assign y_o = s1_q`）：合成會出現 **`SRAM CLK → pad`** 組合 critical path，且與 **`set_output_delay`** 疊加後易違反 setup。
+- **推薦**：`S_OUT` 在 **`_phase==1`（USE）** 鎖 `y_o_reg <= sram_q`，`y_valid` 延後一拍對齊；或接受較鬆的 output delay 並在 SDC 單獨約束 `y_o`。
+- 功能語意仍以 **§7.7.2 兩拍 read** 為準：phase0 送 `A`，phase1 消耗 `Q`。
+
+> **Reg → SRAM 逐步改寫**：见下方 **§8**（檢查清單、port mux 模板、常見錯誤對照）。
+
+---
+
+## §8 Reg 陣列改 SRAM macro（實作檢查清單，必守）
+
+將 `reg [15:0] buf [0:DEPTH-1]` 換成 **1P SRAM macro**（常見 `CLK(~clk)`）時，**不可** 只刪 `reg`、接 instance 就結束。須依本節與 **§7.7** 同步改 **FSM、port mux、握手、flatten 註解**。Instance 規劃、參考向量路徑由**該專案**另文維護。
+
+### 8.1 改前先填的規格表（寫在模組頭）
+
+每顆由 `reg` 改成的 SRAM，模組頭 **至少** 列出：
+
+| 欄位 | 內容 |
+|------|------|
+| Legacy 名稱 | 例：`x_buf`、`tmp_buf`、`sh1_buf` |
+| Macro 型號 | 例：`Sram_tok1`、`Sram_x`（**compiler 產物檔名**，不可混用） |
+| depth × width | 例：10240×16；**addr 位寬** 須與 macro `A` 一致 |
+| Flatten 公式 | 例：`tok*C+feat`（token-major）或 head-major 公式 |
+| 生命週期 | 誰寫、誰讀、何 state 重疊；能否與另一 buffer **時間多工** |
+| 讀 latency | 預設 **1 posedge**（§7.7.2）；消耗在 ADDR+1 或 +2 |
+| Port mux 優先級 | 多路讀寫時 **固定順序**（见 §8.4） |
+
+**禁止** 僅因 depth 相同就共用一顆 SRAM（不同 flatten → index alias，见 §7.7.7）。
+
+### 8.2 改寫順序（建議一步一步對拍）
+
+1. **盤點** 所有 `reg [...] buf [...]` 與其 **讀寫 always／assign**（含子模組 shadow copy）。
+2. **模組頭** 寫 §8.1 表格 + §7.7.2 契約三行。
+3. **刪除** legacy `reg` 陣列宣告與對應的「單拍 `buf[idx]`」讀寫。
+4. **例化 macro**（§8.3），**勿** 在 `always` 內宣告控制 `reg`。
+5. **新增** port mux `always @(*)`（§8.4）：預設 **idle = 不選通**（`CEB=1` 或 `CEB=0, WEB=1` 依專案慣例，**整檔一致**）。
+6. **FSM**：凡原「同拍讀 `buf[i]` 做運算」→ 改 **ADDR phase + USE phase**（§8.5）；寫入改 **latch 一拍再寫**（§8.6）若 producer 為 `layer_norm`。
+7. **子模組** 改 **parent port 請求讀**（§7.7.8），**禁止** 在 child 再留 10240 深 shadow `reg`。
+8. **VCS**：編譯列 **列入每一種** `Sram_*.v`（同 depth 亦可能 **不同檔名**，见 `SRAM_suggestion.mdc` §1.0）。
+9. **對拍**：先比 **第一個使用讀出資料的節點**，再比最終輸出（§16 `numpy-trunk-to-verilog`）。
+
+### 8.3 Macro 例化模板（1P、`CLK(~clk)`）
+
+```verilog
+// SRAM read contract (1P, CLK = ~clk): see verilog_rule.mdc §7.7.2
+//   Layout: flat = tok * EMBED_DIM + feat   (token-major)
+//   Roles: norm capture write; S_OUT stream read (mutually exclusive via mux)
+
+Sram_tok1 u_sram_x (
+    .CLK   (~clk),
+    .CEB   (s_ceb),      // 0 = macro enabled
+    .WEB   (s_web),      // 0 = write, 1 = read
+    .A     (s_addr),
+    .D     (s_din),
+    .Q     (s_q),
+    .CEBM  (),
+    .WEBM  (),
+    .BWEB  (16'b0),
+    .BWEBM (16'b0),
+    .RTSEL (2'b00),      // 與 compiler 默認一致；變更須重對拍
+    .WTSEL (2'b00)
+);
+```
+
+**必查**：
+
+- **`CEBM`／`WEBM` 未用** → 1P，**禁止** 同拍 read+write。
+- **`BWEB`**：全寫入時 `16'b0`；partial write 須與 macro 規格一致。
+- **addr／din 控制 `reg`** 在 module 頂層；**`Q` 只讀**，勿在送址同拍當 MAC 乘數（§7.7.2）。
+- 同一設計內 **`Sram_tok1` 與 `Sram_x` 不可只編譯一種 `.v` 檔** 取代所有 instance。
+
+### 8.4 Port mux（`always @(*)`）必守寫法
+
+對 **每一顆** 1P SRAM 獨立一個 mux block（或明確分區），**區塊最上方先給 idle**：
+
+```verilog
+always @(*) begin
+    s_ceb  = 1'b1;   // disabled (active-low); match macro datasheet / idle convention
+    s_web  = 1'b1;   // read mode default (safe idle)
+    s_addr = {14{1'b0}};
+    s_din  = 16'd0;
+
+    if (capture_wr_pulse) begin
+        s_ceb  = 1'b0;
+        s_web  = 1'b0;
+        s_addr = wr_flat_lat;
+        s_din  = wr_din_lat;
+    end else if (stream_rd_addr_phase) begin
+        s_ceb  = 1'b0;
+        s_web  = 1'b1;
+        s_addr = rd_addr;
+    end
+    // else: idle — 禁止漏寫導致 latch（见「避免產生 latch」）
+end
+```
+
+| 規則 | 說明 |
+|------|------|
+| **互斥** | 同一拍 **最多一路** 驅動 `CEB/WEB/A/D` |
+| **優先級** | 寫入 capture **高於** 背景讀；**寫與讀不可同拍** |
+| **列出順序** | 在模組頭註解 **1→2→3**（例：`tmp_wr_do` > `mlp_norm_rd` > `attn_feed`） |
+| **禁止** | 兩個 `if` 可能同時成立卻未 `else if` → 多驅動或 X |
+
+參考：top 層對單顆 1P SRAM 的 **port mux**（多路請求 `if`／`else if` 互斥、區塊頂端 idle）。
+
+### 8.5 Reg 讀寫 → 2-phase FSM 對照
+
+| 原 `reg` 寫法 | SRAM 改法 |
+|---------------|-----------|
+| `buf[i] <= din`（單拍寫） | `posedge`：`WEB=0`，`A=i`，`D=din`；**下一拍** 才可 `i++` |
+| `x = buf[i]`（同拍讀+算） | **phase0**：`WEB=1`，`A=i`；**phase1**：`x_r <= Q`，MAC 只用 `x_r` |
+| `for` 掃整列再 MAC | **stream**：每元素 2 phase，或 line buffer（§7.7.4） |
+| 同址讀→改→寫回 | **兩拍** 或 scalar shadow + 寫回拍（§7.7.9）；**禁止** 1P 同拍 RMW |
+
+**Stream 讀出範本**（`S_OUT`，`out_rd_phase`）：
+
+| phase | `out_rd_phase` | SRAM | 消費端 |
+|-------|----------------|------|--------|
+| ADDR | 0 | `WEB=1`，`A=out_rd_addr` | 不送 `y_valid` |
+| USE | 1 | 不變 addr | `y_valid=1`，資料來自 **`Q`（上一拍 addr）** |
+
+時序 `always` 範例（2-phase 讀出）：
+
+```verilog
+// phase0: hold addr for negedge macro sample; phase1: consume Q, then advance addr
+if (out_rd_phase == 1'b0)
+    out_rd_phase <= 1'b1;
+else begin
+    if (out_rd_addr < LAST)
+        out_rd_addr <= out_rd_addr + 1'b1;
+    out_rd_phase <= 1'b0;
+end
+```
+
+**禁止** 在 `out_rd_phase==0` 同拍 `assign y_valid=1` 並用當拍 `Q`（off-by-one）。
+
+### 8.6 Producer 寫入：`layer_norm` / `out_beat_o`（§7.7.3.1）
+
+| 拍 | 動作 |
+|----|------|
+| T | `out_beat_o==1`：鎖 `wr_flat_lat`、`wr_din_lat`（用 **`y_sat_o` + `feat_addr_o`**，勿用晚一拍的 `y_valid`） |
+| T+1 | `wr_do==1`：mux 驅動 `WEB=0` 寫入 macro |
+
+**禁止** `if (y_valid)` 組合寫 SRAM 並用同拍 `feat_addr_o` → **index 0 漏寫**、後段全錯。
+
+### 8.7 子模組向 parent 請求讀（取代本地 `x_in_buf`）
+
+| 拍 | child | parent |
+|----|-------|--------|
+| T | `norm_rd_en=1`，`norm_rd_flat` | `WEB=1`，`A=flat` |
+| T+1 | `norm_rd_en=0`，`norm_x <= Q` | MAC／linear 用 `norm_x` |
+
+**禁止** 保留 `S_LOAD_X` 10240 拍複製，若 parent 已有同 layout SRAM（见 `SRAM_suggestion.mdc` Phase 3 目標）。
+
+### 8.8 時間多工（同一顆 SRAM 多種語意）
+
+僅在 **生命週期不重疊** 時允許（例：`v_buf` 與 `ao_buf` 共用 `Sram_v`）：
+
+- 模組頭 **Deviation** 區塊寫清：哪個 state 寫、哪個 state 讀、為何不重疊。
+- **禁止** 僅為省面積把 **不同 flatten** 塞同一顆 macro（§7.7.7）。
+
+### 8.9 改完必跑的自查（仿真前）
+
+- [ ] 模組頭有 **flatten 公式** + **mux 優先級** + **§7.7.2 三行契約**
+- [ ] 無殘留 `` `ifdef USE_REG_BUF `` 與 **未刪淨的大 `reg` 陣列**（若專案已 SRAM-only，勿留死碼）
+- [ ] 每顆 SRAM 的 mux **idle 預設** 已寫、**無組合 latch**
+- [ ] 所有「讀 `buf[i]` 運算」已改 **USE phase** 或 `*_r` 暫存
+- [ ] `layer_norm` 寫入走 **lat + `wr_do`**，非 `y_valid` 組合寫
+- [ ] VCS filelist 含 **所有** 用到的 `Sram_*.v`
+- [ ] Top output 若 `assign y_o=Q`，已知 STA 風險（§7.7.10）
+
+### 8.10 常見錯誤症狀 → 先查哪一條
+
+| 症狀 | 最可能原因 | 對應節 |
+|------|------------|--------|
+| `first_bad_idx=0`、flat0 未寫 | `y_valid` 組合寫 SRAM | §7.7.3.1、§8.6 |
+| golden **約一半** FAIL、其餘對 | 不同 flatten 共用一顆 SRAM | §7.7.7 |
+| QKV／權重 **整段錯位一格** | ADDR/USE 同拍消耗 `Q`；或 `stream` 雙寫 slot0 | §7.7.2、§7.5 |
+| sim 中 `Q@0` 為 X | 未寫入就讀；或 idle 時 `CEB` 語意錯 | §8.4 |
+| 合成過、對拍全錯 | 時間軸與 Python 不同，未加暫存 | §7.7.5 |
+| STA：`SRAM CLK → y_o` 違反 | 組合輸出 + `set_output_delay` 過緊 | §7.7.10 |
+| elaboration 找不到 module | 少編譯 `Sram_x.v` 等 | §8.2 step 8 |
+
+### 8.11 與其他規則的關係
+
+- **ROM 權重預取**（`stream`／`stream_r`）：仍用 **§7.1–§7.6**，與 activation SRAM **分開** 處理。
+- **改 SRAM 不必重產 ROM**；**flatten／depth／macro 型號變更** 須重產映像（§7.6、§20 `numpy-trunk-to-verilog`）。
+- 面積／instance 規劃、head conv buffer：见 **`SRAM_suggestion.mdc`**。
+
 ## 驗證
 - 測試平台用 Verilog 撰寫，DUT 必須保持可合成
 - 包含 clock 產生與 reset 行為
-- 與 Python golden model 的輸出做 bit-accurate 比對
+- 與參考模型（testbench、軟體 golden、固定向量）做 bit-accurate 比對（若專案要求）
 - **Simulation 列印文字必須為英文**：`$display`、`$strobe`、`$fdisplay`、`$fwrite`、`$monitor` 等**執行時會輸出到 log／終端機的字串**一律使用 **ASCII 英文**（可含數字與常見標點），**禁止中文**；使用者 VCS 執行環境不支援中文輸出。模組內 `//` 註解仍可用中文，但不得把中文寫進上述 system task 的字串參數。

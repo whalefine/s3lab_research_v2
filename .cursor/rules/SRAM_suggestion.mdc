@@ -11,7 +11,7 @@ alwaysApply: false
 # RTL → SRAM 改造建議（backbone + head + 整合版 verilog2）
 
 > **規格**：Q8.8（16-bit signed），全專案共用。
-> **規則依據**：[.cursor/rules/verilog_rule.mdc](../../.cursor/rules/verilog_rule.mdc)、[.cursor/rules/numpy-trunk-to-verilog.mdc](../../.cursor/rules/numpy-trunk-to-verilog.mdc)
+> **規則依據**：[.cursor/rules/verilog_rule.mdc](../../.cursor/rules/verilog_rule.mdc)（**§7.7 SRAM 時序**、**§8 Reg→SRAM 檢查清單**）、[.cursor/rules/numpy-trunk-to-verilog.mdc](../../.cursor/rules/numpy-trunk-to-verilog.mdc)
 > **判斷門檻**（全文件通用）：
 >
 > | 等級 | depth | 處理建議 |

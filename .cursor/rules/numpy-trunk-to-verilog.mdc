@@ -1,6 +1,8 @@
 ---
-description: 以 run_backbone_numpy_shared_trunk.py 為 golden，將 numpy trunk 對齊轉 Verilog；verilog/ 跑端到端，verilog_head/ 以準確 activation 僅驗 head 與後段
+description: 以 run_backbone_numpy_shared_trunk.py 為 golden，將 numpy trunk 對齊轉 Verilog；backbone 對拍 verilog_backbone2/；head 對拍以 verilog_head2/ 為準（verilog_head/ 僅舊版參考）
 globs:
+  - "python/lib/models/verilog_backbone2/**/*.v"
+  - "python/lib/models/verilog_head2/**/*.v"
   - "python/lib/models/verilog_head/**/*.v"
   - "python/lib/models/verilog/**/*.v"
   - "python/tracking/run_backbone_numpy_shared_trunk.py"
@@ -15,10 +17,12 @@ alwaysApply: true
 
 - **數學與流程依據**：`python/tracking/run_backbone_numpy_shared_trunk.py`（以下稱 **numpy trunk**）。
 - **Verilog 實作目錄**：`python/lib/models/verilog/`（僅在此目錄新增／修改 RTL；ROM/RAM 若已在外部生成，介面以現有 top / testbench 為準）。
-- **Verilog 目錄分工**（兩條驗證路徑，勿混淆）：
-  - **`python/lib/models/verilog/`** — **端到端整條流程**：自 post-embedding（template / search）輸入，經 `sglatrack_top`（`backbone_top` → `head_top` → `cal_bbox` 等）跑完 backbone、head 與後續 bbox 路徑；TB 為 `TEST.v`，golden 自 template / search 起逐層對拍。
-  - **`python/lib/models/verilog_head/`** — **僅 head 與後段**：**不跑 backbone RTL**；以 numpy trunk 產出的**準確 activation**（例如 `backbone_after_norm_backbone_out_bi.txt`，與 `backbone_top` 輸出同序之 Q8.8 token 串流）作為 `head_top` 輸入，只驗證 shared conv → tail → `cal_bbox` 及後續 bbox 對拍；TB 為 `TEST_head.v`。用途是在假設 backbone 輸出已正確時，隔離 head／定點／SRAM 問題，縮小除錯範圍。
-  - 修改 RTL 時須先確認目標目錄：全鏈路改 `verilog/`；head-only 改 `verilog_head/`（兩邊 `head_top.v`、`cal_bbox.v` 等可能並存，以當次驗證範圍為準）。
+- **Verilog 目錄分工**（多條路徑並存，勿混淆）：
+  - **`python/lib/models/verilog_backbone2/`** — **目前 backbone 對拍基準**（`TEST_backbone.v` 等）；與 numpy trunk backbone 階段 golden 對拍。
+  - **`python/lib/models/verilog_head2/`** — **目前 head 對拍基準**：**不跑 backbone RTL**；以 numpy trunk 產出的**準確 activation**（例如 `backbone_after_norm_backbone_out_bi.txt`）串流進 `head_top`，驗證 conv → tail → `cal_bbox`；TB 為 `TEST_head.v`（編譯 `verilog_head2/*.v` + `Sram_tok1` 等）。
+  - **`python/lib/models/verilog/`** — **端到端整鏈路**（`TEST.v`，暫不動）：`sglatrack_top` 含 backbone + head。
+  - **`python/lib/models/verilog_head/`** — **舊版 head-only**（`Sram_sh1_lo`/`hi`、`mac_dv` 等）；**僅參考或比對舊實作，預設不作為對拍修改目標**。
+  - 修改 RTL 時須先確認目標目錄：backbone → `verilog_backbone2/`；**head → `verilog_head2/`**（除非使用者明確指定 `verilog_head/` 或 `verilog/`）；全鏈路 → `verilog/`。
 - **Activation 對答案檔**（Q8.8 二進位文字，一行一元素）：  
   `python/output/golden/vit_care_relu6_numpy_trunk_dim32_out/Activation/*.txt`  
   對應檔名多為 `*_bi.txt`（與腳本 `write_bi` 輸出一致）。RTL 除錯時以**此目錄**為 golden，不以「猜 golden」為準。
@@ -292,7 +296,7 @@ memory2/rom_box_head_tail_ctr_offset_size_weight.v \
 ## 與其他 rule 的關係
 
 - 大方向與 `python-to-rtl-plan.mdc` 一致時從之；本檔針對 **numpy trunk + 指定 golden 目錄 + verilog 目錄** 補充可操作細節。
-- 撰寫／修改 `python/lib/models/verilog/*.v` 或 `verilog_head/*.v` 時一併遵守 `verilog_rule.mdc`；目錄分工見 **§1**。
+- 撰寫／修改 `verilog_backbone2/*.v`、`verilog_head2/*.v`、`verilog/*.v` 或（僅在使用者指定時）`verilog_head/*.v` 時一併遵守 `verilog_rule.mdc`（含 **平行 `if` 拆分**、**跨 `always` 多驅動** 自查）；目錄分工見 **§1**（**head 預設以 `verilog_head2/` 為準**）。
 - 若 `hw-friendly-design.mdc` 與本檔對 attention／定點敘述並存，以 **可對拍之 numpy trunk 行為** 為準；設計原則檔僅作輔助說明。
 
 ## 語言規則
