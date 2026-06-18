@@ -161,6 +161,13 @@ always @(negedge clk) begin
     end
 end
 
+always @(posedge clk) begin
+    if (cycle_cnt % 2000000 == 0) begin
+        $display("[DBG] cycle=%0d x_ready=%b busy=%b tok_cnt=%0d done=%b", 
+                 cycle_cnt, x_ready, busy, tok_cnt, done);
+    end
+end
+
 initial begin
 `ifdef GATE_SDF
     $display("[TB] SDF annotate: %s -> u_DUT", `GATE_SDF_FILE);

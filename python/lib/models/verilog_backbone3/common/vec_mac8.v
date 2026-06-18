@@ -72,6 +72,10 @@ localparam [IN_DIM_AW-1:0] FEAT_LAST = IN_DIM - 1;
 
 integer i_lane;
 
+// Avoid out-of-bounds slice when parameter defaults or instantiation mismatch
+// (e.g., B_ADDR_W > NEU_AW).
+localparam integer B_ADDR_W_EFF = (B_ADDR_W > NEU_AW) ? NEU_AW : B_ADDR_W;
+
 reg [1:0]                   state;
 reg [1:0]                   next_state;
 
@@ -239,7 +243,8 @@ always @(posedge clk) begin
         bpre_lane  <= 4'd0;
         bpre_done  <= 1'b0;
     end else if (bpre_rom_a0) begin
-        b_addr_r   <= neu_base_r[B_ADDR_W-1:0] + {{(B_ADDR_W-4){1'b0}}, bpre_lane};
+        b_addr_r   <= {{(B_ADDR_W-B_ADDR_W_EFF){1'b0}}, neu_base_r[B_ADDR_W_EFF-1:0]} +
+                      {{(B_ADDR_W-4){1'b0}}, bpre_lane};
         bpre_phase <= 1'b1;
     end else if (bpre_rom_a1_last) begin
         bias_r[bpre_lane] <= b_i;
