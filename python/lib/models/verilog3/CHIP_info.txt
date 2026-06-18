@@ -1,0 +1,1509 @@
+`timescale  1ns/1ps
+
+module CHIP(
+    clk,
+    reset,
+    start,
+    sel_block_i,
+    data_in,
+    data_valid,
+    busy,
+    done,
+    cx_o,
+    cy_o,
+    w_o,
+    h_o
+);
+// input pin
+input clk;
+input reset;
+input start;
+input [3:0] sel_block_i;
+input [15:0] data_in;
+input data_valid;
+
+// output pin
+output busy;
+output done;
+output [15:0] cx_o;
+output [15:0] cy_o;
+output [15:0] w_o;
+output [15:0] h_o;
+
+wire c_clk, c_reset, c_start, c_data_valid, c_busy, c_done;
+wire [3:0] c_sel_block_i;
+wire [15:0] c_data_in;
+wire [15:0] c_cx_o, c_cy_o, c_w_o, c_h_o;
+wire io_rte;
+
+sglatrack_top #(
+    .EMBED_DIM (32),
+    .N_TOKENS  (320),
+    .DATA_W    (16),
+    .FEAT_H    (16),
+    .FEAT_W    (16),
+    .C_SH1     (96),
+    .C_SH2     (48),
+    .LENS_Z    (64)
+) u_core (
+    .clk         (c_clk),
+    .reset       (c_reset),
+    .start       (c_start),
+    .sel_block_i (c_sel_block_i),
+    .data_in     (c_data_in),
+    .data_valid  (c_data_valid),
+    .busy        (c_busy),
+    .done        (c_done),
+    .x_ready     (),
+    .cx_o        (c_cx_o),
+    .cy_o        (c_cy_o),
+    .w_o         (c_w_o),
+    .h_o         (c_h_o)
+);
+
+PCBRTE_V pad_RTE (
+    .IRTE(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_H ipad_clk (
+    .C(c_clk),
+    .I(1'b0),
+    .IE(1'b1),
+    .OEN(1'b1),
+    .PAD(clk),
+    .DS0(1'b0),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b0),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_H ipad_reset (
+    .C(c_reset),
+    .I(1'b0),
+    .IE(1'b1),
+    .OEN(1'b1),
+    .PAD(reset),
+    .DS0(1'b0),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b0),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_H ipad_start (
+    .C(c_start),
+    .I(1'b0),
+    .IE(1'b1),
+    .OEN(1'b1),
+    .PAD(start),
+    .DS0(1'b0),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b0),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_H ipad_data_valid (
+    .C(c_data_valid),
+    .I(1'b0),
+    .IE(1'b1),
+    .OEN(1'b1),
+    .PAD(data_valid),
+    .DS0(1'b0),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b0),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_H ipad_sel_block_i_0 (
+    .C(c_sel_block_i[0]),
+    .I(1'b0),
+    .IE(1'b1),
+    .OEN(1'b1),
+    .PAD(sel_block_i[0]),
+    .DS0(1'b0),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b0),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_H ipad_sel_block_i_1 (
+    .C(c_sel_block_i[1]),
+    .I(1'b0),
+    .IE(1'b1),
+    .OEN(1'b1),
+    .PAD(sel_block_i[1]),
+    .DS0(1'b0),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b0),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_H ipad_sel_block_i_2 (
+    .C(c_sel_block_i[2]),
+    .I(1'b0),
+    .IE(1'b1),
+    .OEN(1'b1),
+    .PAD(sel_block_i[2]),
+    .DS0(1'b0),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b0),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_H ipad_sel_block_i_3 (
+    .C(c_sel_block_i[3]),
+    .I(1'b0),
+    .IE(1'b1),
+    .OEN(1'b1),
+    .PAD(sel_block_i[3]),
+    .DS0(1'b0),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b0),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_H ipad_data_in_0 (
+    .C(c_data_in[0]),
+    .I(1'b0),
+    .IE(1'b1),
+    .OEN(1'b1),
+    .PAD(data_in[0]),
+    .DS0(1'b0),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b0),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_H ipad_data_in_1 (
+    .C(c_data_in[1]),
+    .I(1'b0),
+    .IE(1'b1),
+    .OEN(1'b1),
+    .PAD(data_in[1]),
+    .DS0(1'b0),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b0),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_H ipad_data_in_2 (
+    .C(c_data_in[2]),
+    .I(1'b0),
+    .IE(1'b1),
+    .OEN(1'b1),
+    .PAD(data_in[2]),
+    .DS0(1'b0),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b0),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_H ipad_data_in_3 (
+    .C(c_data_in[3]),
+    .I(1'b0),
+    .IE(1'b1),
+    .OEN(1'b1),
+    .PAD(data_in[3]),
+    .DS0(1'b0),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b0),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_H ipad_data_in_4 (
+    .C(c_data_in[4]),
+    .I(1'b0),
+    .IE(1'b1),
+    .OEN(1'b1),
+    .PAD(data_in[4]),
+    .DS0(1'b0),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b0),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_H ipad_data_in_5 (
+    .C(c_data_in[5]),
+    .I(1'b0),
+    .IE(1'b1),
+    .OEN(1'b1),
+    .PAD(data_in[5]),
+    .DS0(1'b0),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b0),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_H ipad_data_in_6 (
+    .C(c_data_in[6]),
+    .I(1'b0),
+    .IE(1'b1),
+    .OEN(1'b1),
+    .PAD(data_in[6]),
+    .DS0(1'b0),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b0),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_H ipad_data_in_7 (
+    .C(c_data_in[7]),
+    .I(1'b0),
+    .IE(1'b1),
+    .OEN(1'b1),
+    .PAD(data_in[7]),
+    .DS0(1'b0),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b0),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_V ipad_data_in_8 (
+    .C(c_data_in[8]),
+    .I(1'b0),
+    .IE(1'b1),
+    .OEN(1'b1),
+    .PAD(data_in[8]),
+    .DS0(1'b0),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b0),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_V ipad_data_in_9 (
+    .C(c_data_in[9]),
+    .I(1'b0),
+    .IE(1'b1),
+    .OEN(1'b1),
+    .PAD(data_in[9]),
+    .DS0(1'b0),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b0),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_V ipad_data_in_10 (
+    .C(c_data_in[10]),
+    .I(1'b0),
+    .IE(1'b1),
+    .OEN(1'b1),
+    .PAD(data_in[10]),
+    .DS0(1'b0),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b0),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_V ipad_data_in_11 (
+    .C(c_data_in[11]),
+    .I(1'b0),
+    .IE(1'b1),
+    .OEN(1'b1),
+    .PAD(data_in[11]),
+    .DS0(1'b0),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b0),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_V ipad_data_in_12 (
+    .C(c_data_in[12]),
+    .I(1'b0),
+    .IE(1'b1),
+    .OEN(1'b1),
+    .PAD(data_in[12]),
+    .DS0(1'b0),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b0),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_V ipad_data_in_13 (
+    .C(c_data_in[13]),
+    .I(1'b0),
+    .IE(1'b1),
+    .OEN(1'b1),
+    .PAD(data_in[13]),
+    .DS0(1'b0),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b0),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_V ipad_data_in_14 (
+    .C(c_data_in[14]),
+    .I(1'b0),
+    .IE(1'b1),
+    .OEN(1'b1),
+    .PAD(data_in[14]),
+    .DS0(1'b0),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b0),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_V ipad_data_in_15 (
+    .C(c_data_in[15]),
+    .I(1'b0),
+    .IE(1'b1),
+    .OEN(1'b1),
+    .PAD(data_in[15]),
+    .DS0(1'b0),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b0),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_H opad_busy (
+    .C(),
+    .I(c_busy),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(busy),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_H opad_done (
+    .C(),
+    .I(c_done),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(done),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_V opad_cx_o_0 (
+    .C(),
+    .I(c_cx_o[0]),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(cx_o[0]),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_V opad_cx_o_1 (
+    .C(),
+    .I(c_cx_o[1]),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(cx_o[1]),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_V opad_cx_o_2 (
+    .C(),
+    .I(c_cx_o[2]),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(cx_o[2]),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_V opad_cx_o_3 (
+    .C(),
+    .I(c_cx_o[3]),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(cx_o[3]),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_V opad_cx_o_4 (
+    .C(),
+    .I(c_cx_o[4]),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(cx_o[4]),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_V opad_cx_o_5 (
+    .C(),
+    .I(c_cx_o[5]),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(cx_o[5]),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_V opad_cx_o_6 (
+    .C(),
+    .I(c_cx_o[6]),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(cx_o[6]),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_V opad_cx_o_7 (
+    .C(),
+    .I(c_cx_o[7]),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(cx_o[7]),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_V opad_cx_o_8 (
+    .C(),
+    .I(c_cx_o[8]),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(cx_o[8]),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_V opad_cx_o_9 (
+    .C(),
+    .I(c_cx_o[9]),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(cx_o[9]),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_V opad_cx_o_10 (
+    .C(),
+    .I(c_cx_o[10]),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(cx_o[10]),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_V opad_cx_o_11 (
+    .C(),
+    .I(c_cx_o[11]),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(cx_o[11]),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_V opad_cx_o_12 (
+    .C(),
+    .I(c_cx_o[12]),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(cx_o[12]),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_V opad_cx_o_13 (
+    .C(),
+    .I(c_cx_o[13]),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(cx_o[13]),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_V opad_cx_o_14 (
+    .C(),
+    .I(c_cx_o[14]),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(cx_o[14]),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_V opad_cx_o_15 (
+    .C(),
+    .I(c_cx_o[15]),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(cx_o[15]),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_H opad_cy_o_0 (
+    .C(),
+    .I(c_cy_o[0]),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(cy_o[0]),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_H opad_cy_o_1 (
+    .C(),
+    .I(c_cy_o[1]),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(cy_o[1]),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_H opad_cy_o_2 (
+    .C(),
+    .I(c_cy_o[2]),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(cy_o[2]),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_H opad_cy_o_3 (
+    .C(),
+    .I(c_cy_o[3]),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(cy_o[3]),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_H opad_cy_o_4 (
+    .C(),
+    .I(c_cy_o[4]),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(cy_o[4]),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_H opad_cy_o_5 (
+    .C(),
+    .I(c_cy_o[5]),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(cy_o[5]),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_H opad_cy_o_6 (
+    .C(),
+    .I(c_cy_o[6]),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(cy_o[6]),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_H opad_cy_o_7 (
+    .C(),
+    .I(c_cy_o[7]),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(cy_o[7]),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_H opad_cy_o_8 (
+    .C(),
+    .I(c_cy_o[8]),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(cy_o[8]),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_H opad_cy_o_9 (
+    .C(),
+    .I(c_cy_o[9]),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(cy_o[9]),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_H opad_cy_o_10 (
+    .C(),
+    .I(c_cy_o[10]),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(cy_o[10]),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_H opad_cy_o_11 (
+    .C(),
+    .I(c_cy_o[11]),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(cy_o[11]),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_H opad_cy_o_12 (
+    .C(),
+    .I(c_cy_o[12]),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(cy_o[12]),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_H opad_cy_o_13 (
+    .C(),
+    .I(c_cy_o[13]),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(cy_o[13]),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_H opad_cy_o_14 (
+    .C(),
+    .I(c_cy_o[14]),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(cy_o[14]),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_H opad_cy_o_15 (
+    .C(),
+    .I(c_cy_o[15]),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(cy_o[15]),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_H opad_w_o_0 (
+    .C(),
+    .I(c_w_o[0]),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(w_o[0]),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_H opad_w_o_1 (
+    .C(),
+    .I(c_w_o[1]),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(w_o[1]),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_H opad_w_o_2 (
+    .C(),
+    .I(c_w_o[2]),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(w_o[2]),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_H opad_w_o_3 (
+    .C(),
+    .I(c_w_o[3]),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(w_o[3]),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_H opad_w_o_4 (
+    .C(),
+    .I(c_w_o[4]),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(w_o[4]),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_H opad_w_o_5 (
+    .C(),
+    .I(c_w_o[5]),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(w_o[5]),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_H opad_w_o_6 (
+    .C(),
+    .I(c_w_o[6]),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(w_o[6]),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_H opad_w_o_7 (
+    .C(),
+    .I(c_w_o[7]),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(w_o[7]),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_H opad_w_o_8 (
+    .C(),
+    .I(c_w_o[8]),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(w_o[8]),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_H opad_w_o_9 (
+    .C(),
+    .I(c_w_o[9]),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(w_o[9]),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_H opad_w_o_10 (
+    .C(),
+    .I(c_w_o[10]),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(w_o[10]),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_H opad_w_o_11 (
+    .C(),
+    .I(c_w_o[11]),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(w_o[11]),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_H opad_w_o_12 (
+    .C(),
+    .I(c_w_o[12]),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(w_o[12]),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_H opad_w_o_13 (
+    .C(),
+    .I(c_w_o[13]),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(w_o[13]),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_H opad_w_o_14 (
+    .C(),
+    .I(c_w_o[14]),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(w_o[14]),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_H opad_w_o_15 (
+    .C(),
+    .I(c_w_o[15]),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(w_o[15]),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_H opad_h_o_8 (
+    .C(),
+    .I(c_h_o[8]),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(h_o[8]),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_H opad_h_o_9 (
+    .C(),
+    .I(c_h_o[9]),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(h_o[9]),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_H opad_h_o_10 (
+    .C(),
+    .I(c_h_o[10]),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(h_o[10]),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_H opad_h_o_11 (
+    .C(),
+    .I(c_h_o[11]),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(h_o[11]),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_H opad_h_o_12 (
+    .C(),
+    .I(c_h_o[12]),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(h_o[12]),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_H opad_h_o_13 (
+    .C(),
+    .I(c_h_o[13]),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(h_o[13]),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_H opad_h_o_14 (
+    .C(),
+    .I(c_h_o[14]),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(h_o[14]),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_H opad_h_o_15 (
+    .C(),
+    .I(c_h_o[15]),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(h_o[15]),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_V opad_h_o_0 (
+    .C(),
+    .I(c_h_o[0]),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(h_o[0]),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_V opad_h_o_1 (
+    .C(),
+    .I(c_h_o[1]),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(h_o[1]),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_V opad_h_o_2 (
+    .C(),
+    .I(c_h_o[2]),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(h_o[2]),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_V opad_h_o_3 (
+    .C(),
+    .I(c_h_o[3]),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(h_o[3]),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_V opad_h_o_4 (
+    .C(),
+    .I(c_h_o[4]),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(h_o[4]),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_V opad_h_o_5 (
+    .C(),
+    .I(c_h_o[5]),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(h_o[5]),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_V opad_h_o_6 (
+    .C(),
+    .I(c_h_o[6]),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(h_o[6]),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+PDDWUWSWCDGS_V opad_h_o_7 (
+    .C(),
+    .I(c_h_o[7]),
+    .IE(1'b0),
+    .OEN(1'b0),
+    .PAD(h_o[7]),
+    .DS0(1'b1),
+    .DS1(1'b1),
+    .DS2(1'b1),
+    .DS3(1'b1),
+    .PU(1'b0),
+    .PD(1'b0),
+    .ST(1'b0),
+    .RTE(io_rte)
+);
+
+endmodule
