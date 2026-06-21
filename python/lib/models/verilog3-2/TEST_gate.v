@@ -59,9 +59,7 @@
 `define GOLDEN_ACT "./TXT_File/Activation"
 `endif
 
-`ifndef GATE_SDF_FILE
 `define GATE_SDF_FILE "sglatrack_top.sdf"
-`endif
 
 module TEST_gate;
 
