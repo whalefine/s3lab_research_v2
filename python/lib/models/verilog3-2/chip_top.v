@@ -4,9 +4,6 @@
 //
 // Top cell for APR = CHIP. Compile with the synthesized netlist + IO/std libs:
 //   vcs chip_top.v sglatrack_top_syn.v -v <io_lib>.v -v <std_lib>.v ...
-//
-// Power pads / extra corner cells (VDD/VSS/VDDIO/VSSIO + 4 corners) are
-// library-specific and intentionally left as a TODO block near the bottom.
 // =============================================================================
 `timescale 1ns/1ps
 
@@ -101,46 +98,46 @@ module CHIP (
     PDDWUWSWCDGS_H ipad_sel_block_i_0
     (.C(c_sel_block_i[0]), .I(1'b0), .IE(1'b1), .OEN(1'b1), .PAD(sel_block_i[0]),
      .DS0(1'b1), .DS1(1'b1), .DS2(1'b1), .DS3(1'b0), .PU(1'b0), .PD(1'b0), .ST(1'b0), .RTE(io_rte));
-    PDDWUWSWCDGS_V ipad_data_in_15
+    PDDWUWSWCDGS_H ipad_data_in_15
     (.C(c_data_in[15]), .I(1'b0), .IE(1'b1), .OEN(1'b1), .PAD(data_in[15]),
      .DS0(1'b1), .DS1(1'b1), .DS2(1'b1), .DS3(1'b0), .PU(1'b0), .PD(1'b0), .ST(1'b0), .RTE(io_rte));
-    PDDWUWSWCDGS_V ipad_data_in_14
+    PDDWUWSWCDGS_H ipad_data_in_14
     (.C(c_data_in[14]), .I(1'b0), .IE(1'b1), .OEN(1'b1), .PAD(data_in[14]),
      .DS0(1'b1), .DS1(1'b1), .DS2(1'b1), .DS3(1'b0), .PU(1'b0), .PD(1'b0), .ST(1'b0), .RTE(io_rte));
-    PDDWUWSWCDGS_V ipad_data_in_13
+    PDDWUWSWCDGS_H ipad_data_in_13
     (.C(c_data_in[13]), .I(1'b0), .IE(1'b1), .OEN(1'b1), .PAD(data_in[13]),
      .DS0(1'b1), .DS1(1'b1), .DS2(1'b1), .DS3(1'b0), .PU(1'b0), .PD(1'b0), .ST(1'b0), .RTE(io_rte));
-    PDDWUWSWCDGS_V ipad_data_in_12
+    PDDWUWSWCDGS_H ipad_data_in_12
     (.C(c_data_in[12]), .I(1'b0), .IE(1'b1), .OEN(1'b1), .PAD(data_in[12]),
      .DS0(1'b1), .DS1(1'b1), .DS2(1'b1), .DS3(1'b0), .PU(1'b0), .PD(1'b0), .ST(1'b0), .RTE(io_rte));
-    PDDWUWSWCDGS_V ipad_data_in_11
+    PDDWUWSWCDGS_H ipad_data_in_11
     (.C(c_data_in[11]), .I(1'b0), .IE(1'b1), .OEN(1'b1), .PAD(data_in[11]),
      .DS0(1'b1), .DS1(1'b1), .DS2(1'b1), .DS3(1'b0), .PU(1'b0), .PD(1'b0), .ST(1'b0), .RTE(io_rte));
-    PDDWUWSWCDGS_V ipad_data_in_10
+    PDDWUWSWCDGS_H ipad_data_in_10
     (.C(c_data_in[10]), .I(1'b0), .IE(1'b1), .OEN(1'b1), .PAD(data_in[10]),
      .DS0(1'b1), .DS1(1'b1), .DS2(1'b1), .DS3(1'b0), .PU(1'b0), .PD(1'b0), .ST(1'b0), .RTE(io_rte));
-    PDDWUWSWCDGS_V ipad_data_in_9
+    PDDWUWSWCDGS_H ipad_data_in_9
     (.C(c_data_in[9]), .I(1'b0), .IE(1'b1), .OEN(1'b1), .PAD(data_in[9]),
      .DS0(1'b1), .DS1(1'b1), .DS2(1'b1), .DS3(1'b0), .PU(1'b0), .PD(1'b0), .ST(1'b0), .RTE(io_rte));
-    PDDWUWSWCDGS_V ipad_data_in_8
+    PDDWUWSWCDGS_H ipad_data_in_8
     (.C(c_data_in[8]), .I(1'b0), .IE(1'b1), .OEN(1'b1), .PAD(data_in[8]),
      .DS0(1'b1), .DS1(1'b1), .DS2(1'b1), .DS3(1'b0), .PU(1'b0), .PD(1'b0), .ST(1'b0), .RTE(io_rte));
-    PDDWUWSWCDGS_V ipad_data_in_7
+    PDDWUWSWCDGS_H ipad_data_in_7
     (.C(c_data_in[7]), .I(1'b0), .IE(1'b1), .OEN(1'b1), .PAD(data_in[7]),
      .DS0(1'b1), .DS1(1'b1), .DS2(1'b1), .DS3(1'b0), .PU(1'b0), .PD(1'b0), .ST(1'b0), .RTE(io_rte));
-    PDDWUWSWCDGS_V ipad_data_in_6
+    PDDWUWSWCDGS_H ipad_data_in_6
     (.C(c_data_in[6]), .I(1'b0), .IE(1'b1), .OEN(1'b1), .PAD(data_in[6]),
      .DS0(1'b1), .DS1(1'b1), .DS2(1'b1), .DS3(1'b0), .PU(1'b0), .PD(1'b0), .ST(1'b0), .RTE(io_rte));
-    PDDWUWSWCDGS_V ipad_data_in_5
+    PDDWUWSWCDGS_H ipad_data_in_5
     (.C(c_data_in[5]), .I(1'b0), .IE(1'b1), .OEN(1'b1), .PAD(data_in[5]),
      .DS0(1'b1), .DS1(1'b1), .DS2(1'b1), .DS3(1'b0), .PU(1'b0), .PD(1'b0), .ST(1'b0), .RTE(io_rte));
-    PDDWUWSWCDGS_V ipad_data_in_4
+    PDDWUWSWCDGS_H ipad_data_in_4
     (.C(c_data_in[4]), .I(1'b0), .IE(1'b1), .OEN(1'b1), .PAD(data_in[4]),
      .DS0(1'b1), .DS1(1'b1), .DS2(1'b1), .DS3(1'b0), .PU(1'b0), .PD(1'b0), .ST(1'b0), .RTE(io_rte));
-    PDDWUWSWCDGS_V ipad_data_in_3
+    PDDWUWSWCDGS_H ipad_data_in_3
     (.C(c_data_in[3]), .I(1'b0), .IE(1'b1), .OEN(1'b1), .PAD(data_in[3]),
      .DS0(1'b1), .DS1(1'b1), .DS2(1'b1), .DS3(1'b0), .PU(1'b0), .PD(1'b0), .ST(1'b0), .RTE(io_rte));
-    PDDWUWSWCDGS_V ipad_data_in_2
+    PDDWUWSWCDGS_H ipad_data_in_2
     (.C(c_data_in[2]), .I(1'b0), .IE(1'b1), .OEN(1'b1), .PAD(data_in[2]),
      .DS0(1'b1), .DS1(1'b1), .DS2(1'b1), .DS3(1'b0), .PU(1'b0), .PD(1'b0), .ST(1'b0), .RTE(io_rte));
     PDDWUWSWCDGS_H ipad_data_in_1
@@ -154,13 +151,13 @@ module CHIP (
      .DS0(1'b1), .DS1(1'b1), .DS2(1'b1), .DS3(1'b0), .PU(1'b0), .PD(1'b0), .ST(1'b0), .RTE(io_rte));
 
     // ---- output pads (IE=0, OEN=0, I=core) ----
-    PDDWUWSWCDGS_H opad_busy
+    PDDWUWSWCDGS_V opad_busy
     (.C(), .I(c_busy), .IE(1'b0), .OEN(1'b0), .PAD(busy),
      .DS0(1'b1), .DS1(1'b1), .DS2(1'b1), .DS3(1'b1), .PU(1'b0), .PD(1'b0), .ST(1'b0), .RTE(io_rte));
-    PDDWUWSWCDGS_H opad_done
+    PDDWUWSWCDGS_V opad_done
     (.C(), .I(c_done), .IE(1'b0), .OEN(1'b0), .PAD(done),
      .DS0(1'b1), .DS1(1'b1), .DS2(1'b1), .DS3(1'b1), .PU(1'b0), .PD(1'b0), .ST(1'b0), .RTE(io_rte));
-    PDDWUWSWCDGS_H opad_x_ready
+    PDDWUWSWCDGS_V opad_x_ready
     (.C(), .I(c_x_ready), .IE(1'b0), .OEN(1'b0), .PAD(x_ready),
      .DS0(1'b1), .DS1(1'b1), .DS2(1'b1), .DS3(1'b1), .PU(1'b0), .PD(1'b0), .ST(1'b0), .RTE(io_rte));
     PDDWUWSWCDGS_V opad_cx_o_15
@@ -211,22 +208,22 @@ module CHIP (
     PDDWUWSWCDGS_V opad_cx_o_0
     (.C(), .I(c_cx_o[0]), .IE(1'b0), .OEN(1'b0), .PAD(cx_o[0]),
      .DS0(1'b1), .DS1(1'b1), .DS2(1'b1), .DS3(1'b1), .PU(1'b0), .PD(1'b0), .ST(1'b0), .RTE(io_rte));
-    PDDWUWSWCDGS_H opad_cy_o_15
+    PDDWUWSWCDGS_V opad_cy_o_15
     (.C(), .I(c_cy_o[15]), .IE(1'b0), .OEN(1'b0), .PAD(cy_o[15]),
      .DS0(1'b1), .DS1(1'b1), .DS2(1'b1), .DS3(1'b1), .PU(1'b0), .PD(1'b0), .ST(1'b0), .RTE(io_rte));
-    PDDWUWSWCDGS_H opad_cy_o_14
+    PDDWUWSWCDGS_V opad_cy_o_14
     (.C(), .I(c_cy_o[14]), .IE(1'b0), .OEN(1'b0), .PAD(cy_o[14]),
      .DS0(1'b1), .DS1(1'b1), .DS2(1'b1), .DS3(1'b1), .PU(1'b0), .PD(1'b0), .ST(1'b0), .RTE(io_rte));
-    PDDWUWSWCDGS_H opad_cy_o_13
+    PDDWUWSWCDGS_V opad_cy_o_13
     (.C(), .I(c_cy_o[13]), .IE(1'b0), .OEN(1'b0), .PAD(cy_o[13]),
      .DS0(1'b1), .DS1(1'b1), .DS2(1'b1), .DS3(1'b1), .PU(1'b0), .PD(1'b0), .ST(1'b0), .RTE(io_rte));
-    PDDWUWSWCDGS_H opad_cy_o_12
+    PDDWUWSWCDGS_V opad_cy_o_12
     (.C(), .I(c_cy_o[12]), .IE(1'b0), .OEN(1'b0), .PAD(cy_o[12]),
      .DS0(1'b1), .DS1(1'b1), .DS2(1'b1), .DS3(1'b1), .PU(1'b0), .PD(1'b0), .ST(1'b0), .RTE(io_rte));
-    PDDWUWSWCDGS_H opad_cy_o_11
+    PDDWUWSWCDGS_V opad_cy_o_11
     (.C(), .I(c_cy_o[11]), .IE(1'b0), .OEN(1'b0), .PAD(cy_o[11]),
      .DS0(1'b1), .DS1(1'b1), .DS2(1'b1), .DS3(1'b1), .PU(1'b0), .PD(1'b0), .ST(1'b0), .RTE(io_rte));
-    PDDWUWSWCDGS_H opad_cy_o_10
+    PDDWUWSWCDGS_V opad_cy_o_10
     (.C(), .I(c_cy_o[10]), .IE(1'b0), .OEN(1'b0), .PAD(cy_o[10]),
      .DS0(1'b1), .DS1(1'b1), .DS2(1'b1), .DS3(1'b1), .PU(1'b0), .PD(1'b0), .ST(1'b0), .RTE(io_rte));
     PDDWUWSWCDGS_H opad_cy_o_9
@@ -259,16 +256,16 @@ module CHIP (
     PDDWUWSWCDGS_H opad_cy_o_0
     (.C(), .I(c_cy_o[0]), .IE(1'b0), .OEN(1'b0), .PAD(cy_o[0]),
      .DS0(1'b1), .DS1(1'b1), .DS2(1'b1), .DS3(1'b1), .PU(1'b0), .PD(1'b0), .ST(1'b0), .RTE(io_rte));
-    PDDWUWSWCDGS_H opad_w_o_15
+    PDDWUWSWCDGS_V opad_w_o_15
     (.C(), .I(c_w_o[15]), .IE(1'b0), .OEN(1'b0), .PAD(w_o[15]),
      .DS0(1'b1), .DS1(1'b1), .DS2(1'b1), .DS3(1'b1), .PU(1'b0), .PD(1'b0), .ST(1'b0), .RTE(io_rte));
-    PDDWUWSWCDGS_H opad_w_o_14
+    PDDWUWSWCDGS_V opad_w_o_14
     (.C(), .I(c_w_o[14]), .IE(1'b0), .OEN(1'b0), .PAD(w_o[14]),
      .DS0(1'b1), .DS1(1'b1), .DS2(1'b1), .DS3(1'b1), .PU(1'b0), .PD(1'b0), .ST(1'b0), .RTE(io_rte));
-    PDDWUWSWCDGS_H opad_w_o_13
+    PDDWUWSWCDGS_V opad_w_o_13
     (.C(), .I(c_w_o[13]), .IE(1'b0), .OEN(1'b0), .PAD(w_o[13]),
      .DS0(1'b1), .DS1(1'b1), .DS2(1'b1), .DS3(1'b1), .PU(1'b0), .PD(1'b0), .ST(1'b0), .RTE(io_rte));
-    PDDWUWSWCDGS_H opad_w_o_12
+    PDDWUWSWCDGS_V opad_w_o_12
     (.C(), .I(c_w_o[12]), .IE(1'b0), .OEN(1'b0), .PAD(w_o[12]),
      .DS0(1'b1), .DS1(1'b1), .DS2(1'b1), .DS3(1'b1), .PU(1'b0), .PD(1'b0), .ST(1'b0), .RTE(io_rte));
     PDDWUWSWCDGS_H opad_w_o_11
@@ -357,9 +354,7 @@ module CHIP (
      .DS0(1'b1), .DS1(1'b1), .DS2(1'b1), .DS3(1'b1), .PU(1'b0), .PD(1'b0), .ST(1'b0), .RTE(io_rte));
 
     // -------------------------------------------------------------------------
-    // TODO: add power/ground pads + remaining 3 corner cells per your IO lib,
-    // e.g. PVDD1CDG / PVSS1CDG (core), PVDD2CDG / PVSS2CDG (IO), and corner
-    // cells on the other three corners. Names depend on the actual pad library.
+    // TODO: add power/ground pads + remaining 3 corner cells per your IO lib.
     // -------------------------------------------------------------------------
 
 endmodule
