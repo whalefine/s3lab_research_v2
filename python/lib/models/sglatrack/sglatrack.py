@@ -68,6 +68,15 @@ from lib.models.sglatrack.vit_CARE_relu6_dim192_fixed_q77 import (
 from lib.models.sglatrack.vit_CARE_relu6_dim192_fixed_q77_dump import (
     vit_tiny192_care_fixed_q77_shared_trunk_dump_patch16_224 as vit_care_relu6_dim192_fixed_q77_shared_trunk_dump_base_patch16_224,
 )
+from lib.models.sglatrack.vit_CARE_relu6_dim256 import (
+    vit_care_dim256_patch16_224 as vit_care_relu6_dim256_base_patch16_224,
+)
+from lib.models.sglatrack.vit_CARE_relu6_dim256_fixed_q88 import (
+    vit_care_dim256_fixed_q88_patch16_224 as vit_care_relu6_dim256_fixed_q88_base_patch16_224,
+)
+from lib.models.sglatrack.vit_CARE_relu6_dim256_fixed_q88_dump import (
+    vit_care_dim256_fixed_q88_dump_patch16_224 as vit_care_relu6_dim256_fixed_q88_dump_base_patch16_224,
+)
 from lib.models.sglatrack.vit_CARE_relu6_BN import vit_base_patch16_224 as vit_care_relu6_bn_base_patch16_224
 from lib.models.sglatrack.vit_CARE_gelu import vit_base_patch16_224 as vit_care_gelu_base_patch16_224
 from lib.models.sglatrack.vit_MALA import vit_base_patch16_224 as vit_mala_base_patch16_224
@@ -99,6 +108,7 @@ _VIT_CARE_RELU6_FIXED_Q_BACKBONE_FACTORIES = {
     "vit_care_relu6_fixed_q86_base_patch16_224": vit_care_relu6_fixed_q86_base_patch16_224,
     "vit_care_relu6_fixed_q87_base_patch16_224": vit_care_relu6_fixed_q87_base_patch16_224,
     "vit_care_relu6_fixed_q88_base_patch16_224": vit_care_relu6_fixed_q88_base_patch16_224,
+    "vit_care_relu6_dim256_fixed_q88_base_patch16_224": vit_care_relu6_dim256_fixed_q88_base_patch16_224,
     "vit_care_relu6_fixed_q89_base_patch16_224": vit_care_relu6_fixed_q89_base_patch16_224,
     "vit_care_relu6_fixed_q98_base_patch16_224": vit_care_relu6_fixed_q98_base_patch16_224,
     "vit_care_relu6_fixed_q108_base_patch16_224": vit_care_relu6_fixed_q108_base_patch16_224,
@@ -397,6 +407,13 @@ def build_sglatrack(cfg, training=True):
         )
         hidden_dim = backbone.embed_dim
         patch_start_index = 1
+    elif cfg.MODEL.BACKBONE.TYPE == 'vit_care_relu6_dim256_base_patch16_224':
+        # embed_dim=256；pretrained 為 mae ViT-Base (768) 等時由 dim256 模組截斷投影載入
+        backbone = vit_care_relu6_dim256_base_patch16_224(
+            pretrained, drop_path_rate=cfg.TRAIN.DROP_PATH_RATE
+        )
+        hidden_dim = backbone.embed_dim
+        patch_start_index = 1
     elif cfg.MODEL.BACKBONE.TYPE == 'vit_care_relu6_hand_base_patch16_224':
         backbone = vit_care_relu6_hand_base_patch16_224(pretrained, drop_path_rate=cfg.TRAIN.DROP_PATH_RATE)
         hidden_dim = backbone.embed_dim
@@ -442,6 +459,13 @@ def build_sglatrack(cfg, training=True):
         patch_start_index = 1
     elif cfg.MODEL.BACKBONE.TYPE == 'vit_care_relu6_dim192_fixed_q77_shared_trunk_dump_base_patch16_224':
         backbone = vit_care_relu6_dim192_fixed_q77_shared_trunk_dump_base_patch16_224(
+            pretrained, drop_path_rate=cfg.TRAIN.DROP_PATH_RATE
+        )
+        hidden_dim = backbone.embed_dim
+        patch_start_index = 1
+    elif cfg.MODEL.BACKBONE.TYPE == 'vit_care_relu6_dim256_fixed_q88_dump_base_patch16_224':
+        # Dump-only dim256 Q8.8（與 vit_CARE_relu6_dim256 student 結構對齊）
+        backbone = vit_care_relu6_dim256_fixed_q88_dump_base_patch16_224(
             pretrained, drop_path_rate=cfg.TRAIN.DROP_PATH_RATE
         )
         hidden_dim = backbone.embed_dim
