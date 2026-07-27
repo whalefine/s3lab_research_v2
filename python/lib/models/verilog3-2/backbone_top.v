@@ -85,6 +85,12 @@ reg        loadin_wr_en;
 reg [13:0] loadin_wr_addr;
 reg [15:0] loadin_wr_din;
 
+// Input retiming: cut pad(data_valid)/x_valid -> load_wr_ptr setup path.
+// STA: input_delay + pad + long OFC route must only meet this FF, not the
+// deep enable/compare cone into load_wr_ptr. Keep x_i aligned with x_valid.
+reg                x_valid_r;
+reg signed [15:0]  x_i_r;
+
 reg        bt_s1_ceb;
 reg        bt_s1_web;
 reg [13:0] bt_s1_addr;
@@ -485,12 +491,26 @@ always @(posedge clk) begin
     end
 end
 
+// Purpose: register chip-level data_valid/data_in (x_valid/x_i) before use
+always @(posedge clk) begin
+    if (reset) begin
+        x_valid_r <= 1'b0;
+        x_i_r     <= 16'sd0;
+    end else if (state == S_LOAD_IN) begin
+        x_valid_r <= x_valid;
+        x_i_r     <= x_i;
+    end else begin
+        x_valid_r <= 1'b0;
+        x_i_r     <= 16'sd0;
+    end
+end
+
 always @(posedge clk) begin
     if (reset)
         load_wr_ptr <= 14'd0;
     else if (state == S_IDLE)
         load_wr_ptr <= 14'd0;
-    else if (state == S_LOAD_IN && x_valid &&
+    else if (state == S_LOAD_IN && x_valid_r &&
              (load_wr_ptr < TOK_FLAT[13:0]))
         load_wr_ptr <= load_wr_ptr + 14'd1;
 end
@@ -499,11 +519,11 @@ end
 always @(posedge clk) begin
     if (reset || state == S_IDLE) begin
         loadin_wr_en <= 1'b0;
-    end else if (state == S_LOAD_IN && x_valid &&
+    end else if (state == S_LOAD_IN && x_valid_r &&
                  (load_wr_ptr < TOK_FLAT[13:0])) begin
         loadin_wr_en   <= 1'b1;
         loadin_wr_addr <= load_wr_ptr;
-        loadin_wr_din  <= x_i;
+        loadin_wr_din  <= x_i_r;
     end else begin
         loadin_wr_en <= 1'b0;
     end
