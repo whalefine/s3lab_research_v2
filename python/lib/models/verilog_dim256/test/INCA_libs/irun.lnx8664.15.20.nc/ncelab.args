@@ -1,0 +1,34 @@
+//
+// File created by:  ncverilog
+// Do not modify this file
+//
++access+r
++incdir+..
++nctop+TEST
++define+GOLDEN_ACT=\"../../memory/Activation\"
++define+GOLDEN_WGT=\"../../memory/Weight\"
++nc64bit
++loadpli1=lp_pli.so:lp_bootstrap
++access+r
++neg_tchk
+-noshowtop
+-ACCESS
++r
+-LOADPLI1
+lp_pli.so:lp_bootstrap
+-ACCESS
++r
+-NEG_TCHK
+-MESSAGES
+TEST
+-XLMODE
+./INCA_libs/irun.lnx8664.15.20.nc
+-RUNMODE
+-CDSLIB
+./INCA_libs/irun.lnx8664.15.20.nc/cds.lib
+-HDLVAR
+./INCA_libs/irun.lnx8664.15.20.nc/hdl.var
+-WORK
+worklib
+-IRUNHASTOP
+-HASXLMODE

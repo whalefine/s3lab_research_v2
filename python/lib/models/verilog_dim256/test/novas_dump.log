@@ -1,0 +1,135 @@
+ncsim(64) 15.20-s086
+Linux 3.10.0-1160.119.1.el7.x86_64 #1 SMP Tue Jun 4 14:43:51 UTC 2024 x86_64
+CPU cores: 32
+Limit information:
+======================================
+cputime			unlimited
+filesize		unlimited
+datasize		unlimited
+stacksize		8192 kbytes
+coredumpsize	0 kbytes
+memoryuse		unlimited
+vmemoryuse		unlimited
+descriptors		4096
+memorylocked	64 kbytes
+maxproc			4096
+======================================
+(Special)Runtime environment variables:
+
+Runtime environment variables:
+SESSION_MANAGER=local/unix:@/tmp/.ICE-unix/6801,unix/unix:/tmp/.ICE-unix/6801
+XDG_SESSION_ID=c31
+OSTYPE=linux
+DISPLAY=:10.0
+XRDP_SESSION=1
+XILINXD_LICENSE_FILE=2100@cad18.cs.ccu.edu.tw
+MACHTYPE=x86_64
+QTLIB=/usr/lib64/qt-3.3/lib
+COLORTERM=truecolor
+HOSTNAME=cad19
+LC_CTYPE=iso_8859_1
+HSP_HOME=/usr/hspice/hspice
+SYNOPSYS=/usr/synopsys
+LOGNAME=chanyuan
+TURBO_LIBS=artisan_l artisan_u tsmc_l tsmc_u faraday_l faraday_u
+SHELL=/bin/tcsh
+PATH=/usr/INCISIVE15/tools/bin/64bit:/usr/INCISIVE15/tools/bin/64bit:/usr/INCISIVE15/tools/bin/64bit:/usr/matlab2022b/bin:/Si2_RAID-1/EDA/xilinx/Vivado_24.2/Vitis_HLS/2024.2/bin:/Si2_RAID-1/EDA/xilinx/Vivado_24.2/Model_Composer/2024.2/bin:/Si2_RAID-1/EDA/xilinx/Vivado_24.2/Vitis/2024.2/bin:/Si2_RAID-1/EDA/xilinx/Vivado_24.2/Vitis/2024.2/gnu/microblaze/lin/bin:/Si2_RAID-1/EDA/xilinx/Vivado_24.2/Vitis/2024.2/gnu/microblaze/linux_toolchain/lin64_le/bin:/Si2_RAID-1/EDA/xilinx/Vivado_24.2/Vitis/2024.2/gnu/aarch32/lin/gcc-arm-linux-gnueabi/bin:/Si2_RAID-1/EDA/xilinx/Vivado_24.2/Vitis/2024.2/gnu/aarch32/lin/gcc-arm-none-eabi/bin:/Si2_RAID-1/EDA/xilinx/Vivado_24.2/Vitis/2024.2/gnu/aarch64/lin/aarch64-linux/bin:/Si2_RAID-1/EDA/xilinx/Vivado_24.2/Vitis/2024.2/gnu/aarch64/lin/aarch64-none/bin:/Si2_RAID-1/EDA/xilinx/Vivado_24.2/Vitis/2024.2/gnu/armr5/lin/gcc-arm-none-eabi/bin:/Si2_RAID-1/EDA/xilinx/Vivado_24.2/Vitis/2024.2/aietools/bin:/Si2_RAID-1/EDA/xilinx/Vivado_24.2/Vitis/2024.2/gnu/riscv/lin/riscv64-unknown-elf/bin:/Si2_RAID-1/EDA/xilinx/Vivado_24.2/Vivado/2024.2/bin:/Si2_RAID-1/EDA/xilinx/Vivado_24.2/DocNav:/usr/star-rcxt/bin:/usr/xa/bin:/usr/xa/GNU/linux64/gcc/bin:/Si2_RAID-1/EDA/mentor/calibre_2020.2_14.12_linux/bin:/usr/verdi/bin:/usr/verdi/nLint/bin:/usr/ICADVM20/tools/dfII/bin:/usr/ICADVM20/tools/dracula/bin:/usr/ICADVM20/tools/bin:/usr/ULTRASIM18/tools/bin:/usr/INNOVUS21/tools/bin:/usr/QUANTUS22/tools/bin:/usr/GENUS20/tools/bin:/usr/hspice/hspice/bin:/usr/hspice/hspice/linux:/usr/sx/bin:/usr/tx/linux64/syn/bin:/usr/synopsys/linux64/syn/bin:/usr/pt/linux64/syn/bin:/usr/icc2/bin:/usr/ic51/tools/dfII/bin:/usr/ic51/tools/dracula/bin:/usr/ic51/tools/bin:/usr/INCISIVE15/tools/bin:/usr/matlab2022b/bin:/Si2_RAID-1/EDA/xilinx/Vivado_24.2/Vitis_HLS/2024.2/bin:/Si2_RAID-1/EDA/xilinx/Vivado_24.2/Model_Composer/2024.2/bin:/Si2_RAID-1/EDA/xilinx/Vivado_24.2/Vitis/2024.2/bin:/Si2_RAID-1/EDA/xilinx/Vivado_24.2/Vitis/2024.2/gnu/microblaze/lin/bin:/Si2_RAID-1/EDA/xilinx/Vivado_24.2/Vitis/2024.2/gnu/microblaze/linux_toolchain/lin64_le/bin:/Si2_RAID-1/EDA/xilinx/Vivado_24.2/Vitis/2024.2/gnu/aarch32/lin/gcc-arm-linux-gnueabi/bin:/Si2_RAID-1/EDA/xilinx/Vivado_24.2/Vitis/2024.2/gnu/aarch32/lin/gcc-arm-none-eabi/bin:/Si2_RAID-1/EDA/xilinx/Vivado_24.2/Vitis/2024.2/gnu/aarch64/lin/aarch64-linux/bin:/Si2_RAID-1/EDA/xilinx/Vivado_24.2/Vitis/2024.2/gnu/aarch64/lin/aarch64-none/bin:/Si2_RAID-1/EDA/xilinx/Vivado_24.2/Vitis/2024.2/gnu/armr5/lin/gcc-arm-none-eabi/bin:/Si2_RAID-1/EDA/xilinx/Vivado_24.2/Vitis/2024.2/aietools/bin:/Si2_RAID-1/EDA/xilinx/Vivado_24.2/Vitis/2024.2/gnu/riscv/lin/riscv64-unknown-elf/bin:/Si2_RAID-1/EDA/xilinx/Vivado_24.2/Vivado/2024.2/bin:/Si2_RAID-1/EDA/xilinx/Vivado_24.2/DocNav:/usr/star-rcxt/bin:/usr/xa/bin:/usr/xa/GNU/linux64/gcc/bin:/Si2_RAID-1/EDA/mentor/calibre_2020.2_14.12_linux/bin:/usr/verdi/bin:/usr/verdi/nLint/bin:/usr/ICADVM20/tools/dfII/bin:/usr/ICADVM20/tools/dracula/bin:/usr/ICADVM20/tools/bin:/usr/ULTRASIM18/tools/bin:/usr/INNOVUS21/tools/bin:/usr/QUANTUS22/tools/bin:/usr/GENUS20/tools/bin:/usr/hspice/hspice/bin:/usr/hspice/hspice/linux:/usr/sx/bin:/usr/tx/linux64/syn/bin:/usr/synopsys/linux64/syn/bin:/usr/pt/linux64/syn/bin:/usr/icc2/bin:/usr/ic51/tools/dfII/bin:/usr/ic51/tools/dracula/bin:/usr/ic51/tools/bin:/usr/INCISIVE15/tools/bin:/usr/lib64/qt-3.3/bin:/sbin:/bin:/usr/bin:/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/vcs/bin:/usr/vcs/linux/bin:/usr/vcs/linux/util:/usr/vcs/bin:/usr/vcs/linux/bin:/usr/vcs/linux/util
+MGC_TMPDIR=/tmp
+HISTCONTROL=ignoredups
+GTK_OVERLAY_SCROLLING=0
+SSH_AUTH_SOCK=/run/user/2068/keyring/ssh
+HOST=cad19
+HISTSIZE=1000
+LC_ALL=C
+LM_LICENSE_FILE=2100@cad18:5280@lstc:26585@lstc:1717@lstc
+VENDOR=unknown
+XILINX_VITIS=/Si2_RAID-1/EDA/xilinx/Vivado_24.2/Vitis/2024.2
+LESSOPEN=||/usr/bin/lesspipe.sh %s
+XRDP_PULSE_SINK_SOCKET=xrdp_chansrv_audio_out_socket_10
+MGC_LOCATION_MAP=NO_MAP
+QT_GRAPHICSSYSTEM_CHECKED=1
+HOSTTYPE=x86_64-linux
+CDSHOME=/usr/ICADVM20
+PYTHONPATH=/Si2_RAID-1/EDA/xilinx/Vivado_24.2/Vitis/2024.2/vfs/python:/Si2_RAID-1/EDA/xilinx/Vivado_24.2/Vitis/2024.2/vfs/python
+GROUP=s3
+XILINX_HLS=/Si2_RAID-1/EDA/xilinx/Vivado_24.2/Vitis/2024.2
+MAIL=/var/spool/mail/chanyuan
+MGC_HOME=/Si2_RAID-1/EDA/mentor/calibre_2020.2_14.12_linux
+TZ=Asia/Taipei
+SNPSLMD_LICENSE_FILE=26585@lstc
+XRDP_PULSE_SOURCE_SOCKET=xrdp_chansrv_audio_in_socket_10
+AMSHOME=/usr/INCISIVE15
+VCS_HOME=/usr/vcs
+XDG_RUNTIME_DIR=/run/user/2068
+QTDIR=/usr/lib64/qt-3.3
+VCS_CC=gcc
+PWD=/Si2_RAID-1/s3/113/chanyuan/08_RESEARCH/verilog_dim256/test
+USER=chanyuan
+VTE_VERSION=5204
+CDS_Netlisting_Mode=Analog
+VERDI_HOME=/usr/verdi2023
+IMSETTINGS_INTEGRATE_DESKTOP=yes
+PULSE_SCRIPT=/etc/xrdp/pulse/default.pa
+XILINX_VIVADO=/Si2_RAID-1/EDA/xilinx/Vivado_24.2/Vivado/2024.2
+HOME=/Si2_RAID-1/s3/113/chanyuan
+DRAC4=/usr/ICADVM20/tools/dracula/bin
+IMSETTINGS_MODULE=none
+SSH_AGENT_PID=6802
+QTINC=/usr/lib64/qt-3.3/include
+XDG_DATA_DIRS=/Si2_RAID-1/s3/113/chanyuan/.local/share/flatpak/exports/share:/var/lib/flatpak/exports/share:/usr/local/share:/usr/share
+LANG=C
+MATE_DESKTOP_SESSION_ID=this-is-deprecated
+XRDP_SOCKET_PATH=/run/xrdp
+SHLVL=2
+SHLIB_PATH=/usr/hspice/hspice/linux:/usr/INCISIVE15/tools/lib:/usr/lib
+WINDOWID=27262982
+UID=2068
+OA_HOME=/usr/ICADVM20/oa
+TURBO_LIBPATHS=/usr/verdi/share/symlib/32
+EDITOR=gedit
+MATLAB=/usr/matlab2022b
+LIBPATH=/usr/hspice/hspice/linux
+TERM=xterm-256color
+DBUS_SESSION_BUS_ADDRESS=unix:abstract=/tmp/dbus-FKYyJheTiU,guid=c6ec40d3bc965db298cec6946a665ddd
+XDG_CURRENT_DESKTOP=MATE
+CDS_INST_DIR=/usr/ICADVM20
+MANPATH=/usr/share/man:/usr/man:/usr/X11R6/man:/usr/lib/perl5/man:/usr/kerberos/man:/usr/local/man:/usr/synopsys/doc/syn/man
+LS_COLORS=rs=0:di=38;5;27:ln=38;5;51:mh=44;38;5;15:pi=40;38;5;11:so=38;5;13:do=38;5;5:bd=48;5;232;38;5;11:cd=48;5;232;38;5;3:or=48;5;232;38;5;9:mi=05;48;5;232;38;5;15:su=48;5;196;38;5;15:sg=48;5;11;38;5;16:ca=48;5;196;38;5;226:tw=48;5;10;38;5;16:ow=48;5;10;38;5;21:st=48;5;21;38;5;15:ex=38;5;34:*.tar=38;5;9:*.tgz=38;5;9:*.arc=38;5;9:*.arj=38;5;9:*.taz=38;5;9:*.lha=38;5;9:*.lz4=38;5;9:*.lzh=38;5;9:*.lzma=38;5;9:*.tlz=38;5;9:*.txz=38;5;9:*.tzo=38;5;9:*.t7z=38;5;9:*.zip=38;5;9:*.z=38;5;9:*.Z=38;5;9:*.dz=38;5;9:*.gz=38;5;9:*.lrz=38;5;9:*.lz=38;5;9:*.lzo=38;5;9:*.xz=38;5;9:*.bz2=38;5;9:*.bz=38;5;9:*.tbz=38;5;9:*.tbz2=38;5;9:*.tz=38;5;9:*.deb=38;5;9:*.rpm=38;5;9:*.jar=38;5;9:*.war=38;5;9:*.ear=38;5;9:*.sar=38;5;9:*.rar=38;5;9:*.alz=38;5;9:*.ace=38;5;9:*.zoo=38;5;9:*.cpio=38;5;9:*.7z=38;5;9:*.rz=38;5;9:*.cab=38;5;9:*.jpg=38;5;13:*.jpeg=38;5;13:*.gif=38;5;13:*.bmp=38;5;13:*.pbm=38;5;13:*.pgm=38;5;13:*.ppm=38;5;13:*.tga=38;5;13:*.xbm=38;5;13:*.xpm=38;5;13:*.tif=38;5;13:*.tiff=38;5;13:*.png=38;5;13:*.svg=38;5;13:*.svgz=38;5;13:*.mng=38;5;13:*.pcx=38;5;13:*.mov=38;5;13:*.mpg=38;5;13:*.mpeg=38;5;13:*.m2v=38;5;13:*.mkv=38;5;13:*.webm=38;5;13:*.ogm=38;5;13:*.mp4=38;5;13:*.m4v=38;5;13:*.mp4v=38;5;13:*.vob=38;5;13:*.qt=38;5;13:*.nuv=38;5;13:*.wmv=38;5;13:*.asf=38;5;13:*.rm=38;5;13:*.rmvb=38;5;13:*.flc=38;5;13:*.avi=38;5;13:*.fli=38;5;13:*.flv=38;5;13:*.gl=38;5;13:*.dl=38;5;13:*.xcf=38;5;13:*.xwd=38;5;13:*.yuv=38;5;13:*.cgm=38;5;13:*.emf=38;5;13:*.axv=38;5;13:*.anx=38;5;13:*.ogv=38;5;13:*.ogx=38;5;13:*.aac=38;5;45:*.au=38;5;45:*.flac=38;5;45:*.mid=38;5;45:*.midi=38;5;45:*.mka=38;5;45:*.mp3=38;5;45:*.mpc=38;5;45:*.ogg=38;5;45:*.ra=38;5;45:*.wav=38;5;45:*.axa=38;5;45:*.oga=38;5;45:*.spx=38;5;45:*.xspf=38;5;45:
+LD_LIBRARY_PATH=/usr/xa/linux64/lib:/usr/xa/GNU/linux64/gcc/lib64:/usr/verdi/share/PLI/IUS/LINUX64:/usr/ICADVM20/tools/lib:/usr/hspice/hspice/linux:/usr/ic51/tools/lib:/usr/INCISIVE15/tools/lib/64bit:/usr/INCISIVE15/tools/lib:/usr/lib
+_IRUNROOT_=/usr/INCISIVE15/tools
+CDS_ARCH=lnx86
+NCRUNMODE=ncverilog:./INCA_libs/irun.lnx8664.15.20.nc
+IRUNBATCH=FALSE
+IMPERAS_PORT_FILE=.vsp_ovp_gdb_port
+TCL_LIBRARY=/usr/INCISIVE15/tools/inca/files/tcl/library
+Runtime command line arguments:
+argv[0]=ncverilog
+argv[1]=+access+r
+argv[2]=+incdir+..
+argv[3]=+nctop+TEST
+argv[4]=+define+GOLDEN_ACT="../../memory/Activation"
+argv[5]=+define+GOLDEN_WGT="../../memory/Weight"
+argv[6]=TEST.v
+argv[7]=+nc64bit
+argv[8]=+loadpli1=lp_pli.so:lp_bootstrap
+argv[9]=+access+r
+argv[10]=+neg_tchk
+116 profile - 100
+          CPU/Mem usage: 0.130 sys,  0.070 user,  154.55M sys,  0.00M vm
+117 VC callback profile - scalar:0 vector:0
+118 Mon Jul 27 03:38:38 2026
+119 pliAppInit
+120 FSDB_GATE is disabled.
+121 Enable Parallel Dumping.
+122 pliAppMiscSet: New Sim Round
+123 pliEntryInit
+124 LIBSSCORE=found /usr/verdi/share/PLI/IUS/LINUX64/libsscore_ius152.so through $LD_LIBRARY_PATH setting.
+125 Sim process exit
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            Mon Jul 27 03:30:21 2026
+118 pliAppInit
+119 FSDB_GATE is disabled.
+120 Enable Parallel Dumping.
+121 pliAppMiscSet: New Sim Round
+122 pliEntryInit
+123 LIBSSCORE=found /usr/verdi/share/PLI/IUS/LINUX64/libsscore_ius152.so through $LD_LIBRARY_PATH setting.
+124 Sim process exit

@@ -1,0 +1,32 @@
+//
+// File created by:  ncverilog
+// Do not modify this file
+//
++access+r
++incdir+..
++nctop+TEST
++define+GOLDEN_ACT=\"../../memory/Activation\"
++define+GOLDEN_WGT=\"../../memory/Weight\"
++nc64bit
++loadpli1=lp_pli.so:lp_bootstrap
++access+r
++neg_tchk
+-MESSAGES
++EMGRLOG
+ncverilog.log
+-XLSTIME
+1785094715
+-XLKEEP
+-XLMODE
+./INCA_libs/irun.lnx8664.15.20.nc
+-RUNMODE
+-CDSLIB
+./INCA_libs/irun.lnx8664.15.20.nc/cds.lib
+-HDLVAR
+./INCA_libs/irun.lnx8664.15.20.nc/hdl.var
+-XLNAME
+ncverilog
+-XLVERSION
+"TOOL:	ncverilog	15.20-s086"
+-XLNAME
+./INCA_libs/irun.lnx8664.15.20.nc/cad19_8617

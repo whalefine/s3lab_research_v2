@@ -1,0 +1,182 @@
+ncverilog: 15.20-s086: (c) Copyright 1995-2020 Cadence Design Systems, Inc.
+file: TEST_conv2d.v
+	module worklib.conv2d_ws:v
+		errors: 0, warnings: 0
+	module worklib.TEST_conv2d:v
+		errors: 0, warnings: 0
+	Elaborating the design hierarchy:
+		Caching library 'worklib' ....... Done
+	Building instance overlay tables: .................... Done
+	Generating native compiled code:
+		worklib.TEST_conv2d:v <0x40af9937>
+			streams:  10, words: 14566
+		worklib.conv2d_ws:v <0x7753a261>
+			streams:  50, words: 20561
+	Building instance specific data structures.
+	Loading native compiled code:     .................... Done
+	Design hierarchy summary:
+		                  Instances  Unique
+		Modules:                  2       2
+		Registers:               50      50
+		Scalar wires:            18       -
+		Vectored wires:          22       -
+		Always blocks:           12      12
+		Initial blocks:           3       3
+		Cont. assignments:       22      27
+		Pseudo assignments:       1       1
+		Simulation timescale:  10ps
+	Writing initial simulation snapshot: worklib.TEST_conv2d:v
+Loading snapshot worklib.TEST_conv2d:v .................... Done
+ncsim> source /usr/INCISIVE15/tools/inca/files/ncsimrc
+ncsim> run
+[TB] TEST_conv2d conv1_ctr
+[TB] progress cycle=1048576
+[TB] progress cycle=2097152
+[TB] progress cycle=3145728
+[TB] progress cycle=4194304
+[TB] progress cycle=5242880
+[TB] progress cycle=6291456
+[TB] progress cycle=7340032
+[TB] progress cycle=8388608
+[TB] progress cycle=9437184
+[TB] progress cycle=10485760
+[TB] progress cycle=11534336
+[TB] progress cycle=12582912
+[TB] progress cycle=13631488
+[TB] progress cycle=14680064
+[TB] progress cycle=15728640
+[TB] progress cycle=16777216
+[TB] progress cycle=17825792
+[TB] progress cycle=18874368
+[TB] progress cycle=19922944
+[TB] progress cycle=20971520
+[TB] progress cycle=22020096
+[TB] progress cycle=23068672
+[TB] progress cycle=24117248
+[TB] progress cycle=25165824
+[TB] progress cycle=26214400
+[TB] progress cycle=27262976
+[TB] progress cycle=28311552
+[TB] progress cycle=29360128
+[TB] progress cycle=30408704
+[TB] progress cycle=31457280
+[TB] progress cycle=32505856
+[TB] progress cycle=33554432
+[TB] progress cycle=34603008
+[TB] progress cycle=35651584
+[TB] progress cycle=36700160
+[TB] progress cycle=37748736
+[TB] progress cycle=38797312
+[TB] progress cycle=39845888
+[TB] progress cycle=40894464
+[TB] progress cycle=41943040
+[TB] progress cycle=42991616
+[TB] progress cycle=44040192
+[TB] progress cycle=45088768
+[TB] progress cycle=46137344
+[TB] progress cycle=47185920
+[TB] progress cycle=48234496
+[TB] progress cycle=49283072
+[TB] progress cycle=50331648
+[TB] progress cycle=51380224
+[TB] progress cycle=52428800
+[TB] progress cycle=53477376
+[TB] progress cycle=54525952
+[TB] progress cycle=55574528
+[TB] progress cycle=56623104
+[TB] progress cycle=57671680
+[TB] progress cycle=58720256
+[TB] progress cycle=59768832
+[TB] progress cycle=60817408
+[TB] progress cycle=61865984
+[TB] progress cycle=62914560
+[TB] progress cycle=63963136
+[TB] progress cycle=65011712
+[TB] progress cycle=66060288
+[TB] progress cycle=67108864
+[TB] progress cycle=68157440
+[TB] progress cycle=69206016
+[TB] progress cycle=70254592
+[TB] progress cycle=71303168
+[TB] progress cycle=72351744
+[TB] progress cycle=73400320
+[TB] progress cycle=74448896
+[TB] progress cycle=75497472
+[TB] progress cycle=76546048
+[TB] progress cycle=77594624
+[TB] progress cycle=78643200
+[TB] progress cycle=79691776
+[TB] progress cycle=80740352
+[TB] progress cycle=81788928
+[TB] progress cycle=82837504
+[TB] progress cycle=83886080
+[TB] progress cycle=84934656
+[TB] progress cycle=85983232
+[TB] progress cycle=87031808
+[TB] progress cycle=88080384
+[TB] progress cycle=89128960
+[TB] progress cycle=90177536
+[TB] progress cycle=91226112
+[TB] progress cycle=92274688
+[TB] progress cycle=93323264
+[TB] progress cycle=94371840
+[TB] progress cycle=95420416
+[TB] progress cycle=96468992
+[TB] progress cycle=97517568
+[TB] progress cycle=98566144
+[TB] progress cycle=99614720
+[TB] progress cycle=100663296
+[TB] progress cycle=101711872
+[TB] progress cycle=102760448
+[TB] progress cycle=103809024
+[TB] progress cycle=104857600
+[TB] progress cycle=105906176
+[TB] progress cycle=106954752
+[TB] progress cycle=108003328
+[TB] progress cycle=109051904
+[TB] progress cycle=110100480
+[TB] progress cycle=111149056
+[TB] progress cycle=112197632
+[TB] progress cycle=113246208
+[TB] progress cycle=114294784
+[TB] progress cycle=115343360
+[TB] progress cycle=116391936
+[TB] progress cycle=117440512
+[TB] progress cycle=118489088
+[TB] progress cycle=119537664
+[TB] progress cycle=120586240
+[TB] progress cycle=121634816
+[TB] progress cycle=122683392
+[TB] progress cycle=123731968
+[TB] progress cycle=124780544
+[TB] progress cycle=125829120
+[TB] progress cycle=126877696
+[TB] progress cycle=127926272
+[TB] progress cycle=128974848
+[TB] progress cycle=130023424
+[TB] progress cycle=131072000
+[TB] progress cycle=132120576
+[TB] progress cycle=133169152
+[TB] progress cycle=134217728
+[TB] progress cycle=135266304
+[TB] progress cycle=136314880
+[TB] progress cycle=137363456
+[TB] progress cycle=138412032
+[TB] progress cycle=139460608
+[TB] progress cycle=140509184
+[TB] progress cycle=141557760
+[TB] progress cycle=142606336
+[TB] progress cycle=143654912
+[TB] progress cycle=144703488
+[TB] progress cycle=145752064
+[TB] progress cycle=146800640
+[TB] progress cycle=147849216
+[TB] progress cycle=148897792
+[TB] progress cycle=149946368
+[TB] progress cycle=150994944
+---- conv2d done @ cycle 151257091 ----
+[TB] exact_mism=25815 soft_le128=25813 first=1 rtl=008e gold=0085
+  [PASS] conv2d soft majority soft_le128
+Simulation complete via $finish(1) at time 302514191 NS + 0
+./TEST_conv2d.v:132     $finish;
+ncsim> exit

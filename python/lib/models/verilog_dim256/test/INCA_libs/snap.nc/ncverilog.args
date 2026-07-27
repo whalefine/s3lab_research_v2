@@ -1,0 +1,10 @@
+//
+// File created by:  ncverilog
+// Do not modify this file
+//
++access+r
++incdir+..
++nctop+TEST
++define+GOLDEN_ACT=\"../../memory/Activation\"
++define+GOLDEN_WGT=\"../../memory/Weight\"
+TEST.v

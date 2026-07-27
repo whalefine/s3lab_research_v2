@@ -1,0 +1,16 @@
+./sglatrack_top.v
+./inv_sqrt_lut_seed.v
+./inv_sqrt_nr.v
+./recip_lut_seed.v
+./recip_nr.v
+./residual.v
+./layer_norm_pip.v
+./care_attention.v
+./mlp_ws.v
+./transformer_block.v
+./backbone_top.v
+./sigmoid_lut.v
+./cal_bbox.v
+./conv2d_ws.v
+./head_branch.v
+./head_top.v

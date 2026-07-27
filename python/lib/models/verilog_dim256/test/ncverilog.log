@@ -1,0 +1,1023 @@
+ncverilog: 15.20-s086: (c) Copyright 1995-2020 Cadence Design Systems, Inc.
+TOOL:	ncverilog	15.20-s086: Started on Jul 27, 2026 at 16:01:57 CST
+ncverilog
+	+access+r
+	+incdir+..
+	+nctop+TEST
+	+define+GOLDEN_ACT="../../memory/Activation"
+	+define+GOLDEN_WGT="../../memory/Weight"
+	TEST.v
+file: TEST.v
+// 輸入  v_i [15:0]  Q8.8 unsigned（LayerNorm variance，≥ 0）
+   |
+ncvlog: *W,NONPRT (../inv_sqrt_lut_seed.v,6|3): non-printable character (0xe8) ignored.
+(`include file: ../inv_sqrt_lut_seed.v line 6, `include file: ../sglatrack_top.v line 13, file: TEST.v line 3)
+// 輸入  v_i [15:0]  Q8.8 unsigned（LayerNorm variance，≥ 0）
+    |
+ncvlog: *W,NONPRT (../inv_sqrt_lut_seed.v,6|4): non-printable character (0xbc) ignored.
+(`include file: ../inv_sqrt_lut_seed.v line 6, `include file: ../sglatrack_top.v line 13, file: TEST.v line 3)
+// 輸入  v_i [15:0]  Q8.8 unsigned（LayerNorm variance，≥ 0）
+     |
+ncvlog: *W,NONPRT (../inv_sqrt_lut_seed.v,6|5): non-printable character (0xb8) ignored.
+(`include file: ../inv_sqrt_lut_seed.v line 6, `include file: ../sglatrack_top.v line 13, file: TEST.v line 3)
+// 輸入  v_i [15:0]  Q8.8 unsigned（LayerNorm variance，≥ 0）
+      |
+ncvlog: *W,NONPRT (../inv_sqrt_lut_seed.v,6|6): non-printable character (0xe5) ignored.
+(`include file: ../inv_sqrt_lut_seed.v line 6, `include file: ../sglatrack_top.v line 13, file: TEST.v line 3)
+// 輸入  v_i [15:0]  Q8.8 unsigned（LayerNorm variance，≥ 0）
+       |
+ncvlog: *W,NONPRT (../inv_sqrt_lut_seed.v,6|7): non-printable character (0x85) ignored.
+(`include file: ../inv_sqrt_lut_seed.v line 6, `include file: ../sglatrack_top.v line 13, file: TEST.v line 3)
+// 輸入  v_i [15:0]  Q8.8 unsigned（LayerNorm variance，≥ 0）
+        |
+ncvlog: *W,NONPRT (../inv_sqrt_lut_seed.v,6|8): non-printable character (0xa5) ignored.
+(`include file: ../inv_sqrt_lut_seed.v line 6, `include file: ../sglatrack_top.v line 13, file: TEST.v line 3)
+// 輸出  y0_o [15:0] Q8.8 初始估值，≈ 1/sqrt(v_i/256)
+   |
+ncvlog: *W,NONPRT (../inv_sqrt_lut_seed.v,7|3): non-printable character (0xe8) ignored.
+(`include file: ../inv_sqrt_lut_seed.v line 7, `include file: ../sglatrack_top.v line 13, file: TEST.v line 3)
+// 輸出  y0_o [15:0] Q8.8 初始估值，≈ 1/sqrt(v_i/256)
+    |
+ncvlog: *W,NONPRT (../inv_sqrt_lut_seed.v,7|4): non-printable character (0xbc) ignored.
+(`include file: ../inv_sqrt_lut_seed.v line 7, `include file: ../sglatrack_top.v line 13, file: TEST.v line 3)
+// 輸出  y0_o [15:0] Q8.8 初始估值，≈ 1/sqrt(v_i/256)
+     |
+ncvlog: *W,NONPRT (../inv_sqrt_lut_seed.v,7|5): non-printable character (0xb8) ignored.
+(`include file: ../inv_sqrt_lut_seed.v line 7, `include file: ../sglatrack_top.v line 13, file: TEST.v line 3)
+// 輸出  y0_o [15:0] Q8.8 初始估值，≈ 1/sqrt(v_i/256)
+      |
+ncvlog: *W,NONPRT (../inv_sqrt_lut_seed.v,7|6): non-printable character (0xe5) ignored.
+(`include file: ../inv_sqrt_lut_seed.v line 7, `include file: ../sglatrack_top.v line 13, file: TEST.v line 3)
+// 輸出  y0_o [15:0] Q8.8 初始估值，≈ 1/sqrt(v_i/256)
+       |
+ncvlog: *W,NONPRT (../inv_sqrt_lut_seed.v,7|7): non-printable character (0x87) ignored.
+(`include file: ../inv_sqrt_lut_seed.v line 7, `include file: ../sglatrack_top.v line 13, file: TEST.v line 3)
+// 輸出  y0_o [15:0] Q8.8 初始估值，≈ 1/sqrt(v_i/256)
+        |
+ncvlog: *W,NONPRT (../inv_sqrt_lut_seed.v,7|8): non-printable character (0xba) ignored.
+(`include file: ../inv_sqrt_lut_seed.v line 7, `include file: ../sglatrack_top.v line 13, file: TEST.v line 3)
+// 方法：
+   |
+ncvlog: *W,NONPRT (../inv_sqrt_lut_seed.v,9|3): non-printable character (0xe6) ignored.
+(`include file: ../inv_sqrt_lut_seed.v line 9, `include file: ../sglatrack_top.v line 13, file: TEST.v line 3)
+// 方法：
+    |
+ncvlog: *W,NONPRT (../inv_sqrt_lut_seed.v,9|4): non-printable character (0x96) ignored.
+(`include file: ../inv_sqrt_lut_seed.v line 9, `include file: ../sglatrack_top.v line 13, file: TEST.v line 3)
+// 方法：
+     |
+ncvlog: *W,NONPRT (../inv_sqrt_lut_seed.v,9|5): non-printable character (0xb9) ignored.
+(`include file: ../inv_sqrt_lut_seed.v line 9, `include file: ../sglatrack_top.v line 13, file: TEST.v line 3)
+// 方法：
+      |
+ncvlog: *W,NONPRT (../inv_sqrt_lut_seed.v,9|6): non-printable character (0xe6) ignored.
+(`include file: ../inv_sqrt_lut_seed.v line 9, `include file: ../sglatrack_top.v line 13, file: TEST.v line 3)
+// 方法：
+       |
+ncvlog: *W,NONPRT (../inv_sqrt_lut_seed.v,9|7): non-printable character (0xb3) ignored.
+(`include file: ../inv_sqrt_lut_seed.v line 9, `include file: ../sglatrack_top.v line 13, file: TEST.v line 3)
+// 方法：
+        |
+ncvlog: *W,NONPRT (../inv_sqrt_lut_seed.v,9|8): non-printable character (0x95) ignored.
+(`include file: ../inv_sqrt_lut_seed.v line 9, `include file: ../sglatrack_top.v line 13, file: TEST.v line 3)
+// 方法：
+         |
+ncvlog: *W,NONPRT (../inv_sqrt_lut_seed.v,9|9): non-printable character (0xef) ignored.
+(`include file: ../inv_sqrt_lut_seed.v line 9, `include file: ../sglatrack_top.v line 13, file: TEST.v line 3)
+// 方法：
+          |
+ncvlog: *W,NONPRT (../inv_sqrt_lut_seed.v,9|10): non-printable character (0xbc) ignored.
+(`include file: ../inv_sqrt_lut_seed.v line 9, `include file: ../sglatrack_top.v line 13, file: TEST.v line 3)
+// 方法：
+           |
+ncvlog: *W,NONPRT (../inv_sqrt_lut_seed.v,9|11): non-printable character (0x9a) ignored.
+(`include file: ../inv_sqrt_lut_seed.v line 9, `include file: ../sglatrack_top.v line 13, file: TEST.v line 3)
+//   找 v_i 最高有效位位置 k（priority encoder），
+     |
+ncvlog: *W,NONPRT (../inv_sqrt_lut_seed.v,10|5): non-printable character (0xe6) ignored.
+(`include file: ../inv_sqrt_lut_seed.v line 10, `include file: ../sglatrack_top.v line 13, file: TEST.v line 3)
+//   找 v_i 最高有效位位置 k（priority encoder），
+      |
+ncvlog: *W,NONPRT (../inv_sqrt_lut_seed.v,10|6): non-printable character (0x89) ignored.
+(`include file: ../inv_sqrt_lut_seed.v line 10, `include file: ../sglatrack_top.v line 13, file: TEST.v line 3)
+//   找 v_i 最高有效位位置 k（priority encoder），
+       |
+ncvlog: *W,NONPRT (../inv_sqrt_lut_seed.v,10|7): non-printable character (0xbe) ignored.
+(`include file: ../inv_sqrt_lut_seed.v line 10, `include file: ../sglatrack_top.v line 13, file: TEST.v line 3)
+//   查 16-entry LUT 回傳 1/sqrt(幾何中點)，即
+     |
+ncvlog: *W,NONPRT (../inv_sqrt_lut_seed.v,11|5): non-printable character (0xe6) ignored.
+(`include file: ../inv_sqrt_lut_seed.v line 11, `include file: ../sglatrack_top.v line 13, file: TEST.v line 3)
+//   查 16-entry LUT 回傳 1/sqrt(幾何中點)，即
+      |
+ncvlog: *W,NONPRT (../inv_sqrt_lut_seed.v,11|6): non-printable character (0x9f) ignored.
+(`include file: ../inv_sqrt_lut_seed.v line 11, `include file: ../sglatrack_top.v line 13, file: TEST.v line 3)
+//   查 16-entry LUT 回傳 1/sqrt(幾何中點)，即
+       |
+ncvlog: *W,NONPRT (../inv_sqrt_lut_seed.v,11|7): non-printable character (0xa5) ignored.
+(`include file: ../inv_sqrt_lut_seed.v line 11, `include file: ../sglatrack_top.v line 13, file: TEST.v line 3)
+// 完全組合邏輯，無 clk。
+   |
+ncvlog: *W,NONPRT (../inv_sqrt_lut_seed.v,14|3): non-printable character (0xe5) ignored.
+(`include file: ../inv_sqrt_lut_seed.v line 14, `include file: ../sglatrack_top.v line 13, file: TEST.v line 3)
+// 完全組合邏輯，無 clk。
+    |
+ncvlog: *W,NONPRT (../inv_sqrt_lut_seed.v,14|4): non-printable character (0xae) ignored.
+(`include file: ../inv_sqrt_lut_seed.v line 14, `include file: ../sglatrack_top.v line 13, file: TEST.v line 3)
+// 完全組合邏輯，無 clk。
+     |
+ncvlog: *W,NONPRT (../inv_sqrt_lut_seed.v,14|5): non-printable character (0x8c) ignored.
+(`include file: ../inv_sqrt_lut_seed.v line 14, `include file: ../sglatrack_top.v line 13, file: TEST.v line 3)
+// 完全組合邏輯，無 clk。
+      |
+ncvlog: *W,NONPRT (../inv_sqrt_lut_seed.v,14|6): non-printable character (0xe5) ignored.
+(`include file: ../inv_sqrt_lut_seed.v line 14, `include file: ../sglatrack_top.v line 13, file: TEST.v line 3)
+// 完全組合邏輯，無 clk。
+       |
+ncvlog: *W,NONPRT (../inv_sqrt_lut_seed.v,14|7): non-printable character (0x85) ignored.
+(`include file: ../inv_sqrt_lut_seed.v line 14, `include file: ../sglatrack_top.v line 13, file: TEST.v line 3)
+// 完全組合邏輯，無 clk。
+        |
+ncvlog: *W,NONPRT (../inv_sqrt_lut_seed.v,14|8): non-printable character (0xa8) ignored.
+(`include file: ../inv_sqrt_lut_seed.v line 14, `include file: ../sglatrack_top.v line 13, file: TEST.v line 3)
+// 完全組合邏輯，無 clk。
+         |
+ncvlog: *W,NONPRT (../inv_sqrt_lut_seed.v,14|9): non-printable character (0xe7) ignored.
+(`include file: ../inv_sqrt_lut_seed.v line 14, `include file: ../sglatrack_top.v line 13, file: TEST.v line 3)
+// 完全組合邏輯，無 clk。
+          |
+ncvlog: *W,NONPRT (../inv_sqrt_lut_seed.v,14|10): non-printable character (0xb5) ignored.
+(`include file: ../inv_sqrt_lut_seed.v line 14, `include file: ../sglatrack_top.v line 13, file: TEST.v line 3)
+// 完全組合邏輯，無 clk。
+           |
+ncvlog: *W,NONPRT (../inv_sqrt_lut_seed.v,14|11): non-printable character (0x84) ignored.
+(`include file: ../inv_sqrt_lut_seed.v line 14, `include file: ../sglatrack_top.v line 13, file: TEST.v line 3)
+// 完全組合邏輯，無 clk。
+            |
+ncvlog: *W,NONPRT (../inv_sqrt_lut_seed.v,14|12): non-printable character (0xe5) ignored.
+(`include file: ../inv_sqrt_lut_seed.v line 14, `include file: ../sglatrack_top.v line 13, file: TEST.v line 3)
+// 完全組合邏輯，無 clk。
+             |
+ncvlog: *W,NONPRT (../inv_sqrt_lut_seed.v,14|13): non-printable character (0x90) ignored.
+(`include file: ../inv_sqrt_lut_seed.v line 14, `include file: ../sglatrack_top.v line 13, file: TEST.v line 3)
+// 完全組合邏輯，無 clk。
+              |
+ncvlog: *W,NONPRT (../inv_sqrt_lut_seed.v,14|14): non-printable character (0x88) ignored.
+(`include file: ../inv_sqrt_lut_seed.v line 14, `include file: ../sglatrack_top.v line 13, file: TEST.v line 3)
+// 完全組合邏輯，無 clk。
+               |
+ncvlog: *W,NONPRT (../inv_sqrt_lut_seed.v,14|15): non-printable character (0xe9) ignored.
+(`include file: ../inv_sqrt_lut_seed.v line 14, `include file: ../sglatrack_top.v line 13, file: TEST.v line 3)
+// 完全組合邏輯，無 clk。
+                |
+ncvlog: *W,NONPRT (../inv_sqrt_lut_seed.v,14|16): non-printable character (0x82) ignored.
+(`include file: ../inv_sqrt_lut_seed.v line 14, `include file: ../sglatrack_top.v line 13, file: TEST.v line 3)
+// 完全組合邏輯，無 clk。
+                 |
+ncvlog: *W,NONPRT (../inv_sqrt_lut_seed.v,14|17): non-printable character (0x8f) ignored.
+(`include file: ../inv_sqrt_lut_seed.v line 14, `include file: ../sglatrack_top.v line 13, file: TEST.v line 3)
+// 完全組合邏輯，無 clk。
+                  |
+ncvlog: *W,NONPRT (../inv_sqrt_lut_seed.v,14|18): non-printable character (0xe8) ignored.
+(`include file: ../inv_sqrt_lut_seed.v line 14, `include file: ../sglatrack_top.v line 13, file: TEST.v line 3)
+// 完全組合邏輯，無 clk。
+                   |
+ncvlog: *W,NONPRT (../inv_sqrt_lut_seed.v,14|19): non-printable character (0xbc) ignored.
+(`include file: ../inv_sqrt_lut_seed.v line 14, `include file: ../sglatrack_top.v line 13, file: TEST.v line 3)
+// 完全組合邏輯，無 clk。
+                    |
+ncvlog: *W,NONPRT (../inv_sqrt_lut_seed.v,14|20): non-printable character (0xaf) ignored.
+(`include file: ../inv_sqrt_lut_seed.v line 14, `include file: ../sglatrack_top.v line 13, file: TEST.v line 3)
+// 完全組合邏輯，無 clk。
+                     |
+ncvlog: *W,NONPRT (../inv_sqrt_lut_seed.v,14|21): non-printable character (0xef) ignored.
+(`include file: ../inv_sqrt_lut_seed.v line 14, `include file: ../sglatrack_top.v line 13, file: TEST.v line 3)
+// 完全組合邏輯，無 clk。
+                      |
+ncvlog: *W,NONPRT (../inv_sqrt_lut_seed.v,14|22): non-printable character (0xbc) ignored.
+(`include file: ../inv_sqrt_lut_seed.v line 14, `include file: ../sglatrack_top.v line 13, file: TEST.v line 3)
+// 完全組合邏輯，無 clk。
+                       |
+ncvlog: *W,NONPRT (../inv_sqrt_lut_seed.v,14|23): non-printable character (0x8c) ignored.
+(`include file: ../inv_sqrt_lut_seed.v line 14, `include file: ../sglatrack_top.v line 13, file: TEST.v line 3)
+// 完全組合邏輯，無 clk。
+                        |
+ncvlog: *W,NONPRT (../inv_sqrt_lut_seed.v,14|24): non-printable character (0xe7) ignored.
+(`include file: ../inv_sqrt_lut_seed.v line 14, `include file: ../sglatrack_top.v line 13, file: TEST.v line 3)
+// 完全組合邏輯，無 clk。
+                         |
+ncvlog: *W,NONPRT (../inv_sqrt_lut_seed.v,14|25): non-printable character (0x84) ignored.
+(`include file: ../inv_sqrt_lut_seed.v line 14, `include file: ../sglatrack_top.v line 13, file: TEST.v line 3)
+// 完全組合邏輯，無 clk。
+                          |
+ncvlog: *W,NONPRT (../inv_sqrt_lut_seed.v,14|26): non-printable character (0xa1) ignored.
+(`include file: ../inv_sqrt_lut_seed.v line 14, `include file: ../sglatrack_top.v line 13, file: TEST.v line 3)
+// 完全組合邏輯，無 clk。
+                               |
+ncvlog: *W,NONPRT (../inv_sqrt_lut_seed.v,14|31): non-printable character (0xe3) ignored.
+(`include file: ../inv_sqrt_lut_seed.v line 14, `include file: ../sglatrack_top.v line 13, file: TEST.v line 3)
+// 完全組合邏輯，無 clk。
+                                |
+ncvlog: *W,NONPRT (../inv_sqrt_lut_seed.v,14|32): non-printable character (0x80) ignored.
+(`include file: ../inv_sqrt_lut_seed.v line 14, `include file: ../sglatrack_top.v line 13, file: TEST.v line 3)
+// 完全組合邏輯，無 clk。
+                                 |
+ncvlog: *W,NONPRT (../inv_sqrt_lut_seed.v,14|33): non-printable character (0x82) ignored.
+(`include file: ../inv_sqrt_lut_seed.v line 14, `include file: ../sglatrack_top.v line 13, file: TEST.v line 3)
+	module worklib.inv_sqrt_lut_seed:v
+		errors: 0, warnings: 0
+// 輸入  v_i [15:0]  Q8.8 signed（LayerNorm variance + eps，> 0）
+   |
+ncvlog: *W,NONPRT (../inv_sqrt_nr.v,6|3): non-printable character (0xe8) ignored.
+(`include file: ../inv_sqrt_nr.v line 6, `include file: ../sglatrack_top.v line 14, file: TEST.v line 3)
+// 輸入  v_i [15:0]  Q8.8 signed（LayerNorm variance + eps，> 0）
+    |
+ncvlog: *W,NONPRT (../inv_sqrt_nr.v,6|4): non-printable character (0xbc) ignored.
+(`include file: ../inv_sqrt_nr.v line 6, `include file: ../sglatrack_top.v line 14, file: TEST.v line 3)
+// 輸入  v_i [15:0]  Q8.8 signed（LayerNorm variance + eps，> 0）
+     |
+ncvlog: *W,NONPRT (../inv_sqrt_nr.v,6|5): non-printable character (0xb8) ignored.
+(`include file: ../inv_sqrt_nr.v line 6, `include file: ../sglatrack_top.v line 14, file: TEST.v line 3)
+// 輸入  v_i [15:0]  Q8.8 signed（LayerNorm variance + eps，> 0）
+      |
+ncvlog: *W,NONPRT (../inv_sqrt_nr.v,6|6): non-printable character (0xe5) ignored.
+(`include file: ../inv_sqrt_nr.v line 6, `include file: ../sglatrack_top.v line 14, file: TEST.v line 3)
+// 輸入  v_i [15:0]  Q8.8 signed（LayerNorm variance + eps，> 0）
+       |
+ncvlog: *W,NONPRT (../inv_sqrt_nr.v,6|7): non-printable character (0x85) ignored.
+(`include file: ../inv_sqrt_nr.v line 6, `include file: ../sglatrack_top.v line 14, file: TEST.v line 3)
+// 輸入  v_i [15:0]  Q8.8 signed（LayerNorm variance + eps，> 0）
+        |
+ncvlog: *W,NONPRT (../inv_sqrt_nr.v,6|8): non-printable character (0xa5) ignored.
+(`include file: ../inv_sqrt_nr.v line 6, `include file: ../sglatrack_top.v line 14, file: TEST.v line 3)
+// 輸出  y_o [15:0]  Q8.8 signed，≈ 1/sqrt(v_float)
+   |
+ncvlog: *W,NONPRT (../inv_sqrt_nr.v,7|3): non-printable character (0xe8) ignored.
+(`include file: ../inv_sqrt_nr.v line 7, `include file: ../sglatrack_top.v line 14, file: TEST.v line 3)
+// 輸出  y_o [15:0]  Q8.8 signed，≈ 1/sqrt(v_float)
+    |
+ncvlog: *W,NONPRT (../inv_sqrt_nr.v,7|4): non-printable character (0xbc) ignored.
+(`include file: ../inv_sqrt_nr.v line 7, `include file: ../sglatrack_top.v line 14, file: TEST.v line 3)
+// 輸出  y_o [15:0]  Q8.8 signed，≈ 1/sqrt(v_float)
+     |
+ncvlog: *W,NONPRT (../inv_sqrt_nr.v,7|5): non-printable character (0xb8) ignored.
+(`include file: ../inv_sqrt_nr.v line 7, `include file: ../sglatrack_top.v line 14, file: TEST.v line 3)
+// 輸出  y_o [15:0]  Q8.8 signed，≈ 1/sqrt(v_float)
+      |
+ncvlog: *W,NONPRT (../inv_sqrt_nr.v,7|6): non-printable character (0xe5) ignored.
+(`include file: ../inv_sqrt_nr.v line 7, `include file: ../sglatrack_top.v line 14, file: TEST.v line 3)
+// 輸出  y_o [15:0]  Q8.8 signed，≈ 1/sqrt(v_float)
+       |
+ncvlog: *W,NONPRT (../inv_sqrt_nr.v,7|7): non-printable character (0x87) ignored.
+(`include file: ../inv_sqrt_nr.v line 7, `include file: ../sglatrack_top.v line 14, file: TEST.v line 3)
+// 輸出  y_o [15:0]  Q8.8 signed，≈ 1/sqrt(v_float)
+        |
+ncvlog: *W,NONPRT (../inv_sqrt_nr.v,7|8): non-printable character (0xba) ignored.
+(`include file: ../inv_sqrt_nr.v line 7, `include file: ../sglatrack_top.v line 14, file: TEST.v line 3)
+// 演算法（全 Q8.8 整數域，每次截位都加 0.5 LSB rounding）：
+   |
+ncvlog: *W,NONPRT (../inv_sqrt_nr.v,9|3): non-printable character (0xe6) ignored.
+(`include file: ../inv_sqrt_nr.v line 9, `include file: ../sglatrack_top.v line 14, file: TEST.v line 3)
+// 演算法（全 Q8.8 整數域，每次截位都加 0.5 LSB rounding）：
+    |
+ncvlog: *W,NONPRT (../inv_sqrt_nr.v,9|4): non-printable character (0xbc) ignored.
+(`include file: ../inv_sqrt_nr.v line 9, `include file: ../sglatrack_top.v line 14, file: TEST.v line 3)
+// 演算法（全 Q8.8 整數域，每次截位都加 0.5 LSB rounding）：
+     |
+ncvlog: *W,NONPRT (../inv_sqrt_nr.v,9|5): non-printable character (0x94) ignored.
+(`include file: ../inv_sqrt_nr.v line 9, `include file: ../sglatrack_top.v line 14, file: TEST.v line 3)
+// 演算法（全 Q8.8 整數域，每次截位都加 0.5 LSB rounding）：
+      |
+ncvlog: *W,NONPRT (../inv_sqrt_nr.v,9|6): non-printable character (0xe7) ignored.
+(`include file: ../inv_sqrt_nr.v line 9, `include file: ../sglatrack_top.v line 14, file: TEST.v line 3)
+// 演算法（全 Q8.8 整數域，每次截位都加 0.5 LSB rounding）：
+       |
+ncvlog: *W,NONPRT (../inv_sqrt_nr.v,9|7): non-printable character (0xae) ignored.
+(`include file: ../inv_sqrt_nr.v line 9, `include file: ../sglatrack_top.v line 14, file: TEST.v line 3)
+// 演算法（全 Q8.8 整數域，每次截位都加 0.5 LSB rounding）：
+        |
+ncvlog: *W,NONPRT (../inv_sqrt_nr.v,9|8): non-printable character (0x97) ignored.
+(`include file: ../inv_sqrt_nr.v line 9, `include file: ../sglatrack_top.v line 14, file: TEST.v line 3)
+// 演算法（全 Q8.8 整數域，每次截位都加 0.5 LSB rounding）：
+         |
+ncvlog: *W,NONPRT (../inv_sqrt_nr.v,9|9): non-printable character (0xe6) ignored.
+(`include file: ../inv_sqrt_nr.v line 9, `include file: ../sglatrack_top.v line 14, file: TEST.v line 3)
+// 演算法（全 Q8.8 整數域，每次截位都加 0.5 LSB rounding）：
+          |
+ncvlog: *W,NONPRT (../inv_sqrt_nr.v,9|10): non-printable character (0xb3) ignored.
+(`include file: ../inv_sqrt_nr.v line 9, `include file: ../sglatrack_top.v line 14, file: TEST.v line 3)
+// 演算法（全 Q8.8 整數域，每次截位都加 0.5 LSB rounding）：
+           |
+ncvlog: *W,NONPRT (../inv_sqrt_nr.v,9|11): non-printable character (0x95) ignored.
+(`include file: ../inv_sqrt_nr.v line 9, `include file: ../sglatrack_top.v line 14, file: TEST.v line 3)
+// 演算法（全 Q8.8 整數域，每次截位都加 0.5 LSB rounding）：
+            |
+ncvlog: *W,NONPRT (../inv_sqrt_nr.v,9|12): non-printable character (0xef) ignored.
+(`include file: ../inv_sqrt_nr.v line 9, `include file: ../sglatrack_top.v line 14, file: TEST.v line 3)
+// 演算法（全 Q8.8 整數域，每次截位都加 0.5 LSB rounding）：
+             |
+ncvlog: *W,NONPRT (../inv_sqrt_nr.v,9|13): non-printable character (0xbc) ignored.
+(`include file: ../inv_sqrt_nr.v line 9, `include file: ../sglatrack_top.v line 14, file: TEST.v line 3)
+// 演算法（全 Q8.8 整數域，每次截位都加 0.5 LSB rounding）：
+              |
+ncvlog: *W,NONPRT (../inv_sqrt_nr.v,9|14): non-printable character (0x88) ignored.
+(`include file: ../inv_sqrt_nr.v line 9, `include file: ../sglatrack_top.v line 14, file: TEST.v line 3)
+// 演算法（全 Q8.8 整數域，每次截位都加 0.5 LSB rounding）：
+               |
+ncvlog: *W,NONPRT (../inv_sqrt_nr.v,9|15): non-printable character (0xe5) ignored.
+(`include file: ../inv_sqrt_nr.v line 9, `include file: ../sglatrack_top.v line 14, file: TEST.v line 3)
+// 演算法（全 Q8.8 整數域，每次截位都加 0.5 LSB rounding）：
+                |
+ncvlog: *W,NONPRT (../inv_sqrt_nr.v,9|16): non-printable character (0x85) ignored.
+(`include file: ../inv_sqrt_nr.v line 9, `include file: ../sglatrack_top.v line 14, file: TEST.v line 3)
+// 演算法（全 Q8.8 整數域，每次截位都加 0.5 LSB rounding）：
+                 |
+ncvlog: *W,NONPRT (../inv_sqrt_nr.v,9|17): non-printable character (0xa8) ignored.
+(`include file: ../inv_sqrt_nr.v line 9, `include file: ../sglatrack_top.v line 14, file: TEST.v line 3)
+// 電路：
+   |
+ncvlog: *W,NONPRT (../inv_sqrt_nr.v,14|3): non-printable character (0xe9) ignored.
+(`include file: ../inv_sqrt_nr.v line 14, `include file: ../sglatrack_top.v line 14, file: TEST.v line 3)
+// 電路：
+    |
+ncvlog: *W,NONPRT (../inv_sqrt_nr.v,14|4): non-printable character (0x9b) ignored.
+(`include file: ../inv_sqrt_nr.v line 14, `include file: ../sglatrack_top.v line 14, file: TEST.v line 3)
+// 電路：
+     |
+ncvlog: *W,NONPRT (../inv_sqrt_nr.v,14|5): non-printable character (0xbb) ignored.
+(`include file: ../inv_sqrt_nr.v line 14, `include file: ../sglatrack_top.v line 14, file: TEST.v line 3)
+// 電路：
+      |
+ncvlog: *W,NONPRT (../inv_sqrt_nr.v,14|6): non-printable character (0xe8) ignored.
+(`include file: ../inv_sqrt_nr.v line 14, `include file: ../sglatrack_top.v line 14, file: TEST.v line 3)
+// 電路：
+       |
+ncvlog: *W,NONPRT (../inv_sqrt_nr.v,14|7): non-printable character (0xb7) ignored.
+(`include file: ../inv_sqrt_nr.v line 14, `include file: ../sglatrack_top.v line 14, file: TEST.v line 3)
+// 電路：
+        |
+ncvlog: *W,NONPRT (../inv_sqrt_nr.v,14|8): non-printable character (0xaf) ignored.
+(`include file: ../inv_sqrt_nr.v line 14, `include file: ../sglatrack_top.v line 14, file: TEST.v line 3)
+// 電路：
+         |
+ncvlog: *W,NONPRT (../inv_sqrt_nr.v,14|9): non-printable character (0xef) ignored.
+(`include file: ../inv_sqrt_nr.v line 14, `include file: ../sglatrack_top.v line 14, file: TEST.v line 3)
+// 電路：
+          |
+ncvlog: *W,NONPRT (../inv_sqrt_nr.v,14|10): non-printable character (0xbc) ignored.
+(`include file: ../inv_sqrt_nr.v line 14, `include file: ../sglatrack_top.v line 14, file: TEST.v line 3)
+// 電路：
+           |
+ncvlog: *W,NONPRT (../inv_sqrt_nr.v,14|11): non-printable character (0x9a) ignored.
+(`include file: ../inv_sqrt_nr.v line 14, `include file: ../sglatrack_top.v line 14, file: TEST.v line 3)
+// 延遲：5 clock cycles（start → done）。
+   |
+ncvlog: *W,NONPRT (../inv_sqrt_nr.v,20|3): non-printable character (0xe5) ignored.
+(`include file: ../inv_sqrt_nr.v line 20, `include file: ../sglatrack_top.v line 14, file: TEST.v line 3)
+// 延遲：5 clock cycles（start → done）。
+    |
+ncvlog: *W,NONPRT (../inv_sqrt_nr.v,20|4): non-printable character (0xbb) ignored.
+(`include file: ../inv_sqrt_nr.v line 20, `include file: ../sglatrack_top.v line 14, file: TEST.v line 3)
+// 延遲：5 clock cycles（start → done）。
+     |
+ncvlog: *W,NONPRT (../inv_sqrt_nr.v,20|5): non-printable character (0xb6) ignored.
+(`include file: ../inv_sqrt_nr.v line 20, `include file: ../sglatrack_top.v line 14, file: TEST.v line 3)
+// 延遲：5 clock cycles（start → done）。
+      |
+ncvlog: *W,NONPRT (../inv_sqrt_nr.v,20|6): non-printable character (0xe9) ignored.
+(`include file: ../inv_sqrt_nr.v line 20, `include file: ../sglatrack_top.v line 14, file: TEST.v line 3)
+// 延遲：5 clock cycles（start → done）。
+       |
+ncvlog: *W,NONPRT (../inv_sqrt_nr.v,20|7): non-printable character (0x81) ignored.
+(`include file: ../inv_sqrt_nr.v line 20, `include file: ../sglatrack_top.v line 14, file: TEST.v line 3)
+// 延遲：5 clock cycles（start → done）。
+        |
+ncvlog: *W,NONPRT (../inv_sqrt_nr.v,20|8): non-printable character (0xb2) ignored.
+(`include file: ../inv_sqrt_nr.v line 20, `include file: ../sglatrack_top.v line 14, file: TEST.v line 3)
+// 延遲：5 clock cycles（start → done）。
+         |
+ncvlog: *W,NONPRT (../inv_sqrt_nr.v,20|9): non-printable character (0xef) ignored.
+(`include file: ../inv_sqrt_nr.v line 20, `include file: ../sglatrack_top.v line 14, file: TEST.v line 3)
+// 延遲：5 clock cycles（start → done）。
+          |
+ncvlog: *W,NONPRT (../inv_sqrt_nr.v,20|10): non-printable character (0xbc) ignored.
+(`include file: ../inv_sqrt_nr.v line 20, `include file: ../sglatrack_top.v line 14, file: TEST.v line 3)
+// 延遲：5 clock cycles（start → done）。
+           |
+ncvlog: *W,NONPRT (../inv_sqrt_nr.v,20|11): non-printable character (0x9a) ignored.
+(`include file: ../inv_sqrt_nr.v line 20, `include file: ../sglatrack_top.v line 14, file: TEST.v line 3)
+// y² in Q8.8: round((y*y) / 256) = (y*y + 128) >> 8
+    |
+ncvlog: *W,NONPRT (../inv_sqrt_nr.v,52|4): non-printable character (0xc2) ignored.
+(`include file: ../inv_sqrt_nr.v line 52, `include file: ../sglatrack_top.v line 14, file: TEST.v line 3)
+// y² in Q8.8: round((y*y) / 256) = (y*y + 128) >> 8
+     |
+ncvlog: *W,NONPRT (../inv_sqrt_nr.v,52|5): non-printable character (0xb2) ignored.
+(`include file: ../inv_sqrt_nr.v line 52, `include file: ../sglatrack_top.v line 14, file: TEST.v line 3)
+	module worklib.inv_sqrt_nr:v
+		errors: 0, warnings: 2
+	module worklib.recip_lut_seed:v
+		errors: 0, warnings: 0
+	module worklib.recip_nr:v
+		errors: 0, warnings: 0
+	module worklib.residual:v
+		errors: 0, warnings: 0
+	module worklib.layer_norm_pip:v
+		errors: 0, warnings: 0
+	module worklib.care_attention:v
+		errors: 0, warnings: 0
+	module worklib.mlp_ws:v
+		errors: 0, warnings: 0
+	module worklib.transformer_block:v
+		errors: 0, warnings: 0
+	module worklib.backbone_top:v
+		errors: 0, warnings: 0
+	module worklib.sigmoid_lut:v
+		errors: 0, warnings: 0
+	module worklib.cal_bbox:v
+		errors: 0, warnings: 0
+	module worklib.conv2d_ws:v
+		errors: 0, warnings: 0
+	module worklib.head_branch:v
+		errors: 0, warnings: 0
+	module worklib.head_top:v
+		errors: 0, warnings: 0
+	module worklib.sglatrack_top:v
+		errors: 0, warnings: 0
+	module worklib.TEST:v
+		errors: 0, warnings: 0
+	Total errors/warnings found outside modules and primitives:
+		errors: 0, warnings: 99
+	Elaborating the design hierarchy:
+		Caching library 'worklib' ....... Done
+	Building instance overlay tables: .................... Done
+	Generating native compiled code:
+		worklib.TEST:v <0x113d444a>
+			streams:  50, words: 106315
+		worklib.backbone_top:v <0x6591319b>
+			streams:  30, words: 11709
+		worklib.cal_bbox:v <0x47103e58>
+			streams:  30, words: 13210
+		worklib.care_attention:v <0x1fcb8dc5>
+			streams: 230, words: 118488
+		worklib.conv2d_ws:v <0x06c3dccb>
+			streams:  50, words: 20598
+		worklib.conv2d_ws:v <0x0f3db5d2>
+			streams:  50, words: 20601
+		worklib.conv2d_ws:v <0x0f40c45a>
+			streams:  50, words: 20485
+		worklib.conv2d_ws:v <0x19582af7>
+			streams:  50, words: 20598
+		worklib.conv2d_ws:v <0x4c5cf0c1>
+			streams:  50, words: 20604
+		worklib.conv2d_ws:v <0x5dcb832d>
+			streams:  50, words: 20482
+		worklib.head_branch:v <0x44716d02>
+			streams:  28, words: 16924
+		worklib.head_branch:v <0x503b95ef>
+			streams:  28, words: 16924
+		worklib.head_branch:v <0x6df6944a>
+			streams:  28, words: 16930
+		worklib.head_top:v <0x04009dbf>
+			streams:  34, words: 13572
+		worklib.inv_sqrt_lut_seed:v <0x3972d837>
+			streams:   2, words:  1956
+		worklib.inv_sqrt_nr:v <0x1c010fa5>
+			streams:  19, words:  3558
+		worklib.layer_norm_pip:v <0x775354a5>
+			streams:  51, words: 17982
+		worklib.mlp_ws:v <0x64948063>
+			streams: 106, words: 52723
+		worklib.recip_lut_seed:v <0x1e20d9c9>
+			streams:   2, words:  1959
+		worklib.recip_nr:v <0x7e3b525a>
+			streams:  16, words:  3782
+		worklib.residual:v <0x42843a6e>
+			streams:   5, words:  1343
+		worklib.sglatrack_top:v <0x77a1ba10>
+			streams:  48, words: 13486
+		worklib.sigmoid_lut:v <0x09f5d318>
+			streams:   5, words:  3870
+		worklib.transformer_block:v <0x2dcb9c1d>
+			streams:  49, words: 30142
+	Building instance specific data structures.
+	Loading native compiled code:     .................... Done
+	Design hierarchy summary:
+		                  Instances  Unique
+		Modules:                 38      17
+		Registers:              998     496
+		Scalar wires:           467       -
+		Vectored wires:         680       -
+		Always blocks:          284     136
+		Initial blocks:          19       5
+		Cont. assignments:      651     406
+		Pseudo assignments:      13      13
+		Simulation timescale:  10ps
+	Writing initial simulation snapshot: worklib.TEST:v
+Loading snapshot worklib.TEST:v .................... Done
+ncsim> source /usr/INCISIVE15/tools/inca/files/ncsimrc
+ncsim> run
+[TB] verilog_dim256 E2E sel=6
+[TB] progress cycle=2097152 top=1 bb_st=2 blk=0 hd_br=0
+[TB] progress cycle=4194304 top=1 bb_st=2 blk=0 hd_br=0
+[TB] progress cycle=6291456 top=1 bb_st=2 blk=0 hd_br=0
+[TB] progress cycle=8388608 top=1 bb_st=2 blk=0 hd_br=0
+[TB] progress cycle=10485760 top=1 bb_st=2 blk=0 hd_br=0
+[TB] progress cycle=12582912 top=1 bb_st=2 blk=0 hd_br=0
+[TB] progress cycle=14680064 top=1 bb_st=2 blk=0 hd_br=0
+[TB] progress cycle=16777216 top=1 bb_st=2 blk=0 hd_br=0
+[TB] progress cycle=18874368 top=1 bb_st=2 blk=0 hd_br=0
+[TB] progress cycle=20971520 top=1 bb_st=2 blk=0 hd_br=0
+[TB] progress cycle=23068672 top=1 bb_st=2 blk=0 hd_br=0
+[TB] progress cycle=25165824 top=1 bb_st=2 blk=0 hd_br=0
+[TB] progress cycle=27262976 top=1 bb_st=2 blk=0 hd_br=0
+[TB] progress cycle=29360128 top=1 bb_st=2 blk=0 hd_br=0
+[TB] progress cycle=31457280 top=1 bb_st=2 blk=0 hd_br=0
+[TB] progress cycle=33554432 top=1 bb_st=2 blk=0 hd_br=0
+[TB] progress cycle=35651584 top=1 bb_st=2 blk=0 hd_br=0
+[TB] progress cycle=37748736 top=1 bb_st=2 blk=0 hd_br=0
+[TB] progress cycle=39845888 top=1 bb_st=2 blk=1 hd_br=0
+[TB] progress cycle=41943040 top=1 bb_st=2 blk=1 hd_br=0
+[TB] progress cycle=44040192 top=1 bb_st=2 blk=1 hd_br=0
+[TB] progress cycle=46137344 top=1 bb_st=2 blk=1 hd_br=0
+[TB] progress cycle=48234496 top=1 bb_st=2 blk=1 hd_br=0
+[TB] progress cycle=50331648 top=1 bb_st=2 blk=1 hd_br=0
+[TB] progress cycle=52428800 top=1 bb_st=2 blk=1 hd_br=0
+[TB] progress cycle=54525952 top=1 bb_st=2 blk=1 hd_br=0
+[TB] progress cycle=56623104 top=1 bb_st=2 blk=1 hd_br=0
+[TB] progress cycle=58720256 top=1 bb_st=2 blk=1 hd_br=0
+[TB] progress cycle=60817408 top=1 bb_st=2 blk=1 hd_br=0
+[TB] progress cycle=62914560 top=1 bb_st=2 blk=1 hd_br=0
+[TB] progress cycle=65011712 top=1 bb_st=2 blk=1 hd_br=0
+[TB] progress cycle=67108864 top=1 bb_st=2 blk=1 hd_br=0
+[TB] progress cycle=69206016 top=1 bb_st=2 blk=1 hd_br=0
+[TB] progress cycle=71303168 top=1 bb_st=2 blk=1 hd_br=0
+[TB] progress cycle=73400320 top=1 bb_st=2 blk=1 hd_br=0
+[TB] progress cycle=75497472 top=1 bb_st=2 blk=1 hd_br=0
+[TB] progress cycle=77594624 top=1 bb_st=2 blk=2 hd_br=0
+[TB] progress cycle=79691776 top=1 bb_st=2 blk=2 hd_br=0
+[TB] progress cycle=81788928 top=1 bb_st=2 blk=2 hd_br=0
+[TB] progress cycle=83886080 top=1 bb_st=2 blk=2 hd_br=0
+[TB] progress cycle=85983232 top=1 bb_st=2 blk=2 hd_br=0
+[TB] progress cycle=88080384 top=1 bb_st=2 blk=2 hd_br=0
+[TB] progress cycle=90177536 top=1 bb_st=2 blk=2 hd_br=0
+[TB] progress cycle=92274688 top=1 bb_st=2 blk=2 hd_br=0
+[TB] progress cycle=94371840 top=1 bb_st=2 blk=2 hd_br=0
+[TB] progress cycle=96468992 top=1 bb_st=2 blk=2 hd_br=0
+[TB] progress cycle=98566144 top=1 bb_st=2 blk=2 hd_br=0
+[TB] progress cycle=100663296 top=1 bb_st=2 blk=2 hd_br=0
+[TB] progress cycle=102760448 top=1 bb_st=2 blk=2 hd_br=0
+[TB] progress cycle=104857600 top=1 bb_st=2 blk=2 hd_br=0
+[TB] progress cycle=106954752 top=1 bb_st=2 blk=2 hd_br=0
+[TB] progress cycle=109051904 top=1 bb_st=2 blk=2 hd_br=0
+[TB] progress cycle=111149056 top=1 bb_st=2 blk=2 hd_br=0
+[TB] progress cycle=113246208 top=1 bb_st=2 blk=2 hd_br=0
+[TB] progress cycle=115343360 top=1 bb_st=2 blk=3 hd_br=0
+[TB] progress cycle=117440512 top=1 bb_st=2 blk=3 hd_br=0
+[TB] progress cycle=119537664 top=1 bb_st=2 blk=3 hd_br=0
+[TB] progress cycle=121634816 top=1 bb_st=2 blk=3 hd_br=0
+[TB] progress cycle=123731968 top=1 bb_st=2 blk=3 hd_br=0
+[TB] progress cycle=125829120 top=1 bb_st=2 blk=3 hd_br=0
+[TB] progress cycle=127926272 top=1 bb_st=2 blk=3 hd_br=0
+[TB] progress cycle=130023424 top=1 bb_st=2 blk=3 hd_br=0
+[TB] progress cycle=132120576 top=1 bb_st=2 blk=3 hd_br=0
+[TB] progress cycle=134217728 top=1 bb_st=2 blk=3 hd_br=0
+[TB] progress cycle=136314880 top=1 bb_st=2 blk=3 hd_br=0
+[TB] progress cycle=138412032 top=1 bb_st=2 blk=3 hd_br=0
+[TB] progress cycle=140509184 top=1 bb_st=2 blk=3 hd_br=0
+[TB] progress cycle=142606336 top=1 bb_st=2 blk=3 hd_br=0
+[TB] progress cycle=144703488 top=1 bb_st=2 blk=3 hd_br=0
+[TB] progress cycle=146800640 top=1 bb_st=2 blk=3 hd_br=0
+[TB] progress cycle=148897792 top=1 bb_st=2 blk=3 hd_br=0
+[TB] progress cycle=150994944 top=1 bb_st=2 blk=3 hd_br=0
+[TB] progress cycle=153092096 top=1 bb_st=2 blk=4 hd_br=0
+[TB] progress cycle=155189248 top=1 bb_st=2 blk=4 hd_br=0
+[TB] progress cycle=157286400 top=1 bb_st=2 blk=4 hd_br=0
+[TB] progress cycle=159383552 top=1 bb_st=2 blk=4 hd_br=0
+[TB] progress cycle=161480704 top=1 bb_st=2 blk=4 hd_br=0
+[TB] progress cycle=163577856 top=1 bb_st=2 blk=4 hd_br=0
+[TB] progress cycle=165675008 top=1 bb_st=2 blk=4 hd_br=0
+[TB] progress cycle=167772160 top=1 bb_st=2 blk=4 hd_br=0
+[TB] progress cycle=169869312 top=1 bb_st=2 blk=4 hd_br=0
+[TB] progress cycle=171966464 top=1 bb_st=2 blk=4 hd_br=0
+[TB] progress cycle=174063616 top=1 bb_st=2 blk=4 hd_br=0
+[TB] progress cycle=176160768 top=1 bb_st=2 blk=4 hd_br=0
+[TB] progress cycle=178257920 top=1 bb_st=2 blk=4 hd_br=0
+[TB] progress cycle=180355072 top=1 bb_st=2 blk=4 hd_br=0
+[TB] progress cycle=182452224 top=1 bb_st=2 blk=4 hd_br=0
+[TB] progress cycle=184549376 top=1 bb_st=2 blk=4 hd_br=0
+[TB] progress cycle=186646528 top=1 bb_st=2 blk=4 hd_br=0
+[TB] progress cycle=188743680 top=1 bb_st=2 blk=4 hd_br=0
+[TB] progress cycle=190840832 top=1 bb_st=2 blk=5 hd_br=0
+[TB] progress cycle=192937984 top=1 bb_st=2 blk=5 hd_br=0
+[TB] progress cycle=195035136 top=1 bb_st=2 blk=5 hd_br=0
+[TB] progress cycle=197132288 top=1 bb_st=2 blk=5 hd_br=0
+[TB] progress cycle=199229440 top=1 bb_st=2 blk=5 hd_br=0
+[TB] progress cycle=201326592 top=1 bb_st=2 blk=5 hd_br=0
+[TB] progress cycle=203423744 top=1 bb_st=2 blk=5 hd_br=0
+[TB] progress cycle=205520896 top=1 bb_st=2 blk=5 hd_br=0
+[TB] progress cycle=207618048 top=1 bb_st=2 blk=5 hd_br=0
+[TB] progress cycle=209715200 top=1 bb_st=2 blk=5 hd_br=0
+[TB] progress cycle=211812352 top=1 bb_st=2 blk=5 hd_br=0
+[TB] progress cycle=213909504 top=1 bb_st=2 blk=5 hd_br=0
+[TB] progress cycle=216006656 top=1 bb_st=2 blk=5 hd_br=0
+[TB] progress cycle=218103808 top=1 bb_st=2 blk=5 hd_br=0
+[TB] progress cycle=220200960 top=1 bb_st=2 blk=5 hd_br=0
+[TB] progress cycle=222298112 top=1 bb_st=2 blk=5 hd_br=0
+[TB] progress cycle=224395264 top=1 bb_st=2 blk=5 hd_br=0
+[TB] progress cycle=226492416 top=1 bb_st=2 blk=5 hd_br=0
+[TB] progress cycle=228589568 top=1 bb_st=3 blk=6 hd_br=0
+[TB] progress cycle=230686720 top=1 bb_st=3 blk=6 hd_br=0
+[TB] progress cycle=232783872 top=1 bb_st=3 blk=6 hd_br=0
+[TB] progress cycle=234881024 top=1 bb_st=3 blk=6 hd_br=0
+[TB] progress cycle=236978176 top=1 bb_st=3 blk=6 hd_br=0
+[TB] progress cycle=239075328 top=1 bb_st=3 blk=6 hd_br=0
+[TB] progress cycle=241172480 top=1 bb_st=3 blk=6 hd_br=0
+[TB] progress cycle=243269632 top=1 bb_st=3 blk=6 hd_br=0
+[TB] progress cycle=245366784 top=1 bb_st=3 blk=6 hd_br=0
+[TB] progress cycle=247463936 top=1 bb_st=3 blk=6 hd_br=0
+[TB] progress cycle=249561088 top=1 bb_st=3 blk=6 hd_br=0
+[TB] progress cycle=251658240 top=1 bb_st=3 blk=6 hd_br=0
+[TB] progress cycle=253755392 top=1 bb_st=3 blk=6 hd_br=0
+[TB] progress cycle=255852544 top=1 bb_st=3 blk=6 hd_br=0
+[TB] progress cycle=257949696 top=1 bb_st=3 blk=6 hd_br=0
+[TB] progress cycle=260046848 top=1 bb_st=3 blk=6 hd_br=0
+[TB] progress cycle=262144000 top=1 bb_st=3 blk=6 hd_br=0
+[TB] progress cycle=264241152 top=1 bb_st=3 blk=6 hd_br=0
+[TB] progress cycle=266338304 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=268435456 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=270532608 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=272629760 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=274726912 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=276824064 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=278921216 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=281018368 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=283115520 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=285212672 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=287309824 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=289406976 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=291504128 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=293601280 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=295698432 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=297795584 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=299892736 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=301989888 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=304087040 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=306184192 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=308281344 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=310378496 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=312475648 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=314572800 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=316669952 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=318767104 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=320864256 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=322961408 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=325058560 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=327155712 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=329252864 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=331350016 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=333447168 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=335544320 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=337641472 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=339738624 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=341835776 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=343932928 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=346030080 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=348127232 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=350224384 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=352321536 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=354418688 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=356515840 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=358612992 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=360710144 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=362807296 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=364904448 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=367001600 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=369098752 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=371195904 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=373293056 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=375390208 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=377487360 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=379584512 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=381681664 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=383778816 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=385875968 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=387973120 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=390070272 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=392167424 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=394264576 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=396361728 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=398458880 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=400556032 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=402653184 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=404750336 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=406847488 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=408944640 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=411041792 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=413138944 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=415236096 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=417333248 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=419430400 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=421527552 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=423624704 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=425721856 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=427819008 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=429916160 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=432013312 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=434110464 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=436207616 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=438304768 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=440401920 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=442499072 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=444596224 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=446693376 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=448790528 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=450887680 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=452984832 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=455081984 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=457179136 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=459276288 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=461373440 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=463470592 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=465567744 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=467664896 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=469762048 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=471859200 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=473956352 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=476053504 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=478150656 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=480247808 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=482344960 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=484442112 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=486539264 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=488636416 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=490733568 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=492830720 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=494927872 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=497025024 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=499122176 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=501219328 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=503316480 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=505413632 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=507510784 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=509607936 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=511705088 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=513802240 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=515899392 top=3 bb_st=0 blk=0 hd_br=0
+[TB] progress cycle=517996544 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=520093696 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=522190848 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=524288000 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=526385152 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=528482304 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=530579456 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=532676608 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=534773760 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=536870912 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=538968064 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=541065216 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=543162368 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=545259520 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=547356672 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=549453824 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=551550976 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=553648128 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=555745280 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=557842432 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=559939584 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=562036736 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=564133888 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=566231040 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=568328192 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=570425344 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=572522496 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=574619648 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=576716800 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=578813952 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=580911104 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=583008256 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=585105408 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=587202560 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=589299712 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=591396864 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=593494016 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=595591168 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=597688320 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=599785472 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=601882624 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=603979776 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=606076928 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=608174080 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=610271232 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=612368384 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=614465536 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=616562688 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=618659840 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=620756992 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=622854144 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=624951296 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=627048448 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=629145600 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=631242752 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=633339904 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=635437056 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=637534208 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=639631360 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=641728512 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=643825664 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=645922816 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=648019968 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=650117120 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=652214272 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=654311424 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=656408576 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=658505728 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=660602880 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=662700032 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=664797184 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=666894336 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=668991488 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=671088640 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=673185792 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=675282944 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=677380096 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=679477248 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=681574400 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=683671552 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=685768704 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=687865856 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=689963008 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=692060160 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=694157312 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=696254464 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=698351616 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=700448768 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=702545920 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=704643072 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=706740224 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=708837376 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=710934528 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=713031680 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=715128832 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=717225984 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=719323136 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=721420288 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=723517440 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=725614592 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=727711744 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=729808896 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=731906048 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=734003200 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=736100352 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=738197504 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=740294656 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=742391808 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=744488960 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=746586112 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=748683264 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=750780416 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=752877568 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=754974720 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=757071872 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=759169024 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=761266176 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=763363328 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=765460480 top=3 bb_st=0 blk=0 hd_br=1
+[TB] progress cycle=767557632 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=769654784 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=771751936 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=773849088 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=775946240 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=778043392 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=780140544 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=782237696 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=784334848 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=786432000 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=788529152 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=790626304 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=792723456 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=794820608 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=796917760 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=799014912 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=801112064 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=803209216 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=805306368 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=807403520 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=809500672 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=811597824 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=813694976 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=815792128 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=817889280 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=819986432 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=822083584 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=824180736 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=826277888 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=828375040 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=830472192 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=832569344 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=834666496 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=836763648 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=838860800 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=840957952 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=843055104 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=845152256 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=847249408 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=849346560 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=851443712 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=853540864 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=855638016 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=857735168 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=859832320 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=861929472 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=864026624 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=866123776 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=868220928 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=870318080 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=872415232 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=874512384 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=876609536 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=878706688 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=880803840 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=882900992 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=884998144 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=887095296 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=889192448 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=891289600 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=893386752 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=895483904 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=897581056 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=899678208 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=901775360 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=903872512 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=905969664 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=908066816 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=910163968 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=912261120 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=914358272 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=916455424 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=918552576 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=920649728 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=922746880 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=924844032 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=926941184 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=929038336 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=931135488 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=933232640 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=935329792 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=937426944 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=939524096 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=941621248 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=943718400 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=945815552 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=947912704 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=950009856 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=952107008 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=954204160 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=956301312 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=958398464 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=960495616 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=962592768 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=964689920 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=966787072 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=968884224 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=970981376 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=973078528 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=975175680 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=977272832 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=979369984 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=981467136 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=983564288 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=985661440 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=987758592 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=989855744 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=991952896 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=994050048 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=996147200 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=998244352 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=1000341504 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=1002438656 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=1004535808 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=1006632960 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=1008730112 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=1010827264 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=1012924416 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=1015021568 top=3 bb_st=0 blk=0 hd_br=2
+[TB] progress cycle=1017118720 top=3 bb_st=0 blk=0 hd_br=2
+
+---- verilog_dim256 full-chain done @ cycle 1017536834 ----
+  Predicted bbox (Q8.8 hex | float/256):
+    cx = 0x007b  (0.480469)
+    cy = 0x0082  (0.507812)
+    w  = 0x0025  (0.144531)
+    h  = 0x004a  (0.289062)
+  Golden bbox:
+    cx = 0x007c  (0.484375)
+    cy = 0x0082  (0.507812)
+    w  = 0x0025  (0.144531)
+    h  = 0x004b  (0.292969)
+
+  [PASS] bbox matches golden within +-2 LSB
+Simulation complete via $finish(1) at time 2035073677 NS + 0
+./TEST.v:594     $finish;
+ncsim> exit
+TOOL:	ncverilog	15.20-s086: Exiting on Jul 27, 2026 at 16:11:20 CST  (total: 00:09:23)

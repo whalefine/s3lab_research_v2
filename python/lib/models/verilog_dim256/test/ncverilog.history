@@ -1,0 +1,5 @@
+s1(27Jul2026:03:19:31):  ncverilog +access+r +incdir+.. +nctop+TEST_conv2d +define+GOLDEN_ACT="../../memory/Activation" +define+GOLDEN_WGT="../../memory/Weight" TEST_conv2d.v 
+s2(27Jul2026:03:26:56):  ncverilog +access+r +incdir+.. +nctop+TEST +define+GOLDEN_ACT="../../memory/Activation" +define+GOLDEN_WGT="../../memory/Weight" TEST.v +nc64bit +loadpli1=lp_pli.so:lp_bootstrap +access+r +neg_tchk 
+s3(27Jul2026:03:30:20):  ncverilog +access+r +incdir+.. +nctop+TEST +define+GOLDEN_ACT="../../memory/Activation" +define+GOLDEN_WGT="../../memory/Weight" TEST.v +nc64bit +loadpli1=lp_pli.so:lp_bootstrap +access+r +neg_tchk 
+s4(27Jul2026:03:38:35):  ncverilog +access+r +incdir+.. +nctop+TEST +define+GOLDEN_ACT="../../memory/Activation" +define+GOLDEN_WGT="../../memory/Weight" TEST.v +nc64bit +loadpli1=lp_pli.so:lp_bootstrap +access+r +neg_tchk 
+s5(27Jul2026:16:01:57):  ncverilog +access+r +incdir+.. +nctop+TEST +define+GOLDEN_ACT="../../memory/Activation" +define+GOLDEN_WGT="../../memory/Weight" TEST.v 

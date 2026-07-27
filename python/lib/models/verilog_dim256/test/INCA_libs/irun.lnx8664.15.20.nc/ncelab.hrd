@@ -1,0 +1,12 @@
+//
+// File created by:  ncverilog
+// Do not modify this file
+//
+-ACCESS
++r
+
+TEST
+-LOADPLI1
+lp_pli.so:lp_bootstrap
+-ACCESS
++r
