@@ -1,8 +1,8 @@
 ---
-description: Portable Verilog-2001 RTL rules (FSM, latch avoidance, parallel-if split, cross-always multi-driven, ROM/SRAM read contracts). Copy to any project; chip-specific golden paths belong in separate rules.
+description: Portable Verilog-2001 RTL rules (FSM, latch avoidance, unified if/else-if for seq+comb always, parallel-if split, cross-always multi-driven, ROM/SRAM read contracts). Copy to any project; chip-specific golden paths belong in separate rules.
 globs:
   - "**/*.v"
-alwaysApply: true
+alwaysApply: false
 ---
 
 # Verilog RTL 設計規範
@@ -18,7 +18,7 @@ alwaysApply: true
 - Parameter 宣告在前，reg 宣告居中，always block 在後
 - 不交錯 reg 宣告與 always block（`assign`／`always` 之後不得再新增 `reg`；debug 用暫存器須與其他 `reg` 同區）
 - 每個 always block 前必須有一行用途註解
-- 時序 datapath 遇**平行多個 `if`** 須依 **「時序 always：平行 `if` 拆分」** 處理；拆分後須排除 **跨 `always` 多驅動**（见同節）；組合邏輯仍須 **區塊頂端 default**，避免 latch
+- **時序與組合** `always` 一律遵守 **「`if` / `else if` 鏈（共通規範）」**；若同層曾有平行多個 `if`，依該節拆分或改寫，拆分後須排除 **跨 `always` 多驅動**；組合另須 **區塊頂端 default**，避免 latch
 
 ## 模組化設計
 - 採用 top-down 架構：top → controller → datapath modules
@@ -28,13 +28,109 @@ alwaysApply: true
 ## FSM 設計
 - FSM 必須獨立為三段式：state register / next-state logic / output logic
 - 使用 parameter 定義狀態名稱
-- **`state` 暫存** 與 **`next_state` 組合** 各一個 `always`；**datapath／控制輸出** 可拆成多個 `posedge` `always`（见下方 **「時序 always：平行 `if` 拆分」**），但 **不可** 與 `state`／`next_state` 寫在同一 block
+- **`state` 暫存** 與 **`next_state` 組合** 各一個 `always`；**datapath／控制輸出** 可拆成多個 `posedge` `always`（见下方 **「`if` / `else if` 鏈」** 與拆分節），但 **不可** 與 `state`／`next_state` 寫在同一 block
 
 ## 時序與組合邏輯
-- `always @(posedge clk)` 用於 sequential，`always @(*)` 用於 combinational
+- `always @(posedge clk)` 用於 sequential（**時序 block**），`always @(*)` 用於 combinational（**組合 block**）
 - 優先使用同步 reset
 - Sequential 用 `<=`（non-blocking），combinational 用 `=`（blocking）
 - 組合邏輯必須覆蓋所有輸出，**禁止 latch 推論**（細則见下節）
+- **時序與組合 block 皆須**遵守下方 **「`if` / `else if` 鏈（共通規範）」**——不是只約束其中一種
+
+### `if` / `else if` 鏈（時序與組合 always 共通，必守）
+
+**適用範圍**：凡 `always @(posedge clk)`（時序）與 `always @(*)`（組合）內的條件分支，**同一套結構規範**；不可只對組合要求互斥、時序卻放任同層平行 `if`。
+
+#### 同層結構（定義）
+
+1. **同一巢狀層級**內，對該層的互斥／優先決策只能有一個開頭的 `if`；其後同層條件**必須**寫成 `else if`（需要時以 `else` 收尾）。
+2. **巢狀**時：外層是一條 `if`／`else if` 鏈；進入某一分支後，**內層再各自**遵守「一個 `if` + 其後皆 `else if`」。不可在同一層平行寫：
+   ```verilog
+   // BAD (same nesting level): two sibling ifs
+   if (cond_a) ...;
+   if (cond_b) ...;   // prefer: else if (cond_b); split always ONLY if LHS sets differ
+   ```
+3. **`case`／`casex`** 與 `if` 鏈並存時：同一組輸出在「`case` 分支」與「區塊上方的 `if`」之間若會同拍／同拍組合覆寫，須合併為**單一優先鏈**或依拆分節移到不同 `always`（時序）／先 default 再單一覆寫路徑（組合）。
+
+#### 為何時序也要遵守（勿誤讀成「時序可平行 if」）
+
+| | 組合 `always @(*)` | 時序 `always @(posedge clk)` |
+|--|-------------------|------------------------------|
+| 同層平行多個 `if` | **禁止**（latch、多驅動、路徑不明） | **禁止**（同 reg 多段 NBA 時順序即語意；與 `case` 混寫易 GLS／X） |
+| 合規寫法（預設） | 頂端 default + 單一 `if`／`else if` 鏈，或 `case`+`default` | **同一** `always` 內改成 `if`／`else if` 優先鏈 |
+| 合規寫法（例外） | — | **僅當**各分支 LHS **互不相同**且須同拍並行更新 → **拆成多個** `always`（每 block 各自一條鏈） |
+
+> 舊表述「時序平行 `if` 無 `else`＝enable FF 故允許」**僅**指「**單一** `if (en)` 更新、條件不成立則 hold」這種**一個** enable；**不表示**允許同層再並排第二個獨立 `if`。遇到同層 sibling `if`：**先**改成同一 block 的 `if`／`else if`；**只有** LHS 集合不同、又必須同拍都更新時，才拆 `always`（勿把本可互斥的條件硬拆，也勿對須並行的獨立 LHS 誤用 `else if` 串成互斥）。
+
+#### 允許的「單一 enable」（時序專用，不是平行決策）
+
+```verilog
+// OK: one enable; hold when en==0  →  enable FF (not a comb latch)
+always @(posedge clk) begin
+    if (reset)
+        foo <= 'd0;
+    else if (en)
+        foo <= next_foo;
+end
+```
+
+```verilog
+// OK: one-cycle pulse — DFF samples fire each cycle (fire already 1-cycle)
+always @(posedge clk) begin
+    if (reset)
+        pulse <= 1'b0;
+    else
+        pulse <= fire;
+end
+```
+
+> `fire` 須為組合／已對齊的單週期條件。**避免**「`else` 裡先 `pulse<=0` 再 `if (fire) pulse<=1`」靠同拍後寫覆蓋；若條件不只 `fire` 一項，再用 `if`／`else if`／`else` 展開（见下方脈衝模板）。
+```verilog
+// BAD: same level, sibling ifs (seq or comb) — do not leave like this
+always @(posedge clk) begin
+    if (reset) begin /* ... */ end
+    else begin
+        if (cond_a) /* drive set A */ ;
+        if (cond_b) /* drive set B */ ;
+        if (cond_c) /* drive set C */ ;
+    end
+end
+```
+
+對上例 **BAD** 的改法（順序固定）：
+
+1. **預設**：A／B／C 改成**同一個** `always` 內的 `if`／`else if`／`else` 優先鏈（條件互斥或需排優先時皆然；LHS 有重疊時**必須**如此，**禁止**拆成多個 `always` 以免多驅動）。
+2. **例外才拆**：僅當 A／B／C 的 LHS **互不相同**，且語意上須**同拍並行**更新（例如管線各級）——此時**不可**用 `else if` 強行互斥（會少更新某一級），應拆成**多個獨立時序 `always`**，每個內部仍是各自的 `if`／`else if` 鏈。
+
+```verilog
+// OK (default): same always, if / else if priority chain
+always @(posedge clk) begin
+    if (reset)
+        cnt <= 'd0;
+    else if (unit_done)
+        cnt <= 'd0;
+    else if (stream_en)
+        cnt <= cnt + 1'b1;
+end
+```
+
+```verilog
+// OK (exception): LHS disjoint + must update in parallel → one always per LHS set
+// Purpose: pipeline stage A
+always @(posedge clk) begin
+    if (reset) /* clear A */ ;
+    else if (mac_valid) /* drive set A only */ ;
+end
+// Purpose: pipeline stage B
+always @(posedge clk) begin
+    if (reset) /* clear B */ ;
+    else if (compute_valid) /* drive set B only */ ;
+end
+```
+#### 組合 block 額外義務
+
+- 仍須遵守 **「避免產生 latch」**：頂端 default、`case` 有 `default`、路徑賦值齊全。
+- Port mux／多路請求：同層必須 `if`／`else if` 互斥（见 §8.4）；**禁止**兩個 `if` 可能同時成立。
 
 ### 避免產生 latch（組合邏輯完整性，必守）
 
@@ -54,7 +150,7 @@ alwaysApply: true
 #### 推薦寫法（組合 `always @(*)`）
 
 1. **區塊最上方先對「本 block 驅動的所有輸出」寫預設賦值**（安全 idle 值），再寫 `if`／`case` 覆寫；預設須與 FSM／介面規格一致（例如 `next_state = state`、`busy = 0`、`mac_en = 0`）。
-2. **每個 `if` 都配 `else`**，或改採「先 default、再單向覆寫」；避免「僅在條件成立時才賦值」。
+2. **同層只用一條 `if`／`else if`／`else` 鏈**（见共通規範）；每個決策分支路徑對輸出賦值齊全，或已靠頂端 default 覆蓋。避免「僅在條件成立時才賦值」且無 default。
 3. **`case`／`casex` 必須有 `default`**；`case` 的每個分支須對**同一組輸出**給齊賦值，或已在區塊開頭 default 過。
 4. **一個 `always` 只負責一類邏輯**（例如僅 next-state、僅 MAC 控制）；勿與無關 datapath 混寫，以免漏賦值。
 5. **FSM 次態**：組合 block 內 `next_state` 先預設為 `state`（或 `IDLE`），再在 `case (state)` 覆寫；避免「某些 state 未寫 next_state」。
@@ -62,7 +158,7 @@ alwaysApply: true
 
 #### 時序 `always @(posedge clk)` 與 latch 的區別
 
-- 在 **時序** block 中僅於 `if (en)` 內更新某 `reg`、無 `else` → 綜合為 **帶 enable 的 D 暫存器（hold）**，屬預期行為，**不是** 本节禁止的組合 latch。
+- 在 **時序** block 中**單一** `if (en)` 內更新某 `reg`、無 `else` → 綜合為 **帶 enable 的 D 暫存器（hold）**，屬預期行為，**不是** 本节禁止的組合 latch；但仍須遵守共通規範：**同層不可再並排另一個 sibling `if`**。
 - 若某值**必須在組合邏輯當拍就確定**（例如送進同拍 MAC 的 `mac_en`、`w_addr`），**不可** 放在「有時賦值、有時不賦值」的 `always @(*)`；應 default 賦齊，或改到時序 block 並 **對齊延遲一拍**（见「記憶體／ROM 讀取」）。
 
 #### 修改／除錯時
@@ -74,33 +170,39 @@ alwaysApply: true
 - 說明設計是 parallel / partially parallel / multi-cycle iterative
 - 估算 MAC 數量、cycle 數、pipeline 深度
 
-### 時序 always：平行多個 `if` 的拆分（可合成、仿真友善，必守）
+### 平行 `if` 的拆分與優先鏈（實作共通規範，必守）
 
-單一 `always @(posedge clk)` 內若有多個**平行** `if`（彼此**不是** `else if` 鏈），且常與 `case (state)` 或其它 `case` **寫在同一區塊**，常見後果：
+本節是上一節 **「`if` / `else if` 鏈」** 的落地：發現同層平行 `if` 時如何改寫。**時序與組合皆適用**；組合改寫時另須保住 default／無 latch。
 
+單一 `always`（尤其 `posedge clk`）內若有多個**平行** `if`（彼此**不是** `else if` 鏈），且常與 `case (state)` 或其它 `case` **寫在同一區塊**，常見後果：
+
+- 違反共通的同層 `if`／`else if` 規範；
 - 綜合把 **狀態、使能、計數器** 與 **暫存器 Q 的回授** 揉成大片組合邏輯；
 - **Gate-level**（或含 async 控制腳的 FF）仿真出現 **X**、使能／清除腳異常、FSM「卡住」；
 - 同一 `reg` 同拍多個 NBA 賦值時，**敘述順序**即語意；拆成多個 `always` 後若未還原優先順序，**功能會變**。
 
-重構目標：**行為與重構前 RTL sim 一致**（有參考模型則一併對拍）；拆分本身不解決時序，但可降低上述風險。
+重構目標：**行為與重構前 RTL sim 一致**（有參考模型則一併對拍）；拆分本身不解決時序，但可降低上述風險並符合共通 `if`／`else if` 規範。
 
-#### 與組合 latch 的差別
+#### 與組合 latch／enable FF 的差別（勿混淆）
 
 | | 組合 `always @(*)` | 時序 `always @(posedge clk)` |
 |--|-------------------|------------------------------|
-| 平行 `if` 無 `else` | 易推論 **latch**（禁止） | 通常為 **帶 enable 的 FF**（允許） |
-| 本節要處理的問題 | 漏賦值路徑 | **多驅動**、**Q 回授**、**NBA 順序** |
+| 同層平行多個 `if` | **禁止**（latch／多驅動） | **禁止**（改 `else if` 或拆 `always`） |
+| **單一** `if (en)` 無 `else` | 易 latch（禁止，除非已 default） | **允許**＝enable FF hold（見共通規範「單一 enable」） |
+| 本節要處理的問題 | 漏賦值路徑 + 同層平行 `if` | **同層平行 `if`**、**多驅動**、**Q 回授**、**NBA 順序** |
 
 #### 何時拆、何時不拆
 
 | 情況 | 作法 |
 |------|------|
-| **LHS 互不相同**（例：`done`、`sub_start`、`wr_ptr` 分属不同寄存器） | 拆到**各自** `always`；每 block 前**一行用途註解** |
+| **同層 sibling `if`，條件互斥或需排優先**（LHS 可重疊或不重疊） | **預設**：留在**同一個** `always`，改成 **`if` / `else if` 鏈** 並註明優先順序 |
+| **同一 `reg` 同拍可能被多段寫入**（LHS 重疊） | **禁止**拆成多個 `always`；**必須**單一 block + `if`／`else if` |
+| **LHS 互不相同且須同拍並行**（例：管線 `mac_*`／`compute_*`／`acc_*`） | **例外才拆**到各自 `always`；每 block 前一行用途註解；**每個**內部仍是 `if`／`else if`（**禁止**同 block 平行 `if`；也**禁止**誤用 `else if` 把本該並行的更新串成互斥） |
 | **單週期脈衝／strobe**（`start`、`done`、`valid`、`rd_en`） | 獨立 `always`：`reset` 後每拍先清預設值，再在條件成立時置位 |
-| **同一 `reg` 同拍可能被多段 NBA 寫入** | **禁止**拆成多個 `always`；保留**單一** block，改 **`if` / `else if` 鏈** 並註明**優先順序** |
-| **重構前有多段敘述、同拍覆寫同一 reg** | 拆開後用 **`else if` 順序** 還原「誰覆寫誰」（见下節模式表） |
+| **重構前有多段敘述、同拍覆寫同一 reg** | 用 **`else if` 順序** 還原「誰覆寫誰」（见下節模式表）；勿拆到會多驅動的多個 `always` |
 | **shadow／latch 暫存**（例：從 SRAM `Q` 鎖一筆供後續拍使用） | **獨立** `posedge` `always`；**僅此 block** 驅動該 `reg`（含 `reset`） |
 | **大型 datapath `always` 的 `reset` 分支** | **勿** 對已在專用 `always` 驅動的 `reg` 再寫 `<= 0`（见下節「跨 always 多驅動」） |
+| **組合 port mux／多路請求** | **同一** `always @(*)` 內用 `if`／`else if` 互斥；頂端 idle default（见 §8.4） |
 
 #### 還原 NBA 優先順序（通用模式）
 
@@ -131,11 +233,8 @@ alwaysApply: true
 always @(posedge clk) begin
     if (reset)
         unit_start <= 1'b0;
-    else begin
-        unit_start <= 1'b0;                    // default: deasserted every cycle
-        if ((state == ST_ACTIVE) && !unit_busy)
-            unit_start <= 1'b1;
-    end
+    else
+        unit_start <= ((state == ST_ACTIVE) && !unit_busy);
 end
 ```
 
@@ -212,15 +311,17 @@ end
 
 #### 修改後自查
 
+- [ ] **時序與組合** `always`：每一巢狀層皆為單一 `if`／`else if`（`else`）鏈，**無**同層平行 sibling `if`
 - [ ] **無**兩個以上 `posedge` `always` 對**同一 `reg`** 做 `<=`（除非三態／多工／`assign`+tri 規格已文件化）
 - [ ] 專用 latch／shadow `reg`：**僅**在其專用 `always` 出現；已從「總控」`always` 的 `reset`／`case` **刪除**重複賦值
 - [ ] 原 `ST_IDLE`（或 `reset`）對各控制 reg 的清零，已分到**負責該 reg 的那一個** `always`（勿在兩處各清一次）
 - [ ] 脈衝類訊號每拍有 **default 無效**（或等價行為）
 - [ ] `else if` 順序與註解已對照**重構前**敘述順序
+- [ ] 組合 `always @(*)`：頂端 default + 無 latch；多路請求為 `if`／`else if` 互斥
 - [ ] RTL 仿真與重構前一致；若需 gate-level 驗證，用**該專案**既有綜合／網表流程重跑後再比對
 - [ ] （可選）對修改過的 `.v` 跑 **LHS 重複掃描**，零重複再送綜
 
-組合 `always @(*)` 仍遵守 **「避免產生 latch」**；本節處理的是**時序**區塊的平行 `if`、**跨 always 多驅動**、Q 回授與 GLS 風險。
+組合仍遵守 **「避免產生 latch」**；時序與組合**共同**遵守 **「`if` / `else if` 鏈」**。本節其餘重點為拆分後的 **跨 always 多驅動**、Q 回授與 GLS 風險。
 
 ## 記憶體／ROM 讀取（通用，golden 對拍必讀）
 
@@ -330,7 +431,9 @@ end
 - 權重預取 dump（例：`DUMP_WGT_PREFETCH`）應以 **module parameter**（例：`DUMP_WGT=1`）限制 **單一 instance**（通常只開 QKV `linear`），避免與 PROJ 混淆。
 - `$display` 標籤建議區分 **`[WGT_WR]`**（當拍寫入）與 **`[WGT_CHK]`**（進 MAC 前 buffer 快照）；兩者不一致時 **先查 7.2／7.5**，勿先重產 ROM。
 
-#### 7.7 SRAM macro（1P、`CLK(~clk)`）讀寫 cycle 對拍
+#### 7.7 SRAM macro（1P、`CLK(clk)`）讀寫 cycle 對拍
+
+**專案硬性契約（必守）**：所有 ROM/SRAM macro 的 **`.CLK` 一律接 `clk` 本身（不是 `~clk`）**，位址取樣與讀/寫都在 **`posedge clk`**，**不得在 `negedge` 做任何動作**（包含 TB 的 SRAM 模型）。下文 cycle 表以此為準。
 
 本節為 **activation／feature map 用 TSMC Single-Port SRAM** 之必守時序；與 §7.1 ROM 契約並列。若 compiler 產出為 **Dual-Port** 或 `CLK` 接法不同，須在模組頭 **改寫契約**，不可默認與本節相同。
 
@@ -343,20 +446,24 @@ end
 
 ##### 7.7.2 讀取契約（須寫在模組頭，與 §1 一致）
 
-本專案 TSMC 1P SRAM 若 **`CLK(~clk)`**（controller 用 **`posedge clk`**），預設 **同步 read latency = 1 個主時脈 posedge**：
+本專案 1P SRAM 一律 **`CLK(clk)`**（controller 與 macro 同 **`posedge clk`**）。macro 在 **posedge 取樣位址**、輸出資料**暫存於 posedge**，故「**決定位址的那拍 → 可用資料**」**自然是 2 個 posedge**（macro 的 1 拍 read latency 疊在「位址送出」那拍之上）：
 
 | 拍 | 動作 |
 |----|------|
-| **`posedge T`** | 送 **`A`**（addr）、**`CEB=0`**、**`WEB=1`**（read）；`D` 不關 |
-| **macro `negedge clk`** | macro 採樣 addr／控制 |
-| **`posedge T+1`** | **`Q`** 對應 **`A@T`** 之資料；**此拍** 才可鎖進 `data_r` 或送 MAC |
+| **`posedge T`** | 位址 `A`（由 reg 或當拍穩定的組合值）成形、`CEB=0`、`WEB=1`（read） |
+| **`posedge T+1`** | macro 於此 posedge 取樣 `A@T`，`Q` 暫存輸出 |
+| **`posedge T+2`** | **`Q` 對應 `A@T` 之資料有效**；**此拍** 才可鎖進 `data_r` 或送 MAC |
+
+- **每拍一筆的串流讀**（如 MAC/ACCUM/NORM）：每拍發一個位址、資料**晚 2 拍**到，pipeline fill +2，吞吐仍 1 筆/拍；消費端窗口要相對位址 **+1 對齊**（相較舊 `~clk` 1 拍模型）。
+- **2-phase 預載讀**（phase0 發址 / phase1 取值，如權重/bias/gamma/beta ROM）：phase 本身已有一拍寬裕，posedge macro 的 `Q` 剛好落在 phase1 → **capture 仍在 phase1 結束拍**，**不需額外 retime**。
+- **TB 的 SRAM 模型也必須 posedge**：`always @(posedge clk) q_reg <= MEM[addr];`（registered-data），**禁止** `@(negedge clk)` latch 位址。
 
 建議模組頭固定三行（依 instance 改信號名）：
 
 ```verilog
-// SRAM read contract (1P, CLK = ~clk):
-//   posedge T:   sram_addr, CEB=0, WEB=1
-//   posedge T+1: sram_q valid for addr@T; use only latched data_r (or sram_q@T+1), not addr@T+1
+// SRAM read contract (1P, CLK = clk, posedge-sampled):
+//   posedge T:   sram_addr stable, CEB=0, WEB=1
+//   posedge T+2: sram_q valid for addr@T; use only latched data_r (or via ADDR/USE), never addr@T's same-cycle Q
 ```
 
 - **禁止** 在 **`posedge T` 更新 addr 的同一拍**，把組合 **`Q`** 直接送進乘加／比較（除非 datasheet＋golden 明訂 0-cycle，且 TB 同拍）。
@@ -567,7 +674,7 @@ end
 | **互斥** | 同一拍 **最多一路** 驅動 `CEB/WEB/A/D` |
 | **優先級** | 寫入 capture **高於** 背景讀；**寫與讀不可同拍** |
 | **列出順序** | 在模組頭註解 **1→2→3**（例：`tmp_wr_do` > `mlp_norm_rd` > `attn_feed`） |
-| **禁止** | 兩個 `if` 可能同時成立卻未 `else if` → 多驅動或 X |
+| **禁止** | 同層兩個 `if` 可能同時成立卻未 `else if` → 多驅動或 X（亦違反共通 **「`if` / `else if` 鏈」**） |
 
 參考：top 層對單顆 1P SRAM 的 **port mux**（多路請求 `if`／`else if` 互斥、區塊頂端 idle）。
 

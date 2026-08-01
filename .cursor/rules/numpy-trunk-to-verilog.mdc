@@ -35,7 +35,7 @@ alwaysApply: true
 
 ## 3. 可合成性
 
-- 所有要進晶片（或 FPGA 正式 image）的 RTL **必須可合成**，並遵守 `verilog_rule.mdc`（例如 Verilog-2005、禁止用於「硬體邏輯」的 `initial` / `#delay` 等，依該檔全文為準）。
+- 所有要進晶片（或 FPGA 正式 image）的 RTL **必須可合成**，並遵守 `verilog_rule.mdc`（例如 Verilog-2001、禁止用於「硬體邏輯」的 `initial` / `#delay` 等，依該檔全文為準）。
 - 若為 **除錯專用**（例如僅模擬用的 `$display`、`ifdef` 區塊、不可綜合的暫時波形 dump），必須：
   - 以註解或 `ifdef` 標題**明寫「不可合成／僅 simulation」**，且
   - **註明為解決何種現象而插入**（例如：對拍哪一節點 golden、追查 argmax 錯位、SRAM 寫入下溢、sigmoid 全飽和等；見 **§10**），並
@@ -300,4 +300,4 @@ memory2/rom_box_head_tail_ctr_offset_size_weight.v \
 - 若 `hw-friendly-design.mdc` 與本檔對 attention／定點敘述並存，以 **可對拍之 numpy trunk 行為** 為準；設計原則檔僅作輔助說明。
 
 ## 語言規則
-- 僅使用 Verilog-2005 語法，禁止 SystemVerilog 特性（logic, always_ff, always_comb, interface, typedef, enum, struct, package, assertions）
+- 僅使用 Verilog-2001 語法，禁止 SystemVerilog 特性（logic, always_ff, always_comb, interface, typedef, enum, struct, package, assertions）
