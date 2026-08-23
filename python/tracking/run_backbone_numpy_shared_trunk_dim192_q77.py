@@ -10,10 +10,16 @@
 - 純 numpy，不建立 PyTorch model
 - 輸入：``dump_golden_intermediate.py`` 產生的 post-embed golden（Q7.7 dump yaml）
 - 權重：``export_checkpoint_npy.py`` 匯出的 float32 npy（同一 shared-trunk checkpoint）
-- 定點：``to_fixed_point(7, 7)``，與 ``vit_CARE_relu6_dim192_fixed_q77_dump.py`` /
-  ``head_shared_trunk_dump.py``（``FIXED_INT_BITS=7``）一致
-- backbone attention 走 **浮點 CARE + 逐步 Q7.7**（非 dim32 的 Q8.8 整數 care_attention 路徑）
-- head shared conv 中間節點 **不** 對 conv1/2 輸出做 Q7.7（對齊 dump 存檔語意）
+- 定點：``to_fixed_point(7, 7)``（INT_BITS=7、FRAC_BITS=7，14-bit signed）
+- **全整數 MAC 路徑**（對齊 ``run_backbone_numpy_shared_trunk.py`` 的 Q8.8 做法，改為 Q7.7）：
+  linear / conv2d / layer_norm / attention 一律「先量化成整數 → 整數 MAC → 移位回 Q7.7」，
+  權重以 ``round(w * 128)`` 量化（等同 ROM 的 Q7.7 權重），可與 RTL 整數 MAC 對拍。
+- **捨入契約**：所有 ``>> FRAC_BITS`` 的回 Q7.7（linear / conv / layer_norm / attention 各步）與
+  ``cal_bbox`` 的 ``>> 4`` 皆採 **round-to-nearest**（``(acc + 2^(shift-1)) >> shift``）；
+  僅 reciprocal 的 ``_trunc_q_slice`` 維持截斷（對齊 recip_nr.v 語意）。RTL 對應移位須一致。
+- inv_sqrt / reciprocal / sigmoid 改為 LUT 種子 + Newton 迭代 / LUT 內插的整數版本。
+  注意：若 RTL 使用對應 LUT ROM，其內容需與本腳本產生的表一致（見 §20 ROM 再產生）。
+- head shared conv1/2 輸出比照 dim32 加 ``fp()`` 截斷成 Q7.7。
 """
 
 from __future__ import annotations
@@ -69,24 +75,178 @@ def fp(x: np.ndarray) -> np.ndarray:
     return to_fixed_point(x, INT_BITS, FRAC_BITS)
 
 
+# ---------------------------------------------------------------------------
+# Q7.7 fixed-point integer helpers（對齊 run_backbone_numpy_shared_trunk.py 的 Q8.8 做法）
+#   - 數值以「整數 code = round(value * 128)」表示
+#   - MAC：x_int @ w_int 後 >> FRAC_BITS 回到 Q7.7
+#   - 飽和到 14-bit signed [Q_MIN, Q_MAX]
+# ---------------------------------------------------------------------------
+SCALE_FP = 1 << FRAC_BITS  # 128
+Q_MIN = -(1 << (INT_BITS + FRAC_BITS - 1))  # -8192
+Q_MAX = (1 << (INT_BITS + FRAC_BITS - 1)) - 1  # 8191
+RND_FP = 1 << (FRAC_BITS - 1)  # 64（>> FRAC_BITS 的四捨五入常數）
+
+RELU6_MAX_Q = 6 * SCALE_FP  # 768
+S_Q = int(round(SCALE_FP * (HEAD_DIM ** -0.25)))  # attention scale（Q7.7），HEAD_DIM=64 -> 45
+RCP_N_NUM = int(round((1 << 16) / N_TOKENS))  # round(65536/320)=205
+RCP_LN = int(round((1 << 16) / EMBED_DIM))    # round(65536/192)=341
+LN_MEAN_SHIFT = 16
+LN_VAR_SHIFT = 16 + FRAC_BITS  # 23
+
+
+def sat_q(v: np.ndarray) -> np.ndarray:
+    return np.clip(np.asarray(v, dtype=np.int64), Q_MIN, Q_MAX).astype(np.int64)
+
+
+def as_q(x: np.ndarray) -> np.ndarray:
+    """float → Q7.7 整數 code。"""
+    return np.round(np.asarray(x, dtype=np.float64) * SCALE_FP).astype(np.int64)
+
+
+def from_q(x_q: np.ndarray) -> np.ndarray:
+    """Q7.7 整數 code → float32（語意等同 fp()）。"""
+    return (np.asarray(x_q, dtype=np.float64) / SCALE_FP).astype(np.float32)
+
+
+def w_q(w: np.ndarray) -> np.ndarray:
+    return np.round(np.asarray(w, dtype=np.float64) * SCALE_FP).astype(np.int64)
+
+
+def rnd_shr_fp(v: np.ndarray) -> np.ndarray:
+    """(v + 2^(FRAC-1)) >> FRAC，再飽和到 Q7.7。"""
+    return sat_q((np.asarray(v, dtype=np.int64) + RND_FP) >> FRAC_BITS)
+
+
+def relu6_q(x_q: np.ndarray) -> np.ndarray:
+    x = np.asarray(x_q, dtype=np.int64)
+    x = np.where(x < 0, 0, x)
+    return np.where(x > RELU6_MAX_Q, RELU6_MAX_Q, x).astype(np.int64)
+
+
+def _msb_index(x: np.ndarray) -> np.ndarray:
+    """leading-bit index（x>=1），對齊 RTL LUT 種子的 MSB 編碼。"""
+    x = np.maximum(np.asarray(x, dtype=np.int64), 1)
+    k = np.zeros_like(x)
+    for bit in range(15, -1, -1):
+        hit = (x >> bit) & 1
+        k = np.where((k == 0) & (hit == 1), np.int64(bit), k)
+    return k
+
+
+# --- inv_sqrt: LUT 種子 + Newton 迭代（Q7.7；對齊 inv_sqrt_lut_seed.v / inv_sqrt_nr.v 結構）---
+_INV_SQRT_SEED_Q = np.array(
+    [min(Q_MAX, max(1, int(round(SCALE_FP / math.sqrt(3 * (1 << k) / SCALE_FP))))) for k in range(16)],
+    dtype=np.int64,
+)
+_INV_SQRT_NR_ITERS = 3
+
+
+def _inv_sqrt_nr_q(var_q: np.ndarray) -> np.ndarray:
+    """Q7.7 inv-sqrt（LUT 種子 + 3 次 NR，每步四捨五入）。回傳 inv_std 的 Q7.7 code。"""
+    v = np.asarray(var_q, dtype=np.int64)
+    v_eps = np.where(v <= 0, np.int64(1), v)
+    y = _INV_SQRT_SEED_Q[_msb_index(v_eps)].astype(np.int64)
+    for _ in range(_INV_SQRT_NR_ITERS):
+        y_sq = (y * y + RND_FP) >> FRAC_BITS          # y^2 (Q7.7)
+        term = (v_eps * y_sq + (1 << (FRAC_BITS + 1))) >> (FRAC_BITS + 1)  # 0.5*var*y^2 (Q7.7)
+        coeff = np.int64(3 * SCALE_FP // 2) - term     # 1.5 - 0.5*var*y^2（1.5 -> 192）
+        y = sat_q((y * coeff + RND_FP) >> FRAC_BITS)
+    return y
+
+
+# --- reciprocal: LUT 種子 + Newton 迭代（Q7.7；對齊 recip_lut_seed.v / recip_nr.v 結構）---
+_RECIP_SEED_Q = np.array(
+    [min(Q_MAX, max(1, int(round((1 << (2 * FRAC_BITS)) / (1.5 * (1 << k)))))) for k in range(16)],
+    dtype=np.int64,
+)
+_RECIP_NR_ITERS = 1
+_Q_WIDTH = INT_BITS + FRAC_BITS  # 14
+_Q_HALF = 1 << (_Q_WIDTH - 1)
+_Q_FULL = 1 << _Q_WIDTH
+
+
+def _trunc_q_slice(v: np.ndarray) -> np.ndarray:
+    """取 (v >> FRAC) 的 14-bit signed 切片（對齊 recip_nr.v 的截位語意）。"""
+    v = np.asarray(v, dtype=np.int64)
+    s = (v >> FRAC_BITS) & (_Q_FULL - 1)
+    return np.where(s >= _Q_HALF, s - _Q_FULL, s).astype(np.int64)
+
+
+def _recip_nr_q(x_q: np.ndarray) -> np.ndarray:
+    """Q7.7 reciprocal（LUT 種子 + 1 次 NR）。回傳 1/x 的 Q7.7 code。"""
+    x = np.maximum(np.asarray(x_q, dtype=np.int64), 1)
+    y = _RECIP_SEED_Q[_msb_index(x)].astype(np.int64)
+    for _ in range(_RECIP_NR_ITERS):
+        coeff = np.int64(2 * SCALE_FP) - _trunc_q_slice(x * y)  # 2.0 - x*y（2.0 -> 256）
+        y = np.clip(_trunc_q_slice(y * coeff), Q_MIN, Q_MAX).astype(np.int64)
+    return y
+
+
+# --- sigmoid: LUT + 線性內插（Q7.7；對齊 RTL sigmoid LUT 結構）---
+_SIG_LUT_N = 64
+_SIG_LUT_INT = np.round(
+    (1.0 / (1.0 + np.exp(-np.linspace(-8.0, 8.0, _SIG_LUT_N + 1).astype(np.float64)))) * SCALE_FP
+).astype(np.int64)
+_SIG_BIN_SHIFT = FRAC_BITS - 2  # 5（16 的輸入範圍切 64 格 → 每格 0.25 = 32 = 2^5）
+
+
+def sigmoid_q(x: np.ndarray) -> np.ndarray:
+    """LUT + 線性內插 sigmoid（Q7.7）。輸入 float，回傳 float32（Q7.7 量化）。"""
+    x_int = np.round(np.clip(x.astype(np.float64), -8.0, 8.0) * SCALE_FP).astype(np.int64)
+    shifted = x_int + (8 * SCALE_FP)
+    idx = np.clip(shifted >> _SIG_BIN_SHIFT, 0, _SIG_LUT_N - 1).astype(np.int64)
+    frac = (shifted & ((1 << _SIG_BIN_SHIFT) - 1)).astype(np.int64)
+    lo = _SIG_LUT_INT[idx]
+    hi = _SIG_LUT_INT[idx + 1]
+    delta = hi - lo
+    result = (lo * (1 << _SIG_BIN_SHIFT) + delta * frac) >> _SIG_BIN_SHIFT
+    return (result.astype(np.float64) / SCALE_FP).astype(np.float32)
+
+
+def linear_sat_q(x_q: np.ndarray, weight: np.ndarray, bias: Optional[np.ndarray]) -> np.ndarray:
+    """Q7.7 linear MAC + bias + 飽和（整數 code 進、整數 code 出）。"""
+    x_int = np.asarray(x_q, dtype=np.int64)
+    w_int = w_q(weight)
+    *batch, in_dim = x_int.shape
+    acc = (x_int.reshape(-1, in_dim) @ w_int.T + RND_FP) >> FRAC_BITS
+    if bias is not None:
+        acc = acc + w_q(bias)
+    return sat_q(acc).reshape(*batch, weight.shape[0]).astype(np.int64)
+
+
 def layer_norm(x: np.ndarray, weight: np.ndarray, bias: np.ndarray, eps: float = LN_EPS) -> np.ndarray:
-    """浮點 LayerNorm（對齊 lib.module.LayerNorm）。"""
-    mean = x.mean(axis=-1, keepdims=True)
-    centered = x - mean
-    var = (centered * centered).mean(axis=-1, keepdims=True)
-    inv_std = (var + eps) ** (-0.5)
-    y = centered * inv_std
-    return (y * weight + bias).astype(np.float32)
+    """Q7.7 整數 LayerNorm（mean/var 整數累加 + LUT inv_sqrt）。回傳 float32（Q7.7）。"""
+    N = x.shape[-1]
+    rcp = int(round((1 << LN_MEAN_SHIFT) / N))
+    x_int = as_q(x)
+    w_int = w_q(weight)
+    b_int = w_q(bias)
+
+    sum_int = x_int.sum(axis=-1, keepdims=True)
+    mean_int = sat_q((sum_int * rcp + (1 << (LN_MEAN_SHIFT - 1))) >> LN_MEAN_SHIFT)
+    centered = sat_q(x_int - mean_int)
+    sum_sq = (centered * centered).sum(axis=-1, keepdims=True)
+    var_int = np.clip(
+        (sum_sq * rcp + (1 << (LN_VAR_SHIFT - 1))) >> LN_VAR_SHIFT, Q_MIN, Q_MAX
+    ).astype(np.int64)
+    inv_std = _inv_sqrt_nr_q(var_int)
+
+    ci_std = rnd_shr_fp(centered * inv_std)
+    wci = rnd_shr_fp(w_int * ci_std)
+    y_int = sat_q(wci + b_int)
+    return from_q(y_int)
 
 
 def linear(x: np.ndarray, weight: np.ndarray, bias: Optional[np.ndarray] = None) -> np.ndarray:
-    """浮點 linear（對齊 nn.Linear / lib.module.Linear）。"""
-    w = weight.astype(np.float64)
-    x64 = x.astype(np.float64)
-    out = x64 @ w.T
+    """Q7.7 整數 MAC linear（float 進、float 回；飽和交給呼叫端 fp()）。"""
+    _S = SCALE_FP
+    x_int = np.round(x.astype(np.float64) * _S).astype(np.int64)
+    w_int = np.round(weight.astype(np.float64) * _S).astype(np.int64)
+    *batch, in_dim = x_int.shape
+    acc = (x_int.reshape(-1, in_dim) @ w_int.T + RND_FP) >> FRAC_BITS
     if bias is not None:
-        out = out + bias.astype(np.float64)
-    return out.astype(np.float32)
+        acc = acc + np.round(bias.astype(np.float64) * _S).astype(np.int64)
+    return (acc.reshape(*batch, weight.shape[0]).astype(np.float64) / _S).astype(np.float32)
 
 
 def relu(x: np.ndarray) -> np.ndarray:
@@ -103,44 +263,49 @@ def conv2d(
     bias: Optional[np.ndarray] = None,
     padding: int = 1,
 ) -> np.ndarray:
-    """浮點 conv2d（folded BN 權重：bias 已含在 folded_bias）。"""
+    """Q7.7 整數 MAC conv2d（folded BN 權重：bias 已含在 folded_bias）。float 進、float 回。"""
+    _S = SCALE_FP
     N, C_in, H, W = x.shape
     C_out, c_w, kH, kW = weight.shape
     if c_w != C_in:
         raise ValueError(f"conv2d Cin mismatch: x has {C_in}, weight has {c_w}")
 
+    x_int = np.round(x.astype(np.float64) * _S).astype(np.int64)
+    w_int = np.round(weight.astype(np.float64) * _S).astype(np.int64)
+
     if padding:
-        x = np.pad(
-            x,
+        x_int = np.pad(
+            x_int,
             [(0, 0), (0, 0), (padding, padding), (padding, padding)],
             mode="constant",
-            constant_values=0.0,
+            constant_values=0,
         )
-    H_out = x.shape[2] - kH + 1
-    W_out = x.shape[3] - kW + 1
+    H_out = x_int.shape[2] - kH + 1
+    W_out = x_int.shape[3] - kW + 1
     if H_out < 1 or W_out < 1:
-        raise ValueError(f"conv2d output size invalid: padded {x.shape[2:]}, kernel ({kH},{kW})")
+        raise ValueError(f"conv2d output size invalid: padded {x_int.shape[2:]}, kernel ({kH},{kW})")
 
-    out = np.zeros((N, C_out, H_out, W_out), dtype=np.float32)
-    w = weight.astype(np.float64)
-    x64 = x.astype(np.float64)
+    acc = np.zeros((N, C_out, H_out, W_out), dtype=np.int64)
     for n in range(N):
         for oc in range(C_out):
-            w_oc = w[oc]
+            w_oc = w_int[oc]
             for oh in range(H_out):
                 for ow in range(W_out):
-                    patch = x64[n, :, oh : oh + kH, ow : ow + kW]
-                    out[n, oc, oh, ow] = np.sum(patch * w_oc)
+                    patch = x_int[n, :, oh : oh + kH, ow : ow + kW]
+                    acc[n, oc, oh, ow] = int(np.sum(patch * w_oc))
+
+    acc_q = (acc + RND_FP) >> FRAC_BITS
     if bias is not None:
-        out = out + bias.astype(np.float32).reshape(1, C_out, 1, 1)
-    return out.astype(np.float32)
+        bias_int = np.round(bias.astype(np.float64) * _S).astype(np.int64)
+        acc_q = acc_q + bias_int[np.newaxis, :, np.newaxis, np.newaxis]
+    return (acc_q.astype(np.float64) / _S).astype(np.float32)
 
 
 def sigmoid_head(x: np.ndarray) -> np.ndarray:
-    """對齊 head_shared_trunk_dump._sigmoid_q：sigmoid → clamp → Q7.7。"""
-    s = 1.0 / (1.0 + np.exp(-x.astype(np.float64)))
-    y = np.clip(s, 1e-4, 1.0 - 1e-4).astype(np.float32)
-    return fp(y)
+    """head 的 _sigmoid：LUT sigmoid → Q7.7 → Q7.7 邊界 clamp（對齊 dim32 sigmoid_clamped）。"""
+    _LB = 1.0 / SCALE_FP
+    _UB = (SCALE_FP - 1.0) / SCALE_FP
+    return np.clip(fp(sigmoid_q(x)), _LB, _UB).astype(np.float32)
 
 
 def hann1d(sz: int, centered: bool = True) -> np.ndarray:
@@ -191,7 +356,10 @@ def write_wbi(arr: np.ndarray, name: str, int_bits: int = INT_BITS, frac_bits: i
 def save_npy(filename: str, arr: np.ndarray) -> None:
     if _bi_act_dir is not None:
         stem = filename[:-4] if filename.endswith(".npy") else filename
-        write_bi(arr, _bi_act_dir / stem, INT_BITS, FRAC_BITS)
+        if np.issubdtype(np.asarray(arr).dtype, np.integer):
+            write_bi(from_q(arr), _bi_act_dir / stem, INT_BITS, FRAC_BITS)
+        else:
+            write_bi(arr, _bi_act_dir / stem, INT_BITS, FRAC_BITS)
 
 
 def load_w(path: Path) -> np.ndarray:
@@ -199,7 +367,7 @@ def load_w(path: Path) -> np.ndarray:
 
 
 # ---------------------------------------------------------------------------
-# CARE attention（浮點路徑 + Q7.7，對齊 vit_CARE_relu6_dim192_fixed_q77_dump.AttentionDump）
+# CARE attention（Q7.7 整數路徑，對齊 run_backbone_numpy_shared_trunk.py 的 Q8.8 care_attention）
 # ---------------------------------------------------------------------------
 
 def attention_forward(x: np.ndarray, block_idx: int, wp: Path) -> np.ndarray:
@@ -219,36 +387,45 @@ def attention_forward(x: np.ndarray, block_idx: int, wp: Path) -> np.ndarray:
     proj_b = load_w(lp / f"{pf}_attn_proj_bias.npy")
     write_wbi(proj_b, f"{pf}_attn_proj_bias")
 
-    qkv = linear(x, qkv_w, qkv_b)
-    qkv = qkv.reshape(B, N, 3, H, d).transpose(2, 0, 3, 1, 4)
-    q, k, v = qkv[0], qkv[1], qkv[2]
-    q, k, v = fp(q), fp(k), fp(v)
+    # qkv linear（整數 MAC）→ split q/k/v（整數 code）
+    x_q = as_q(x)
+    qkv_q = linear_sat_q(x_q, qkv_w, qkv_b)
+    qkv_q = qkv_q.reshape(B, N, 3, H, d).transpose(2, 0, 3, 1, 4)
+    q = qkv_q[0].astype(np.int64)
+    k = qkv_q[1].astype(np.int64)
+    v = qkv_q[2].astype(np.int64)
     save_npy(f"{pf}_attn_after_qkv_q.npy", q)
     save_npy(f"{pf}_attn_after_qkv_k.npy", k)
     save_npy(f"{pf}_attn_after_qkv_v.npy", v)
 
-    s = SCALE**0.5
-    qs = fp(q * s)
-    ks = fp(k * s)
-    q = fp(relu6(qs))
-    k = fp(relu6(ks))
-    v = fp(v)
+    # S_SPLIT：q/k 乘上 scale 後 relu6（整數）
+    q = relu6_q(rnd_shr_fp(q * S_Q))
+    k = relu6_q(rnd_shr_fp(k * S_Q))
 
-    k_mean = fp(k.mean(axis=2, keepdims=True))
-    qk_mean = fp(np.matmul(q, np.swapaxes(k_mean, -2, -1)))
-    qk_mean_eps = fp(np.maximum(qk_mean, QK_MEAN_EPS_MIN))
-    z = fp(1.0 / qk_mean_eps)
+    # S_K_MEAN：km[h,d] = mean_n(k)（* RCP_N 近似除 N）
+    k_sum = k.sum(axis=2)  # (B,H,d)
+    km = sat_q((k_sum * RCP_N_NUM + (1 << 15)) >> 16)
 
-    kv = np.matmul(np.swapaxes(k, -2, -1), v) / float(N)
-    kv = fp(kv)
-    attn = np.matmul(q, kv) * z
-    attn = fp(attn)
-    attn = attn.transpose(0, 2, 1, 3).reshape(B, N, C)
-    attn = fp(attn)
+    # S_QK_MEAN：qkm[h,n] = sum_d q*km，回 Q7.7
+    qkm = rnd_shr_fp(np.einsum("zhnd,zhd->zhn", q, km))  # (B,H,N)
+    qkm_eps = np.maximum(qkm, 1).astype(np.int64)
+    zr = _recip_nr_q(qkm_eps)  # (B,H,N)
 
-    out = fp(linear(attn, proj_w, proj_b))
-    save_npy(f"{pf}_after_attn_attn_out.npy", out)
-    return out
+    # S_KV：kv[h,i,j] = mean_n(k[..,i]*v[..,j])（* RCP_N 近似除 N，再 >>FRAC 回 Q7.7）
+    kv_acc = np.einsum("zhni,zhnj->zhij", k, v)  # (B,H,d,d)
+    kv = sat_q(
+        (kv_acc * RCP_N_NUM + (1 << (16 + FRAC_BITS - 1))) >> (16 + FRAC_BITS)
+    )
+
+    # S_ATTN：ao[h,n,j] = rnd_shr(sat(sum_i q*kv) * zr)
+    dot = rnd_shr_fp(np.einsum("zhni,zhij->zhnj", q, kv))  # (B,H,N,d)
+    ao = rnd_shr_fp(dot * zr[..., np.newaxis])  # (B,H,N,d)
+    ao = ao.transpose(0, 2, 1, 3).reshape(B, N, C).astype(np.int64)
+
+    # proj linear（整數 MAC）
+    attn_q = linear_sat_q(ao, proj_w, proj_b)
+    save_npy(f"{pf}_after_attn_attn_out.npy", attn_q)
+    return from_q(attn_q)
 
 
 def block_forward(x: np.ndarray, block_idx: int, wp: Path) -> np.ndarray:
@@ -301,14 +478,14 @@ def head_shared_trunk(opt_feat: np.ndarray, wp: Path):
     b1 = load_w(fb / "box_head_shared_conv1_folded_bias.npy")
     write_wbi(w1, "box_head_shared_conv1_folded_weight")
     write_wbi(b1, "box_head_shared_conv1_folded_bias")
-    x1 = relu(conv2d(opt_feat, w1, b1, padding=1))
+    x1 = fp(relu(conv2d(opt_feat, w1, b1, padding=1)))
     save_npy("box_head_shared_after_conv1_out.npy", x1)
 
     w2 = load_w(fb / "box_head_shared_conv2_folded_weight.npy")
     b2 = load_w(fb / "box_head_shared_conv2_folded_bias.npy")
     write_wbi(w2, "box_head_shared_conv2_folded_weight")
     write_wbi(b2, "box_head_shared_conv2_folded_bias")
-    x2 = relu(conv2d(x1, w2, b2, padding=1))
+    x2 = fp(relu(conv2d(x1, w2, b2, padding=1)))
     save_npy("box_head_shared_after_conv2_out.npy", x2)
 
     w_ctr = load_w(cp / "box_head_tail_ctr_weight.npy")
@@ -354,8 +531,13 @@ def cal_bbox(score_map_ctr: np.ndarray, size_map: np.ndarray, offset_map: np.nda
     size = size_map.reshape(1, 2, -1)[:, :, idx]
     offset = offset_map.reshape(1, 2, -1)[:, :, idx]
 
-    cx = (float(idx_x) + float(offset[0, 0])) / FEAT_SZ
-    cy = (float(idx_y) + float(offset[0, 1])) / FEAT_SZ
+    # /FEAT_SZ（=16）以整數移位 >>4 完成（Q7.7 整數域，對齊 dim32 cal_bbox）
+    feat_shift = int(round(math.log2(FEAT_SZ)))
+    offset_x_q = int(round(float(offset[0, 0]) * SCALE_FP))
+    offset_y_q = int(round(float(offset[0, 1]) * SCALE_FP))
+    _half = 1 << (feat_shift - 1)
+    cx = ((int(idx_x) * SCALE_FP + offset_x_q + _half) >> feat_shift) / SCALE_FP
+    cy = ((int(idx_y) * SCALE_FP + offset_y_q + _half) >> feat_shift) / SCALE_FP
     w = float(size[0, 0])
     h = float(size[0, 1])
     return fp(np.array([[cx, cy, w, h]], dtype=np.float32))

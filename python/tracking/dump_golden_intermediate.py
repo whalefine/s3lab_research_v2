@@ -32,7 +32,8 @@ Pipeline（對齊 .cursor/rules/python-to-rtl-plan.mdc）：
 允許的 dump backbone：`vit_care_relu6_fixed_dump_base_patch16_224`（768 維）、
 `vit_care_relu6_dim32_fixed_dump_base_patch16_224`（32 維）、
 `vit_care_relu6_dim32_fixed_shared_trunk_dump_base_patch16_224`（32 維，與上者同一 backbone，供 shared-trunk head dump yaml）、
-`vit_care_relu6_dim192_fixed_q77_shared_trunk_dump_base_patch16_224`（192 維 Q7.7 shared-trunk dump）。
+`vit_care_relu6_dim192_fixed_q77_shared_trunk_dump_base_patch16_224`（192 維 Q7.7 shared-trunk dump）、
+`vit_care_relu6_dim256_fixed_q88_dump_base_patch16_224`（256 維 Q8.8 dump）。
 """
 
 from __future__ import annotations
@@ -64,6 +65,7 @@ _DUMP_ALLOWED_BACKBONE_TYPES = (
     "vit_care_relu6_dim32_fixed_dump_base_patch16_224",
     "vit_care_relu6_dim32_fixed_shared_trunk_dump_base_patch16_224",
     "vit_care_relu6_dim192_fixed_q77_shared_trunk_dump_base_patch16_224",
+    "vit_care_relu6_dim256_fixed_q88_dump_base_patch16_224",
 )
 
 
@@ -129,6 +131,19 @@ def _map_box_back(state_xywh, pred_box_cxcywh, resize_factor, search_size):
     return [cx_real - 0.5 * w, cy_real - 0.5 * h, w, h]
 
 
+def _iou_xywh(box_a, box_b) -> float:
+    """IoU of two boxes in xywh (image pixel)."""
+    ax1, ay1, aw, ah = [float(v) for v in box_a]
+    bx1, by1, bw, bh = [float(v) for v in box_b]
+    ax2, ay2 = ax1 + aw, ay1 + ah
+    bx2, by2 = bx1 + bw, by1 + bh
+    ix1, iy1 = max(ax1, bx1), max(ay1, by1)
+    ix2, iy2 = min(ax2, bx2), min(ay2, by2)
+    inter = max(0.0, ix2 - ix1) * max(0.0, iy2 - iy1)
+    union = aw * ah + bw * bh - inter
+    return float(inter / union) if union > 0 else 0.0
+
+
 def _save_npy(out_dir: Path, filename: str, tensor: torch.Tensor, manifest: list,
               stage: str, source: str):
     arr = tensor.detach().cpu().numpy()
@@ -161,7 +176,8 @@ def main():
             f"請使用下列之一於 yaml：{list(_DUMP_ALLOWED_BACKBONE_TYPES)} "
             "(例：`--config vit_coco_uav123_care_relu6_fixed_dump`、"
             "`vit_coco_uav123_care_relu6_dim32_fixed_dump`、"
-            "`vit_coco_got10k_distill_mae_teacher_orr_afkd_s60000_bs32_dim192_augreg_shared_trunk_fixed_q77_dump`)。"
+            "`vit_coco_got10k_distill_mae_teacher_orr_afkd_s60000_bs32_dim192_augreg_shared_trunk_fixed_q77_dump`；"
+            "dim256 請使用對應 `*_dim256_fixed_q88_dump` yaml)。"
         )
 
     model, missing, unexpected = _load_model(args.script, cfg, args.checkpoint, args.device)
@@ -300,6 +316,11 @@ def main():
         print(
             f"[tracker] 最終 bbox（frame2 像素 xywh）: "
             f"x1={float(x1):.4f}, y1={float(y1):.4f}, w={float(bw):.4f}, h={float(bh):.4f}"
+        )
+        print(
+            f"[tracker] IoU(最終 bbox, init_bbox) = {_iou_xywh(final_bbox, init_bbox):.4f} "
+            f"(init xywh={float(init_bbox[0]):.4f},{float(init_bbox[1]):.4f},"
+            f"{float(init_bbox[2]):.4f},{float(init_bbox[3]):.4f})"
         )
     else:
         print("[tracker] 最終 bbox: 未計算（已使用 --no-dump-tracker-post）")

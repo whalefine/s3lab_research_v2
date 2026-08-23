@@ -591,6 +591,27 @@ def cal_bbox(score_map_ctr: np.ndarray,
     return np.array([[cx, cy, w, h]], dtype=np.float32)        # [1, 4]
 
 
+def smooth_bbox_q88(bbox_cxcywh: np.ndarray,
+                    target_size_norm: tuple[float, float],
+                    center_alpha_q88: int,
+                    size_alpha_q88: int) -> np.ndarray:
+    """Q8.8 bbox smoothing，可直接映射到 RTL 乘加右移。
+
+    alpha=256 保留模型輸出；alpha=0 完全使用 prior。
+    center prior 是 search crop 中心 (0.5, 0.5)，size prior 是上一幀 bbox
+    換算到 normalized search 座標後的 w/h。
+    """
+    ca = int(np.clip(center_alpha_q88, 0, 256))
+    sa = int(np.clip(size_alpha_q88, 0, 256))
+    bbox_q = as_q88(np.asarray(bbox_cxcywh, dtype=np.float32).reshape(1, 4)).astype(np.int64)
+    target_w_q = int(np.round(float(target_size_norm[0]) * 256.0))
+    target_h_q = int(np.round(float(target_size_norm[1]) * 256.0))
+    target_q = np.array([[128, 128, target_w_q, target_h_q]], dtype=np.int64)
+    alpha_q = np.array([[ca, ca, sa, sa]], dtype=np.int64)
+    smoothed_q = sat16(((bbox_q * alpha_q) + (target_q * (256 - alpha_q)) + 128) >> 8)
+    return from_q88(smoothed_q)
+
+
 # ---------------------------------------------------------------------------
 # Tracker post-processing helpers
 # 對齊 dump_golden_intermediate.py 的 _map_box_back / clip_box
@@ -630,6 +651,50 @@ def iou_xywh(box_a, box_b) -> float:
     return float(inter / union) if union > 0 else 0.0
 
 
+def _load_frame2_gt(manifest: dict):
+    """Try to load frame2 ground-truth bbox from dataset annotation.
+
+    Supports UAV123, UAV123_10fps, DTB70, UAVTrack112, UAVTrack.
+    Returns [x, y, w, h] or None if annotation cannot be found.
+    """
+    frame1 = manifest.get("frame1", "")
+    frame2 = manifest.get("frame2", "")
+    if not frame1 or not frame2:
+        return None
+    seq = os.path.basename(os.path.dirname(frame1))
+    frame2_stem = os.path.splitext(os.path.basename(frame2))[0]
+    frame2_idx = int(frame2_stem) - 1
+
+    anno_candidates = []
+    data_root = frame1
+    if "/UAV123/data_seq/UAV123/" in data_root:
+        base = data_root.split("/UAV123/data_seq/UAV123/")[0]
+        anno_candidates.append(os.path.join(base, "UAV123", "anno", "UAV123", f"{seq}.txt"))
+    if "/UAV123_10fps/data_seq/UAV123_10fps/" in data_root:
+        base = data_root.split("/UAV123_10fps/data_seq/UAV123_10fps/")[0]
+        anno_candidates.append(os.path.join(base, "UAV123_10fps", "anno", "UAV123_10fps", f"{seq}.txt"))
+    if "/DTB70/" in data_root:
+        parent = os.path.dirname(os.path.dirname(frame1))
+        anno_candidates.append(os.path.join(parent, "groundtruth_rect.txt"))
+    if "/V4RFlight112/data_seq/" in data_root:
+        base = data_root.split("/V4RFlight112/data_seq/")[0]
+        anno_candidates.append(os.path.join(base, "V4RFlight112", "anno", f"{seq}.txt"))
+        anno_candidates.append(os.path.join(base, "V4RFlight112", "anno_l", f"{seq}.txt"))
+
+    for anno_path in anno_candidates:
+        if not os.path.exists(anno_path):
+            continue
+        try:
+            gt = np.loadtxt(anno_path, delimiter=",", dtype=np.float64)
+            if gt.ndim == 1:
+                gt = gt.reshape(1, -1)
+            if frame2_idx < len(gt):
+                return gt[frame2_idx].tolist()
+        except Exception:
+            continue
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Argument parsing
 # ---------------------------------------------------------------------------
@@ -650,6 +715,18 @@ def parse_args() -> argparse.Namespace:
     p.add_argument(
         "--output-dir", required=True,
         help="計算結果 npy 輸出目錄",
+    )
+    p.add_argument(
+        "--tracker-smooth-center-alpha-q88",
+        type=int,
+        default=128,
+        help="tracker 中心 smoothing alpha(Q8.8): 256=原始模型輸出，0=search 中心 prior",
+    )
+    p.add_argument(
+        "--tracker-smooth-size-alpha-q88",
+        type=int,
+        default=128,
+        help="tracker 尺寸 smoothing alpha(Q8.8): 256=原始模型輸出，0=上一幀尺寸 prior",
     )
     return p.parse_args()
 
@@ -814,6 +891,33 @@ def main() -> None:
         bbox_after = fp(cal_bbox(response, size_map, offset_map))      # [1, 4]
         save_npy("tracker_after_cal_bbox_bbox.npy", bbox_after)
 
+        target_size_norm = (
+            float(state[2]) * x_resize_factor / search_size,
+            float(state[3]) * x_resize_factor / search_size,
+        )
+        ca = int(np.clip(args.tracker_smooth_center_alpha_q88, 0, 256))
+        sa = int(np.clip(args.tracker_smooth_size_alpha_q88, 0, 256))
+        # RTL bbox-smooth config（非 weight、非 feature map）
+        # layout Q8.8: [center_alpha, size_alpha, target_w, target_h]
+        #   target_w/h = init_bbox size in normalized search coords
+        #   center prior 固定為 0.5 (=128)，不必寫進檔
+        tw = float(target_size_norm[0])
+        th = float(target_size_norm[1])
+        save_npy(
+            "tracker_smooth_config_q88.npy",
+            from_q88(np.array(
+                [ca, sa, int(np.round(tw * 256.0)), int(np.round(th * 256.0))],
+                dtype=np.int32,
+            )),
+        )
+        bbox_after = fp(smooth_bbox_q88(
+            bbox_after,
+            target_size_norm,
+            ca,
+            sa,
+        ))
+        save_npy("tracker_after_smooth_bbox_bbox.npy", bbox_after)
+
         pred_box = (bbox_after[0] * search_size / x_resize_factor).tolist()  # ⚠ RTL: /x_resize_factor 為執行期 float，同 map_box_back
         mapped   = map_box_back(state, pred_box, x_resize_factor)
         save_npy("tracker_after_map_box_back_bbox.npy",
@@ -832,6 +936,14 @@ def main() -> None:
             f"(init xywh={float(state[0]):.4f},{float(state[1]):.4f},"
             f"{float(state[2]):.4f},{float(state[3]):.4f})"
         )
+        gt2_bbox = _load_frame2_gt(manifest)
+        if gt2_bbox is not None:
+            iou_gt2 = iou_xywh(final_bbox, gt2_bbox)
+            print(
+                f"[tracker] IoU(最終 bbox, frame2_GT) = {iou_gt2:.4f} "
+                f"(gt2 xywh={gt2_bbox[0]:.4f},{gt2_bbox[1]:.4f},"
+                f"{gt2_bbox[2]:.4f},{gt2_bbox[3]:.4f})"
+            )
     else:
         print("[WARNING] golden_manifest.json not found; skipping tracker post-processing.")
         print("[tracker] 最終 bbox: 未計算（無 manifest，已略過後處理）")
